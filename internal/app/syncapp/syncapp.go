@@ -10,7 +10,9 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/ymsaki/githive/internal/app/chatapp"
 	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
@@ -45,12 +47,17 @@ type Result struct {
 var ErrRetriesExhausted = errors.New("syncapp: push retries exhausted")
 
 // registryAndWriter returns the fold registry and tree writer for a
-// feature. Only issue is wired up in P1; other features return an error
-// until their app-layer package exists (docs/13-roadmap.md P2/P3).
+// feature. issue/task/chat are per-entity refs sync can merge directly;
+// notify (a singleton stream) and users/wiki are not yet wired up here
+// (docs/13-roadmap.md P2/P3).
 func registryAndWriter(feature refspace.Feature) (*materialize.Registry, func(*materialize.State) (map[string][]byte, error), error) {
 	switch feature {
 	case refspace.FeatureIssue:
 		return materialize.IssueRegistry, issueapp.TreeFiles, nil
+	case refspace.FeatureTask:
+		return materialize.TaskRegistry, taskapp.TreeFiles, nil
+	case refspace.FeatureChat:
+		return materialize.ChatRegistry, chatapp.TreeFiles, nil
 	default:
 		return nil, nil, fmt.Errorf("syncapp: feature %q is not yet supported by sync", feature)
 	}

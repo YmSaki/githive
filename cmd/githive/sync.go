@@ -49,7 +49,7 @@ func newSyncCmd() *cobra.Command {
 }
 
 // refsToSync enumerates every ref under refs/projects/ restricted to kinds
-// (currently only "issue" is supported by sync).
+// (issue/task/chat are supported by sync; notify/users/wiki are not yet).
 func refsToSync(ctx context.Context, dir string, kinds []string) ([]string, error) {
 	r := gitx.New(dir)
 	entries, err := r.ForEachRef(ctx, "refs/projects/")
@@ -66,8 +66,11 @@ func refsToSync(ctx context.Context, dir string, kinds []string) ([]string, erro
 		if err != nil {
 			continue
 		}
-		if parsed.Feature != refspace.FeatureIssue {
-			continue // only issue is wired into sync in P1
+		switch parsed.Feature {
+		case refspace.FeatureIssue, refspace.FeatureTask, refspace.FeatureChat:
+			// supported by syncapp; notify/users/wiki are not yet wired in.
+		default:
+			continue
 		}
 		if len(allowed) > 0 && !allowed[string(parsed.Feature)] {
 			continue
