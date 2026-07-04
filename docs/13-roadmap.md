@@ -17,7 +17,7 @@
 | P2 | task / chat / notify | 3 機能が issue と同じ機構で動く。自動 notify、未読検出が動く |
 | P3 | users / 署名 / verify | 台帳、SSH 署名付与、`githive verify`、`whoami` が動く |
 | P4 | wiki / 運用コマンド | wiki edit/save、fsck、チェックポイント、log（横断タイムライン） |
-| P5 | MCP サーバー | `githive mcp serve` で Agent が全機能を操作できる。Claude/Codex plugin パッケージ生成 |
+| P5 | MCP サーバー（P2 直後に実施） | `githive mcp serve` で Agent が全機能を操作できる。Claude/Codex plugin パッケージ生成 |
 | P6 | TUI | ダッシュボード、issue/task/chat 操作 |
 | P7 | VSCode 拡張 | サイドバー、閲覧、投稿 |
 | P8 | forge 最小構成 | SSH 受け、pre-receive（権限/署名/スキーマ強制）、smart HTTP、mirror 互換 |
@@ -25,20 +25,29 @@
 | P10 | LFS | batch API、FS ストア、wiki assets との接続 |
 | P11 | CI | ワークフロー定義、scheduler、コンテナ runner |
 
-**MVP は P0〜P2**（既存ホスティング上で issue/task/chat/notify が動く CLI）。
-P3 まで到達すると他者と安心して共有できる状態になり、これを最初の公開リリース（v0.1）とする。
+**MVP は P0〜P2 + P5（MCP）**。
+MVP の完了条件は「Agent が clone 直後に issue を読み、task を進め、通知を残せる」体験が MCP 経由で成立していることである。
+P3（署名）まで到達すると他者と安心して共有できる状態になり、これを最初の公開リリース（v0.1）とする。
+
+## Horizon 構成（コミットメントの区分）
+
+燃え尽きを避けるため、全フェーズを一続きの約束にしない。
+
+- **Horizon 1（賭けの検証）**：P0、P1、P2、P5。Agent が clone 直後に文脈を持てる体験を最短で成立させ、実際の Agent 運用で検証する。ここまでが確定コミットメント。
+- **Horizon 2（他者と使える化）**：P3、P4。署名・検証・wiki・運用コマンド。Horizon 1 の検証が有望な場合に進む。
+- **Horizon 3（需要駆動のクライアント）**：P6（TUI）、P7（VSCode 拡張）。需要が見えてから着手する。
+- **Horizon 4（構想）**：P8〜P11（forge、LFS、CI）。設計文書（[12](12-forge-server.md)）は資産として維持するが、実装は別リポジトリ化の候補であり、現時点ではコミットメントではない。
 
 ## フェーズ間の依存関係
 
 ```
-P0 --> P1 --> P2 --> P3 --> P4
-                      |       
-                      +--> P5 --> P6, P7   （クライアント群。P6/P7 は並行可）
-                      |
-                      +--> P8 --> P9 --> P10, P11
+P0 --> P1 --> P2 --> P5 --> P3 --> P4
+                             |
+                             +--> P6, P7          （Horizon 3。並行可）
+                             +--> P8 --> P9 --> P10, P11 （Horizon 4）
 ```
 
-- P5（MCP）は P3 後すぐ着手できる。P4 と並行可能。
+- P5（MCP）を P2 直後に前倒しする。MCP は CLI `--json` の薄い写像であり、署名（P3）に依存しない。イベント封筒は actor を初日から持つ（方針 2）ため、署名の後付けはデータ移行を伴わない。
 - P8（forge）が P3 に依存するのは、pre-receive の権限・署名検証が users 台帳と検証ロジックの再利用だからである。ここを別実装にすると仕様の二重管理になる。
 - P10/P11 は P9 と独立に進められる。
 
