@@ -232,30 +232,39 @@ func newIssueRegistry() *Registry {
 
 // applyLinkEvent implements the shared *.link fold rule (add/remove a
 // {rel,id} pair, deduplicated) used identically by issue.link and task.link.
+// Per spec/reference/fold_issue.py / fold_task.py, meta.links and
+// meta.updated_at are always rewritten, even when add is a no-op duplicate
+// or remove finds nothing to remove.
 func applyLinkEvent(s *State, env *event.Envelope, get func(*State) []map[string]any, set func(*State, []map[string]any)) {
 	rel, _ := env.Data["rel"].(string)
 	id, _ := env.Data["id"].(string)
 	remove, _ := env.Data["remove"].(bool)
 
 	links := get(s)
+	var out []map[string]any
 	if remove {
-		out := links[:0:0]
+		out = links[:0:0]
 		for _, l := range links {
 			if l["rel"] == rel && l["id"] == id {
 				continue
 			}
 			out = append(out, l)
 		}
-		set(s, out)
-		return
-	}
-	for _, l := range links {
-		if l["rel"] == rel && l["id"] == id {
-			return
+	} else {
+		out = links
+		found := false
+		for _, l := range links {
+			if l["rel"] == rel && l["id"] == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(append([]map[string]any{}, links...), map[string]any{"rel": rel, "id": id})
 		}
 	}
-	out := append(append([]map[string]any{}, links...), map[string]any{"rel": rel, "id": id})
 	set(s, out)
+	s.Meta["updated_at"] = env.TS
 }
 
 func stringOr(v any, def string) string {
