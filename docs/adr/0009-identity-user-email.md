@@ -28,3 +28,11 @@
 - イベントの actor はコミッタ email と同値であることを検証規則に加え、素の `git log` でも行為者が読める。
 - 実体化ツリー（meta.json 等）には email がそのまま現れる。username・表示名での表示はビュー（CLI/TUI/拡張）の責務とする。
 - 同一人物が複数 email を使う場合は台帳の emails[] に列挙して同一ユーザーへ束ねる。
+
+## 追記（2026-07-05）：identity の調達と配送先の分離
+
+identity は email 形式の識別子であり、到達可能な受信箱を要求しない。
+
+- 人間：git が要求する `user.email` をそのまま使う。GitHub の noreply 形式（`12345+name@users.noreply.github.com`）も有効な identity である。追加のプロビジョニングは発生しない。
+- Agent：受信箱を作らず、`githive users add <name> --agent` が `<name>@agents.<プロジェクト名>.invalid` 形式で identity を鋳造する。`.invalid` は RFC 6761 により実在しないことが保証され、誤送信が必ず失敗する。前例として GitHub の noreply アドレスや、Claude Code がコミットに記す `noreply@anthropic.com` がある。
+- 配送先の分離：forge のメール配信は台帳の `notify_email`（任意）を使い、省略時は emails[] の先頭。noreply 系と `.invalid` は配信対象から除外する。Agent は fetch（`githive status` / `githive notify list`）で通知を受けるため、メール配信を必要としない。

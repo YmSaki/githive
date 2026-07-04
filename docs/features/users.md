@@ -30,6 +30,7 @@ tree:
   "display": "ゆうみや",
   "kind": "human",
   "emails": ["staroprog1103@gmail.com"],
+  "notify_email": null,
   "keys": [
     {
       "pub": "ssh-ed25519 AAAA... yuumiya@main",
@@ -44,7 +45,8 @@ tree:
 
 - **kind**：`human` または `agent`。Agent はそれを運用する人間とは別ユーザーとして登録し、専用の鍵を持たせる。表示と監査で区別できることが目的で、権限体系は共通。
 - **status**：`active` / `suspended`。suspended のユーザーの新規イベントは検証で警告になる。
-- **emails**：identity の正であり、「email → username・表示名」のマップを成す。イベントの `actor`（= git の `user.email`）はこの配列との突合で台帳ユーザーに解決される。複数登録可（端末ごとの使い分け）。
+- **emails**：identity の正であり、「email → username・表示名」のマップを成す。イベントの `actor`（= git の `user.email`）はこの配列との突合で台帳ユーザーに解決される。複数登録可（端末ごとの使い分け）。到達可能な受信箱である必要はなく、email 形式の識別子であればよい（[ADR-0009](../adr/0009-identity-user-email.md) の追記）。
+- **notify_email**：forge がメール配信に使う宛先（任意）。省略時は emails[] の先頭。noreply 系と `.invalid` ドメインは配信対象から除外される。
 - ユーザー名は `[a-z0-9][a-z0-9-]{1,38}` に制限する（ファイル名と target 指定に安全な範囲）。
 
 ### groups/<name>.json
@@ -105,6 +107,18 @@ policy は部分編集イベントにせず全置換とする。
 
 鍵のローテーションは key_add と key_revoke の組で行う。
 revoke された鍵による「revoke 時刻より後の」署名は無効と判定する（過去の署名は有効なまま）。
+
+## Agent のセットアップ
+
+`githive users add <name> --agent` は次を一括で行う。
+
+1. identity の自動鋳造。既定は `<name>@agents.<プロジェクト名>.invalid`（RFC 6761 により実在しないことが保証されたドメイン。`--email` で上書き可）。
+2. Agent 専用の SSH 鍵ペアを生成し、公開鍵を台帳に登録する。
+3. Agent の実行環境に貼る git config スニペット（`user.name` / `user.email` / `user.signingkey` / `commit.gpgsign`）を出力する。
+
+人間と Agent が同じマシンを共有する場合も、Agent の実行環境（コンテナ、CI、エージェントセッション）には必ず専用の設定を与える。
+設定を怠ると Agent のイベントが人間の identity で記録され、kind による監査上の区別が壊れる。
+作業開始時に `githive whoami` で identity を確認する手順を、plugin 同梱スキル（[15](../15-clients.md)）の運用知識に含める。
 
 ## CLI
 
