@@ -1,6 +1,7 @@
 package materialize
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/ymsaki/githive/internal/core/event"
@@ -88,5 +89,61 @@ func TestNotifyCheckpointIgnored(t *testing.T) {
 	state := NotifyRegistry.Fold(events)
 	if state.Meta != nil {
 		t.Errorf("checkpoint-only fold should leave Meta nil, got %+v", state.Meta)
+	}
+}
+
+// notifySignature includes acks (which live outside the generic
+// Meta/Collections shape, see NotifyAcks) alongside the usual state
+// signature, so order-invariance tests catch divergence there too.
+func notifySignature(t *testing.T, s *State) string {
+	t.Helper()
+	acks := NotifyAcks(s)
+	acksAny := make(map[string]any, len(acks))
+	for k, v := range acks {
+		acksAny[k] = v
+	}
+	base := canonicalStateSignature(t, s)
+	extra := canonicalOf(t, acksAny)
+	return base + "|acks=" + extra
+}
+
+// TestNotifyFoldOrderInvariance checks docs/02-data-model.md's determinism
+// invariant for the notify fold, including month bucketing and ack
+// dedupe/sort (docs/14-testing.md「順序不変性」).
+func TestNotifyFoldOrderInvariance(t *testing.T) {
+	postA := "01j8xq4d3nbz9k7w2m5e8h1t61"
+	postB := "01j8xq4d3nbz9k7w2m5e8h1t62"
+	events := []*event.Envelope{
+		{
+			V: 1, Kind: "notify.post", ID: postA, TS: "2026-07-04T00:00:00.000Z",
+			Actor: "a@example.com", Entity: postA,
+			Data: map[string]any{"targets": []any{"all"}, "title": "t1"}, Extra: map[string]any{},
+		},
+		{
+			V: 1, Kind: "notify.post", ID: postB, TS: "2026-08-01T00:00:00.000Z",
+			Actor: "a@example.com", Entity: postB,
+			Data: map[string]any{"targets": []any{"user:b@example.com"}, "title": "t2"}, Extra: map[string]any{},
+		},
+		{
+			V: 1, Kind: "notify.ack", ID: "01j8xq4d3nbz9k7w2m5e8h1t63", TS: "2026-07-04T00:01:00.000Z",
+			Actor: "z@example.com", Entity: "01j8xq4d3nbz9k7w2m5e8h1t63",
+			Data: map[string]any{"ack_of": postA}, Extra: map[string]any{},
+		},
+		{
+			V: 1, Kind: "notify.ack", ID: "01j8xq4d3nbz9k7w2m5e8h1t64", TS: "2026-07-04T00:02:00.000Z",
+			Actor: "b@example.com", Entity: "01j8xq4d3nbz9k7w2m5e8h1t64",
+			Data: map[string]any{"ack_of": postA}, Extra: map[string]any{},
+		},
+	}
+	want := notifySignature(t, NotifyRegistry.Fold(events))
+
+	rng := rand.New(rand.NewSource(2))
+	for trial := 0; trial < 10; trial++ {
+		shuffled := append([]*event.Envelope(nil), events...)
+		rng.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+		got := notifySignature(t, NotifyRegistry.Fold(shuffled))
+		if got != want {
+			t.Fatalf("trial %d: notify fold is order-dependent\nwant: %s\ngot:  %s", trial, want, got)
+		}
 	}
 }

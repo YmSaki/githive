@@ -1,6 +1,7 @@
 package materialize
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/ymsaki/githive/internal/core/event"
@@ -115,5 +116,31 @@ func TestChatCheckpointIgnored(t *testing.T) {
 	state := ChatRegistry.Fold(events)
 	if len(state.Collections["messages"]) != 0 {
 		t.Errorf("checkpoint must not affect fold result, got %+v", state.Collections["messages"])
+	}
+}
+
+// TestChatFoldOrderInvariance checks docs/02-data-model.md's determinism
+// invariant for the chat fold: the same event set must fold to the same
+// result regardless of input order (docs/14-testing.md「順序不変性」).
+func TestChatFoldOrderInvariance(t *testing.T) {
+	events := []*event.Envelope{
+		chatEvent("01j8xq4d3nbz9k7w2m5e8h1t61", chatEntity, "chat.create", map[string]any{"title": "t", "body": "first"}),
+		{
+			V: 1, Kind: "chat.post", ID: "01j8xq4d3nbz9k7w2m5e8h1t62", TS: "2026-07-04T00:01:00.000Z",
+			Actor: "b@example.com", Entity: chatEntity, Data: map[string]any{"body": "second"}, Extra: map[string]any{},
+		},
+		chatEvent("01j8xq4d3nbz9k7w2m5e8h1t63", chatEntity, "chat.post", map[string]any{"body": "third"}),
+		chatEvent("01j8xq4d3nbz9k7w2m5e8h1t64", chatEntity, "chat.edit_meta", map[string]any{"status": "archived"}),
+	}
+	want := canonicalStateSignature(t, ChatRegistry.Fold(events))
+
+	rng := rand.New(rand.NewSource(1))
+	for trial := 0; trial < 10; trial++ {
+		shuffled := append([]*event.Envelope(nil), events...)
+		rng.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+		got := canonicalStateSignature(t, ChatRegistry.Fold(shuffled))
+		if got != want {
+			t.Fatalf("trial %d: chat fold is order-dependent\nwant: %s\ngot:  %s", trial, want, got)
+		}
 	}
 }
