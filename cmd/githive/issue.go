@@ -338,12 +338,30 @@ func newIssueAssignCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Snapshot assignees before the change so we only notify
+			// genuinely new assignees, not people re-added who were
+			// already assigned (docs/features/notify.md「自動通知」).
+			before, showErr := svc.Show(ctx, id)
+			alreadyAssigned := map[string]bool{}
+			if showErr == nil {
+				for _, a := range asStringSliceAny(before.Meta["assignees"]) {
+					alreadyAssigned[a] = true
+				}
+			}
+
 			if err := svc.Assign(ctx, id, add, remove); err != nil {
 				return err
 			}
-			// Notify newly-added assignees (docs/features/notify.md「自動通知」).
+
 			var warnings []cliout.Warning
+			selfEmail := ""
+			if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
+				selfEmail = sig.Email
+			}
 			for _, assignee := range add {
+				if assignee == selfEmail || alreadyAssigned[assignee] {
+					continue // don't notify yourself, or re-notify an existing assignee
+				}
 				for _, w := range autoNotify(ctx, dir, "user:"+assignee,
 					fmt.Sprintf("issue %s の担当になりました", shortID(id)),
 					map[string]any{"kind": "issue", "id": id}) {
@@ -444,4 +462,20 @@ func readFile(path string) (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(string(data), "\n"), nil
+}
+
+// asStringSliceAny converts a decoded JSON []any of strings (as found in a
+// fold's meta map, e.g. "assignees") into a []string.
+func asStringSliceAny(v any) []string {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }

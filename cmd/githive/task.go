@@ -262,14 +262,29 @@ func newTaskReassignCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			before, showErr := svc.Show(ctx, id)
+			previousOwner := ""
+			if showErr == nil {
+				previousOwner, _ = before.Meta["owner"].(string)
+			}
+
 			if err := svc.Reassign(ctx, id, owner); err != nil {
 				return err
 			}
+
 			var warnings []cliout.Warning
-			for _, w := range autoNotify(ctx, dir, "user:"+owner,
-				fmt.Sprintf("task %s の担当になりました", shortID(id)),
-				map[string]any{"kind": "task", "id": id}) {
-				warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})
+			selfEmail := ""
+			if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
+				selfEmail = sig.Email
+			}
+			if owner != selfEmail && owner != previousOwner {
+				// Don't notify yourself, and don't re-notify the owner
+				// this task already had (docs/features/notify.md「自動通知」).
+				for _, w := range autoNotify(ctx, dir, "user:"+owner,
+					fmt.Sprintf("task %s の担当になりました", shortID(id)),
+					map[string]any{"kind": "task", "id": id}) {
+					warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})
+				}
 			}
 			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
 			if flags.json {
