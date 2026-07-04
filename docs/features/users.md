@@ -73,6 +73,7 @@ tree:
 ```
 
 - ルールは上から順に評価し、最初に一致したものを適用する。
+- `default` が適用されるのは `refs/projects/**` の未一致に対してのみ。それ以外の名前空間（heads、tags、notes 等）の受け入れ可否は forge 設定の `namespace_mode`（[12](../12-forge-server.md)、既定 open）が決める。
 - principal は `user:<name>`、`group:<name>`、`role:admin|member|reader` で指定する。
 - forge モードでは、role:reader に `refs/projects/issue/**` と `refs/projects/chat/**` の push だけを許すルールを足すことで、「コードは読むだけ、議論には参加できる」外部貢献者を実現できる（hosted モードでは不可能な構成。[00](../00-vision.md) の既知の制約）。
 - actions は `push`（通常の追記）、`create`（ref 新規作成）、`delete`（ref 削除）、`force`（非 fast-forward。event-union マージは通常 push であり force を要求しない）。
