@@ -138,6 +138,15 @@ func newChatShowCmd() *cobra.Command {
 	return cmd
 }
 
+// newChatPostCmd does not yet implement docs/features/chat.md「メンション
+// と通知」(@username/@group in the body auto-posting a notify.post): that
+// requires resolving a username/group to an email, which needs the users
+// registry that lands in P3 (docs/13-roadmap.md「P3：users / 署名 /
+// verify」). Attempting it now would mean guessing an email from a bare
+// "@name" token, producing invalid notify targets
+// (spec/schemas/notify.schema.json requires "user:<email>"). This is a
+// known, deliberate gap, not an oversight - revisit once the registry
+// exists.
 func newChatPostCmd() *cobra.Command {
 	var message, replyTo string
 	cmd := &cobra.Command{
