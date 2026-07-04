@@ -107,14 +107,14 @@ git-lfs の Batch API を実装する。
 
 GitHub Actions に相当する、イベント駆動のジョブ実行を提供する。
 
-- 定義はリポジトリ内 `.workflow/*.yml` を第一に読み、`.githive/workflows/*.yml` も受け付ける。トリガは `push`（ブランチ）、`projects`（githive イベント。例 `issue.status == resolved`）、`schedule`。
-- `.workflow/` という中立な置き場と最小スキーマは、実行系非依存のワークフロー標準（AGENTS.md が agent 指示書で果たした役割の CI 版）を狙った賭けである。成立条件は他実行系の採用なので、スキーマは on / jobs / steps / image 程度の最小に保ち、仕様は githive 本体から独立した文書（12a）として公開する。式言語やキャッシュ等の実行系固有機能をスキーマに足すときは、標準化の芽を摘む変更であることを自覚して判断する。
+- 定義はリポジトリ内 `.workflows/*.yml` を第一に読み、`.githive/workflows/*.yml` も受け付ける。トリガは `push`（ブランチ）、`projects`（githive イベント。例 `issue.status == resolved`）、`schedule`。
+- `.workflows/` という中立な置き場と最小スキーマは、実行系非依存のワークフロー標準（AGENTS.md が agent 指示書で果たした役割の CI 版）を狙った賭けである。成立条件は他実行系の採用なので、スキーマは on / jobs / steps / image 程度の最小に保ち、仕様は githive 本体から独立した文書（12a）として公開する。式言語やキャッシュ等の実行系固有機能をスキーマに足すときは、標準化の芽を摘む変更であることを自覚して判断する。
 - forge の scheduler がトリガ評価とジョブのキューイングを行い、runner がコンテナ（Docker/Podman）でステップを実行する。
 - runner は forge 本体と分離したプロセスとし、同一ホスト内から始めて、リモート runner（トークン登録制）へ拡張する。
 - 実行結果は WebHook と notify.post（`ci` ユーザー名義）で報告する。ログは forge のローカル保存とし、リポジトリには書かない。
 
 ```yaml
-# .workflow/test.yml の例
+# .workflows/test.yml の例
 on:
   push: { refs: ["refs/heads/main"] }
 jobs:
