@@ -46,6 +46,10 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newSyncCmd())
 	root.AddCommand(newWhoamiCmd())
 	root.AddCommand(newIssueCmd())
+	root.AddCommand(newTaskCmd())
+	root.AddCommand(newChatCmd())
+	root.AddCommand(newNotifyCmd())
+	root.AddCommand(newStatusCmd())
 	return root
 }
 
