@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -22,13 +23,23 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	defer os.RemoveAll(dir)
-	binPath = filepath.Join(dir, "githive")
+	binName := "githive"
+	if runtime.GOOS == "windows" {
+		// Windows resolves an absolute exec.Command path literally (no
+		// PATHEXT-based extension search like plain PATH lookup does), so
+		// the binary must be named with an explicit .exe suffix or
+		// exec.Command fails with "executable file not found in %PATH%"
+		// even though the file exists.
+		binName += ".exe"
+	}
+	binPath = filepath.Join(dir, binName)
 	build := exec.Command("go", "build", "-o", binPath, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		panic("go build: " + err.Error() + "\n" + string(out))
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 type cliResult struct {
