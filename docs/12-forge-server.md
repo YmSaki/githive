@@ -144,6 +144,27 @@ forge は **forge 署名鍵**でコミットに署名し、イベントの actor
 - 本人署名（CLI/TUI/Agent 経由）と代理署名はイベントログ上で区別でき、監査時に「本人の鍵による操作か、Web 経由か」を追跡できる。
 - Web セッションの認証は email + パスワードまたは OIDC とし、SSH 鍵とは独立に管理する。
 
+## 将来機能の棚卸し（PR、Release ほか）
+
+主要 forge（GitHub、GitLab、Gitea/Forgejo）の機能を、githive の線引きで分類しておく。
+線引きの原理は本書の位置づけと同じで、**データは refs エンティティに、強制と保管だけを forge に置く**。
+データ側に置けた機能は hosted モードと Agent からもそのまま使え、forge は後から強制力を足すだけになる。
+
+| 機能 | 分類 | 判断 |
+|------|------|------|
+| PR / コードレビュー | データ + 強制 | 議論・承認・変更依頼は issue と同型の refs エンティティ（`refs/projects/review/<id>`、対象ブランチとコミットを指す）として設計できる。前例は git-appraise。forge 固有なのは「承認が揃うまで merge を拒否する」強制だけで、pre-receive + policy の拡張で足りる。v1 の非目標（[00](00-vision.md)）は維持しつつ、v2 候補の筆頭 |
+| Release | データ + 保管 | タグ + リリースノート + 成果物一覧は refs エンティティ。バイナリ成果物の保管のみ LFS / オブジェクトストア（P10）の仕事 |
+| branch protection / protected tags | 強制 | policy の `refs/heads/**` ルールと fast-forward 規則の拡張であり、実装が安く価値が高い。forge の早期候補 |
+| required approvals / status checks | 強制 | review エンティティと CI（P11）の結果を merge 可否に接続する。PR 強制とセットで初めて意味を持つ |
+| fork 管理 | サービス | サーバー内 fork（オブジェクト共有）。pull 型貢献フロー（[00](00-vision.md) の既知の制約の解除策）とセットで検討する |
+| pull ミラーリング | サービス | GitHub 併用期の移行手段として価値が高い。push mirror は素の git で足りる |
+| コード検索（Web） | サービス | Agent とローカルクライアントは clone を grep すれば足りる。ブラウザ利用者向けのみ。優先度低 |
+| パッケージレジストリ | 保管 | 重量級であり非目標とする。ghcr / npm 等の既存レジストリと併用すればよい |
+| stars / discovery / プロフィール | ネットワーク | 追わない。GitHub の堀であり、小規模 forge の勝負所ではない。機能水準の現実的な参照点は Gitea/Forgejo |
+
+この表は構想であり、Horizon 4（[13](13-roadmap.md)）のコミットメントには含まれない。
+着手時は各行を feature 仕様（review は features/review.md）として起こしてから実装する。
+
 ## デプロイ形態
 
 - 単一バイナリ + 設定ファイル（TOML）。systemd unit の例を同梱する。
