@@ -1,0 +1,11 @@
+{
+  "input": {
+    "int_zero": 0,
+    "int_neg": -42,
+    "float_int_valued": 1.0,
+    "float_frac": 1.5,
+    "big_int": 100000000000000000,
+    "small_float": 0.001
+  },
+  "expected": "{\n  \"big_int\": 100000000000000000,\n  \"float_frac\": 1.5,\n  \"float_int_valued\": 1,\n  \"int_neg\": -42,\n  \"int_zero\": 0,\n  \"small_float\": 0.001\n}\n"
+}

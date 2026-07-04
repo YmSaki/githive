@@ -1,0 +1,14 @@
+{
+  "name": "same-millisecond-different-random",
+  "description": "同一ミリ秒時刻・異なるランダム部の ULID は、ランダム部の辞書順で一意にソートされる。",
+  "input": [
+    "01jzammacnk677h8scddqezjkk",
+    "01jzammacnk677h6scddqczjkk",
+    "01jzammacnk677h7scddqdzjkk"
+  ],
+  "expected_sorted": [
+    "01jzammacnk677h6scddqczjkk",
+    "01jzammacnk677h7scddqdzjkk",
+    "01jzammacnk677h8scddqezjkk"
+  ]
+}

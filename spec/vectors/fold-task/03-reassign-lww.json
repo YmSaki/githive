@@ -1,0 +1,58 @@
+{
+  "name": "03-reassign-lww",
+  "description": "task.reassign が 2 回発行された場合、ULID が後のイベントが owner を決める（LWW）。イベントは非時系列順で格納してある。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "task.create",
+      "id": "01jzazzjm0m4mgms9snsyeyty3",
+      "ts": "2025-07-04T15:13:20.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yavygm2nehamvhx3ry1f2",
+      "data": {
+        "title": "reassign の LWW 検証",
+        "owner": "yuumiya"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "task.reassign",
+      "id": "01jzazzmjgm4mgps9snvyeyt03",
+      "ts": "2025-07-04T15:13:22.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yavygm2nehamvhx3ry1f2",
+      "data": {
+        "owner": "dev-agent-01-b"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "task.reassign",
+      "id": "01jzazzkk8m4mgns9sntyeytz3",
+      "ts": "2025-07-04T15:13:21.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yavygm2nehamvhx3ry1f2",
+      "data": {
+        "owner": "dev-agent-01-a"
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "01hf7yavygm2nehamvhx3ry1f2",
+    "title": "reassign の LWW 検証",
+    "status": "todo",
+    "owner": "dev-agent-01-b",
+    "created_by": "yuumiya",
+    "created_at": "2025-07-04T15:13:20.000Z",
+    "updated_at": "2025-07-04T15:13:22.000Z",
+    "status_history": [
+      {
+        "to": "todo",
+        "by": "yuumiya",
+        "ts": "2025-07-04T15:13:20.000Z"
+      }
+    ],
+    "links": []
+  },
+  "expected_notes": {}
+}

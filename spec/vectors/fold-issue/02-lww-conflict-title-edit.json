@@ -1,0 +1,55 @@
+{
+  "name": "02-lww-conflict-title-edit",
+  "description": "同一フィールド（title）への 2 件の edit イベント。ULID が後（時刻が後）の edit が勝つ（LWW）。イベントは投入順を入れ替えて渡しても結果は同じ。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "issue.create",
+      "id": "01jzanfwe03jfk7pkqbtqvfyvz",
+      "ts": "2025-07-04T12:10:00.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yatz85fpcrykrdqym06v0",
+      "data": {
+        "title": "初期タイトル",
+        "labels": [],
+        "assignees": []
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.edit",
+      "id": "01jzanfycg3jfn7pksbtqxfyv1",
+      "ts": "2025-07-04T12:10:02.000Z",
+      "actor": "dev-agent-01",
+      "entity": "01hf7yatz85fpcrykrdqym06v0",
+      "data": {
+        "title": "後勝ちタイトルB"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.edit",
+      "id": "01jzanfxd83jfm7pkrbtqwfyv0",
+      "ts": "2025-07-04T12:10:01.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yatz85fpcrykrdqym06v0",
+      "data": {
+        "title": "先勝ちタイトルA(負ける)"
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "01hf7yatz85fpcrykrdqym06v0",
+    "title": "後勝ちタイトルB",
+    "status": "open",
+    "labels": [],
+    "assignees": [],
+    "created_by": "yuumiya",
+    "created_at": "2025-07-04T12:10:00.000Z",
+    "updated_at": "2025-07-04T12:10:02.000Z",
+    "closed_at": null,
+    "comment_count": 0,
+    "links": []
+  },
+  "expected_comments": {}
+}

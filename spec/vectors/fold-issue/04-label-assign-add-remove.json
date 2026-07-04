@@ -1,0 +1,103 @@
+{
+  "name": "04-label-assign-add-remove",
+  "description": "issue.label / issue.assign の add・remove 集合演算。複数イベントの積み重ねで最終集合を検証する。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "issue.create",
+      "id": "01jzaqcxj03mfk7rkqbwqvf0vz",
+      "ts": "2025-07-04T12:43:20.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yawxr5fpcryktdqym06v2",
+      "data": {
+        "title": "ラベルと担当者の加除",
+        "labels": [
+          "bug",
+          "windows"
+        ],
+        "assignees": [
+          "yuumiya"
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.label",
+      "id": "01jzaqcyh83mfm7rkrbwqwf0v0",
+      "ts": "2025-07-04T12:43:21.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yawxr5fpcryktdqym06v2",
+      "data": {
+        "add": [
+          "p1"
+        ],
+        "remove": [
+          "windows"
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.label",
+      "id": "01jzaqczgg3mfn7rksbwqxf0v1",
+      "ts": "2025-07-04T12:43:22.000Z",
+      "actor": "dev-agent-01",
+      "entity": "01hf7yawxr5fpcryktdqym06v2",
+      "data": {
+        "add": [
+          "needs-review"
+        ],
+        "remove": [
+          "bug"
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.assign",
+      "id": "01jzaqd0fr3mfp7rktbwqyf0v2",
+      "ts": "2025-07-04T12:43:23.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yawxr5fpcryktdqym06v2",
+      "data": {
+        "add": [
+          "dev-agent-01"
+        ],
+        "remove": []
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.assign",
+      "id": "01jzaqd1f03mfq7rkvbwqzf0v3",
+      "ts": "2025-07-04T12:43:24.000Z",
+      "actor": "dev-agent-01",
+      "entity": "01hf7yawxr5fpcryktdqym06v2",
+      "data": {
+        "add": [],
+        "remove": [
+          "yuumiya"
+        ]
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "01hf7yawxr5fpcryktdqym06v2",
+    "title": "ラベルと担当者の加除",
+    "status": "open",
+    "labels": [
+      "needs-review",
+      "p1"
+    ],
+    "assignees": [
+      "dev-agent-01"
+    ],
+    "created_by": "yuumiya",
+    "created_at": "2025-07-04T12:43:20.000Z",
+    "updated_at": "2025-07-04T12:43:24.000Z",
+    "closed_at": null,
+    "comment_count": 0,
+    "links": []
+  },
+  "expected_comments": {}
+}

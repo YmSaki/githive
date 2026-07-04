@@ -1,0 +1,28 @@
+{
+  "name": "shuffled-batch-of-ten",
+  "description": "10 件の ULID をシャッフルして入力しても、辞書順ソートは一意な全順序を与える。",
+  "input": [
+    "01jzamtt6mkpfkjsrr1vv3x647",
+    "01jzamx7hjkjfkjqxwrv3yx515",
+    "01jzamwtf8ktfkjvt001yzz456",
+    "01jzamvk8bkhfkjpqrvwvv25z5",
+    "01jzammy52kkfkjps0xw14y531",
+    "01jzamzmnfknfkjttwvz00z053",
+    "01jzamn2zxkrfkjtpwvyzx45zz",
+    "01jzamk0b8kmfkjvxxy23z4421",
+    "01jzamhv46kqfkjnzty2zxz665",
+    "01jzamhserksfkjtwrtxzv2z72"
+  ],
+  "expected_sorted": [
+    "01jzamhserksfkjtwrtxzv2z72",
+    "01jzamhv46kqfkjnzty2zxz665",
+    "01jzamk0b8kmfkjvxxy23z4421",
+    "01jzammy52kkfkjps0xw14y531",
+    "01jzamn2zxkrfkjtpwvyzx45zz",
+    "01jzamtt6mkpfkjsrr1vv3x647",
+    "01jzamvk8bkhfkjpqrvwvv25z5",
+    "01jzamwtf8ktfkjvt001yzz456",
+    "01jzamx7hjkjfkjqxwrv3yx515",
+    "01jzamzmnfknfkjttwvz00z053"
+  ]
+}

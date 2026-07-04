@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://githive.dev/spec/schemas/users.schema.json",
+  "title": "users.* イベントの data スキーマ群",
+  "description": "docs/features/users.md の「イベント定義」表に従う。",
+  "$defs": {
+    "username": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,38}$"
+    },
+    "groupname": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "users.user_set": {
+      "type": "object",
+      "description": "ユーザーの作成または上書き（LWW）。",
+      "properties": {
+        "username": { "$ref": "#/$defs/username" },
+        "fields": {
+          "type": "object",
+          "description": "users/<name>.json の一部または全部のフィールド。",
+          "properties": {
+            "display": { "type": "string" },
+            "kind": { "type": "string", "enum": ["human", "agent"] },
+            "emails": {
+              "type": "array",
+              "items": { "type": "string", "format": "email" }
+            },
+            "status": { "type": "string", "enum": ["active", "suspended"] },
+            "roles": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["admin", "member", "reader"] }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": ["username", "fields"],
+      "additionalProperties": true
+    },
+    "users.key_add": {
+      "type": "object",
+      "description": "鍵を追加する。",
+      "properties": {
+        "username": { "$ref": "#/$defs/username" },
+        "pub": { "type": "string", "minLength": 1 }
+      },
+      "required": ["username", "pub"],
+      "additionalProperties": true
+    },
+    "users.key_revoke": {
+      "type": "object",
+      "description": "該当鍵の revoked_at を設定する（削除しない）。",
+      "properties": {
+        "username": { "$ref": "#/$defs/username" },
+        "pub": { "type": "string", "minLength": 1 }
+      },
+      "required": ["username", "pub"],
+      "additionalProperties": true
+    },
+    "users.group_set": {
+      "type": "object",
+      "description": "グループの作成または置換。",
+      "properties": {
+        "name": { "$ref": "#/$defs/groupname" },
+        "members": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/username" }
+        },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "members"],
+      "additionalProperties": true
+    },
+    "users.group_remove": {
+      "type": "object",
+      "description": "グループを削除する。",
+      "properties": {
+        "name": { "$ref": "#/$defs/groupname" }
+      },
+      "required": ["name"],
+      "additionalProperties": true
+    },
+    "users.policy_set": {
+      "type": "object",
+      "description": "policy.json 全体を置換する（LWW）。部分編集イベントにはしない。",
+      "properties": {
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "refs": { "type": "string" },
+              "allow": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "actions": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["push", "create", "delete", "force"] }
+              }
+            },
+            "required": ["refs", "allow", "actions"],
+            "additionalProperties": true
+          }
+        },
+        "default": { "type": "string", "enum": ["allow", "deny"] }
+      },
+      "required": ["rules", "default"],
+      "additionalProperties": true
+    },
+    "users.checkpoint": {
+      "type": "object",
+      "description": "読み出し起点。fold はこの kind を常に無視する。",
+      "properties": {
+        "state": { "type": "object" },
+        "count": { "type": "integer", "minimum": 0 },
+        "hash": { "type": "string" }
+      },
+      "required": ["state", "count", "hash"],
+      "additionalProperties": true
+    }
+  }
+}

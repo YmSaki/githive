@@ -1,0 +1,16 @@
+{
+  "name": "time-reversed-input-sorts-to-time-order",
+  "description": "投入順が時刻の逆順でも、ULID の辞書順ソートはミリ秒時刻の昇順に一致する（先頭48bitが時刻のため）。",
+  "input": [
+    "01jzammacnk677hnscddqvzjkk",
+    "01jzamm3rgk677hpscddqwzjkk",
+    "01jzammdgzk677hqscddqxzjkk",
+    "01jzamhbw1k677hrscddqyzjkk"
+  ],
+  "expected_sorted": [
+    "01jzamhbw1k677hrscddqyzjkk",
+    "01jzamm3rgk677hpscddqwzjkk",
+    "01jzammacnk677hnscddqvzjkk",
+    "01jzammdgzk677hqscddqxzjkk"
+  ]
+}

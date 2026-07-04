@@ -1,0 +1,97 @@
+{
+  "name": "01-basic-create-comment-close",
+  "description": "create -> comment -> ステータス機械を順に遷移して closed に至る基本ケース。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "issue.create",
+      "id": "01jzamhbw03hfk7nkqbsqvfxvz",
+      "ts": "2025-07-04T11:53:20.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yat005fpcrykqdqym06vz",
+      "data": {
+        "title": "sync がパスを壊す",
+        "body": "詳細は後で",
+        "labels": [
+          "bug"
+        ],
+        "assignees": [
+          "yuumiya"
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.comment",
+      "id": "01jzamhcv83hfm7nkrbsqwfxv0",
+      "ts": "2025-07-04T11:53:21.000Z",
+      "actor": "dev-agent-01",
+      "entity": "01hf7yat005fpcrykqdqym06vz",
+      "data": {
+        "body": "再現しました。"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.status",
+      "id": "01jzamhdtg3hfn7nksbsqxfxv1",
+      "ts": "2025-07-04T11:53:22.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yat005fpcrykqdqym06vz",
+      "data": {
+        "from": "open",
+        "to": "in_progress"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.status",
+      "id": "01jzamhesr3hfp7nktbsqyfxv2",
+      "ts": "2025-07-04T11:53:23.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yat005fpcrykqdqym06vz",
+      "data": {
+        "from": "in_progress",
+        "to": "resolved"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.status",
+      "id": "01jzamhfs03hfq7nkvbsqzfxv3",
+      "ts": "2025-07-04T11:53:24.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yat005fpcrykqdqym06vz",
+      "data": {
+        "from": "resolved",
+        "to": "closed"
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "01hf7yat005fpcrykqdqym06vz",
+    "title": "sync がパスを壊す",
+    "status": "closed",
+    "labels": [
+      "bug"
+    ],
+    "assignees": [
+      "yuumiya"
+    ],
+    "created_by": "yuumiya",
+    "created_at": "2025-07-04T11:53:20.000Z",
+    "updated_at": "2025-07-04T11:53:24.000Z",
+    "closed_at": "2025-07-04T11:53:24.000Z",
+    "comment_count": 1,
+    "links": [],
+    "body": "詳細は後で"
+  },
+  "expected_comments": {
+    "01jzamhcv83hfm7nkrbsqwfxv0": {
+      "id": "01jzamhcv83hfm7nkrbsqwfxv0",
+      "author": "dev-agent-01",
+      "ts": "2025-07-04T11:53:21.000Z",
+      "body": "再現しました。"
+    }
+  }
+}

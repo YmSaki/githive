@@ -1,0 +1,99 @@
+{
+  "name": "03-shuffled-input-same-result",
+  "description": "同じイベント集合を投入順シャッフルして fold しても、ULID 順ソートにより同一の meta / comments が得られる。events はあえて非時系列順で格納してある。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "issue.assign",
+      "id": "01jzapeeyg3kfn7qksbvqxfzv1",
+      "ts": "2025-07-04T12:26:42.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yavyg5fpcryksdqym06v1",
+      "data": {
+        "add": [
+          "dev-agent-01"
+        ],
+        "remove": []
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.status",
+      "id": "01jzapegx03kfq7qkvbvqzfzv3",
+      "ts": "2025-07-04T12:26:44.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yavyg5fpcryksdqym06v1",
+      "data": {
+        "from": "open",
+        "to": "in_progress"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.create",
+      "id": "01jzaped003kfk7qkqbvqvfzvz",
+      "ts": "2025-07-04T12:26:40.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yavyg5fpcryksdqym06v1",
+      "data": {
+        "title": "順序シャッフル検証",
+        "labels": [
+          "triage"
+        ],
+        "assignees": []
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.comment",
+      "id": "01jzapefxr3kfp7qktbvqyfzv2",
+      "ts": "2025-07-04T12:26:43.000Z",
+      "actor": "dev-agent-01",
+      "entity": "01hf7yavyg5fpcryksdqym06v1",
+      "data": {
+        "body": "承知しました"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "issue.label",
+      "id": "01jzapedz83kfm7qkrbvqwfzv0",
+      "ts": "2025-07-04T12:26:41.000Z",
+      "actor": "yuumiya",
+      "entity": "01hf7yavyg5fpcryksdqym06v1",
+      "data": {
+        "add": [
+          "bug"
+        ],
+        "remove": [
+          "triage"
+        ]
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "01hf7yavyg5fpcryksdqym06v1",
+    "title": "順序シャッフル検証",
+    "status": "in_progress",
+    "labels": [
+      "bug"
+    ],
+    "assignees": [
+      "dev-agent-01"
+    ],
+    "created_by": "yuumiya",
+    "created_at": "2025-07-04T12:26:40.000Z",
+    "updated_at": "2025-07-04T12:26:44.000Z",
+    "closed_at": null,
+    "comment_count": 1,
+    "links": []
+  },
+  "expected_comments": {
+    "01jzapefxr3kfp7qktbvqyfzv2": {
+      "id": "01jzapefxr3kfp7qktbvqyfzv2",
+      "author": "dev-agent-01",
+      "ts": "2025-07-04T12:26:43.000Z",
+      "body": "承知しました"
+    }
+  }
+}

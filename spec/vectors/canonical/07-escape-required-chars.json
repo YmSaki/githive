@@ -1,0 +1,10 @@
+{
+  "input": {
+    "quote": "彼は\"こんにちは\"と言った",
+    "backslash": "C:\\path\\to\\file",
+    "newline": "line1\nline2",
+    "tab": "a\tb",
+    "control": "\u0001\u001f"
+  },
+  "expected": "{\n  \"backslash\": \"C:\\\\path\\\\to\\\\file\",\n  \"control\": \"\\u0001\\u001f\",\n  \"newline\": \"line1\\nline2\",\n  \"quote\": \"彼は\\\"こんにちは\\\"と言った\",\n  \"tab\": \"a\\tb\"\n}\n"
+}

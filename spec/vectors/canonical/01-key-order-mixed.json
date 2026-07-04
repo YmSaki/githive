@@ -1,0 +1,9 @@
+{
+  "input": {
+    "zebra": 1,
+    "apple": 2,
+    "Mango": 3,
+    "banana": 4
+  },
+  "expected": "{\n  \"Mango\": 3,\n  \"apple\": 2,\n  \"banana\": 4,\n  \"zebra\": 1\n}\n"
+}

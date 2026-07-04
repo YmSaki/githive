@@ -1,0 +1,8 @@
+{
+  "input": {
+    "empty_obj": {},
+    "empty_arr": [],
+    "b": 1
+  },
+  "expected": "{\n  \"b\": 1,\n  \"empty_arr\": [],\n  \"empty_obj\": {}\n}\n"
+}

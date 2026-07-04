@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://githive.dev/spec/schemas/chat.schema.json",
+  "title": "chat.* イベントの data スキーマ群",
+  "description": "docs/features/chat.md の「イベント定義」表に従う。",
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-hjkmnp-tv-z]{26}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "archived"]
+    },
+    "chat.create": {
+      "type": "object",
+      "description": "スレッド作成。body があれば最初のメッセージを兼ねる。",
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "body": { "type": "string" }
+      },
+      "required": ["title"],
+      "additionalProperties": true
+    },
+    "chat.post": {
+      "type": "object",
+      "description": "messages に追記する。",
+      "properties": {
+        "body": { "type": "string" },
+        "reply_to": { "$ref": "#/$defs/ulid" },
+        "supersedes": {
+          "description": "既存メッセージの置換表示。省略可。",
+          "$ref": "#/$defs/ulid"
+        }
+      },
+      "required": ["body"],
+      "additionalProperties": true
+    },
+    "chat.edit_meta": {
+      "type": "object",
+      "description": "LWW 上書き。status は open / archived。",
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/status" }
+      },
+      "additionalProperties": true
+    },
+    "chat.checkpoint": {
+      "type": "object",
+      "description": "読み出し起点。fold はこの kind を常に無視する。",
+      "properties": {
+        "state": { "type": "object" },
+        "count": { "type": "integer", "minimum": 0 },
+        "hash": { "type": "string" }
+      },
+      "required": ["state", "count", "hash"],
+      "additionalProperties": true
+    }
+  }
+}
