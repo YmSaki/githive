@@ -11,7 +11,6 @@ import (
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
-	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
@@ -166,11 +165,10 @@ func containsString(v any, want string) bool {
 // reconstructed by folding the issue's complete event history
 // (docs/01-architecture.md「イベント読み」).
 func (s *Service) Show(ctx context.Context, id string) (*Show, error) {
-	events, _, err := s.currentEvents(ctx, id)
+	state, err := s.writer.Fold(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	state := materialize.IssueRegistry.Fold(events)
 	if state.Meta == nil {
 		return nil, ErrNotFound
 	}
