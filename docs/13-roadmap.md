@@ -83,7 +83,7 @@ P0 --> P1 --> P2 --> P5 --> P3 --> P4
 1. registry reducer（users/groups/policy）+ CLI。
 2. `core/sign`：署名付与（git config 連携）、allowed_signers 生成、検証。
 3. `githive verify`、信頼の根の照合、`whoami`。
-4. actor 解決の差し替え（仮置き user.name -> 台帳連動）。
+4. username エイリアス解決の接続（CLI 入力の username を台帳で email へ解決。actor 自体は初日から user.email であり変更しない）。
 
 ### P4〜P11
 
