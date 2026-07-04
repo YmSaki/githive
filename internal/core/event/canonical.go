@@ -122,7 +122,87 @@ func encodeFloat(x float64) (string, error) {
 	if x == math.Trunc(x) && math.Abs(x) < 1e16 {
 		return strconv.FormatInt(int64(x), 10), nil
 	}
-	return strconv.FormatFloat(x, 'g', -1, 64), nil
+	// For everything else, match Python's repr(float) exactly (byte-for-byte
+	// determinism across implementations, docs/02-data-model.md 決定性の
+	// 不変条件): CPython's float repr picks fixed vs exponential notation
+	// based on the decimal point position (decpt) of the shortest
+	// round-trip digit string, using fixed notation iff -4 < decpt <= 16.
+	// Go's strconv 'g' format instead switches based on the digit count, so
+	// it disagrees with Python well before 1e16 (e.g. 1.234...e14 vs
+	// 123456789012345.6). Both languages compute the same shortest digit
+	// sequence for a given float64 (it is unique), so we extract that via
+	// Go's 'e' formatter and re-derive Python's notation choice ourselves.
+	neg, digits, exp := shortestDecimalDigits(x)
+	decpt := exp + 1
+	if decpt > -4 && decpt <= 16 {
+		return formatFixedPython(neg, digits, decpt), nil
+	}
+	return formatScientificPython(neg, digits, exp), nil
+}
+
+// shortestDecimalDigits returns the sign, shortest round-trip significant
+// digit string (no sign, no decimal point, no leading/trailing zeros beyond
+// what the shortest representation needs), and base-10 exponent such that
+// the value equals 0.digits[0] . digits[1:] * 10^(exp+1), i.e. exp is the
+// power of ten of the leading digit (as in scientific notation d.ddd*10^exp).
+func shortestDecimalDigits(x float64) (neg bool, digits string, exp int) {
+	s := strconv.FormatFloat(x, 'e', -1, 64) // e.g. "-1.234567890123456e+14"
+	if strings.HasPrefix(s, "-") {
+		neg = true
+		s = s[1:]
+	}
+	eIdx := strings.IndexByte(s, 'e')
+	mantissa := s[:eIdx]
+	exp, _ = strconv.Atoi(s[eIdx+1:])
+	digits = strings.Replace(mantissa, ".", "", 1)
+	return neg, digits, exp
+}
+
+func formatFixedPython(neg bool, digits string, decpt int) string {
+	var b strings.Builder
+	if neg {
+		b.WriteByte('-')
+	}
+	switch {
+	case decpt <= 0:
+		b.WriteString("0.")
+		b.WriteString(strings.Repeat("0", -decpt))
+		b.WriteString(digits)
+	case decpt >= len(digits):
+		b.WriteString(digits)
+		b.WriteString(strings.Repeat("0", decpt-len(digits)))
+		b.WriteString(".0")
+	default:
+		b.WriteString(digits[:decpt])
+		b.WriteByte('.')
+		b.WriteString(digits[decpt:])
+	}
+	return b.String()
+}
+
+func formatScientificPython(neg bool, digits string, exp int) string {
+	var b strings.Builder
+	if neg {
+		b.WriteByte('-')
+	}
+	b.WriteByte(digits[0])
+	if len(digits) > 1 {
+		b.WriteByte('.')
+		b.WriteString(digits[1:])
+	}
+	b.WriteByte('e')
+	if exp < 0 {
+		b.WriteByte('-')
+		exp = -exp
+	} else {
+		b.WriteByte('+')
+	}
+	expStr := strconv.Itoa(exp)
+	if len(expStr) < 2 {
+		expStr = "0" + expStr
+	}
+	b.WriteString(expStr)
+	return b.String()
 }
 
 func encodeStringValue(b *strings.Builder, s string) {

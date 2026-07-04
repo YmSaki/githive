@@ -1,0 +1,13 @@
+{
+  "input": {
+    "sci_boundary_high": 1e+16,
+    "sci_boundary_low": 1e-05,
+    "fixed_boundary_high": 9999999999999998.0,
+    "fixed_boundary_low": 0.0001,
+    "large_fraction": 123456789012345.6,
+    "negative_scientific": -1.5e+16,
+    "tiny_negative": -2.5e-09,
+    "huge_integer_float": 1e+20
+  },
+  "expected": "{\n  \"fixed_boundary_high\": 9999999999999998,\n  \"fixed_boundary_low\": 0.0001,\n  \"huge_integer_float\": 1e+20,\n  \"large_fraction\": 123456789012345.6,\n  \"negative_scientific\": -1.5e+16,\n  \"sci_boundary_high\": 1e+16,\n  \"sci_boundary_low\": 1e-05,\n  \"tiny_negative\": -2.5e-09\n}\n"
+}
