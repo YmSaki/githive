@@ -1,0 +1,51 @@
+version: "3"
+
+tasks:
+  build:
+    desc: Build the githive CLI
+    cmds:
+      - go build ./...
+
+  test:
+    desc: Run Go test suite
+    cmds:
+      - go test ./...
+
+  test:verbose:
+    desc: Run Go test suite with verbose output
+    cmds:
+      - go test -v ./...
+
+  fmt:
+    desc: Check gofmt formatting
+    cmds:
+      - test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  lint:canonical-json:
+    desc: Enforce that encoding/json is only imported from internal/core/event
+    cmds:
+      - bash scripts/check-canonical-json.sh
+
+  lint:
+    desc: Run fmt + vet + canonical-json import check
+    cmds:
+      - task: fmt
+      - task: vet
+      - task: lint:canonical-json
+
+  spec:validate:
+    desc: Run the language-neutral executable spec validator (requires python3 + jsonschema)
+    cmds:
+      - python3 spec/validate.py
+
+  ci:
+    desc: Full CI-equivalent local run
+    cmds:
+      - task: lint
+      - task: test
+      - task: spec:validate
