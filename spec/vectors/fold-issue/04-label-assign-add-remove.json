@@ -7,7 +7,7 @@
       "kind": "issue.create",
       "id": "01jzaqcxj03mfk7rkqbwqvf0vz",
       "ts": "2025-07-04T12:43:20.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yawxr5fpcryktdqym06v2",
       "data": {
         "title": "ラベルと担当者の加除",
@@ -16,7 +16,7 @@
           "windows"
         ],
         "assignees": [
-          "yuumiya"
+          "yuumiya@example.com"
         ]
       }
     },
@@ -25,7 +25,7 @@
       "kind": "issue.label",
       "id": "01jzaqcyh83mfm7rkrbwqwf0v0",
       "ts": "2025-07-04T12:43:21.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yawxr5fpcryktdqym06v2",
       "data": {
         "add": [
@@ -41,7 +41,7 @@
       "kind": "issue.label",
       "id": "01jzaqczgg3mfn7rksbwqxf0v1",
       "ts": "2025-07-04T12:43:22.000Z",
-      "actor": "dev-agent-01",
+      "actor": "dev-agent-01@example.com",
       "entity": "01hf7yawxr5fpcryktdqym06v2",
       "data": {
         "add": [
@@ -57,11 +57,11 @@
       "kind": "issue.assign",
       "id": "01jzaqd0fr3mfp7rktbwqyf0v2",
       "ts": "2025-07-04T12:43:23.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yawxr5fpcryktdqym06v2",
       "data": {
         "add": [
-          "dev-agent-01"
+          "dev-agent-01@example.com"
         ],
         "remove": []
       }
@@ -71,12 +71,12 @@
       "kind": "issue.assign",
       "id": "01jzaqd1f03mfq7rkvbwqzf0v3",
       "ts": "2025-07-04T12:43:24.000Z",
-      "actor": "dev-agent-01",
+      "actor": "dev-agent-01@example.com",
       "entity": "01hf7yawxr5fpcryktdqym06v2",
       "data": {
         "add": [],
         "remove": [
-          "yuumiya"
+          "yuumiya@example.com"
         ]
       }
     }
@@ -90,9 +90,9 @@
       "p1"
     ],
     "assignees": [
-      "dev-agent-01"
+      "dev-agent-01@example.com"
     ],
-    "created_by": "yuumiya",
+    "created_by": "yuumiya@example.com",
     "created_at": "2025-07-04T12:43:20.000Z",
     "updated_at": "2025-07-04T12:43:24.000Z",
     "closed_at": null,

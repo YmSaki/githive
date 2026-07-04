@@ -10,36 +10,58 @@
     },
     "username": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9-]{1,38}$"
+      "pattern": "^[^\\s@]+@[^\\s]+$"
     },
     "status": {
       "type": "string",
-      "enum": ["open", "in_progress", "resolved", "closed", "archived"]
+      "enum": [
+        "open",
+        "in_progress",
+        "resolved",
+        "closed",
+        "archived"
+      ]
     },
     "issue.create": {
       "type": "object",
       "description": "初期状態を設定する。チェーンの最初のイベントに限る。",
       "properties": {
-        "title": { "type": "string", "minLength": 1 },
-        "body": { "type": "string" },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        },
         "labels": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "assignees": {
           "type": "array",
-          "items": { "$ref": "#/$defs/username" }
+          "items": {
+            "$ref": "#/$defs/username"
+          }
         }
       },
-      "required": ["title"],
+      "required": [
+        "title"
+      ],
       "additionalProperties": true
     },
     "issue.edit": {
       "type": "object",
       "description": "与えられたフィールドを上書きする（LWW）。",
       "properties": {
-        "title": { "type": "string", "minLength": 1 },
-        "body": { "type": "string" }
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        }
       },
       "additionalProperties": true
     },
@@ -47,24 +69,36 @@
       "type": "object",
       "description": "ステータス機械に従い to へ遷移する。from は監査用で fold には使わない。",
       "properties": {
-        "from": { "$ref": "#/$defs/status" },
-        "to": { "$ref": "#/$defs/status" }
+        "from": {
+          "$ref": "#/$defs/status"
+        },
+        "to": {
+          "$ref": "#/$defs/status"
+        }
       },
-      "required": ["to"],
+      "required": [
+        "to"
+      ],
       "additionalProperties": true
     },
     "issue.comment": {
       "type": "object",
       "description": "comments に event-id をキーとして追加する。",
       "properties": {
-        "body": { "type": "string" },
-        "reply_to": { "$ref": "#/$defs/ulid" },
+        "body": {
+          "type": "string"
+        },
+        "reply_to": {
+          "$ref": "#/$defs/ulid"
+        },
         "supersedes": {
           "description": "既存コメントの置換表示（設計判断の節）。省略可。",
           "$ref": "#/$defs/ulid"
         }
       },
-      "required": ["body"],
+      "required": [
+        "body"
+      ],
       "additionalProperties": true
     },
     "issue.label": {
@@ -73,11 +107,15 @@
       "properties": {
         "add": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "remove": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": true
@@ -88,11 +126,15 @@
       "properties": {
         "add": {
           "type": "array",
-          "items": { "$ref": "#/$defs/username" }
+          "items": {
+            "$ref": "#/$defs/username"
+          }
         },
         "remove": {
           "type": "array",
-          "items": { "$ref": "#/$defs/username" }
+          "items": {
+            "$ref": "#/$defs/username"
+          }
         }
       },
       "additionalProperties": true
@@ -101,22 +143,47 @@
       "type": "object",
       "description": "links 集合に適用する。rel は task / issue / chat。",
       "properties": {
-        "rel": { "type": "string", "enum": ["task", "issue", "chat"] },
-        "id": { "$ref": "#/$defs/ulid" },
-        "remove": { "type": "boolean" }
+        "rel": {
+          "type": "string",
+          "enum": [
+            "task",
+            "issue",
+            "chat"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/ulid"
+        },
+        "remove": {
+          "type": "boolean"
+        }
       },
-      "required": ["rel", "id"],
+      "required": [
+        "rel",
+        "id"
+      ],
       "additionalProperties": true
     },
     "issue.checkpoint": {
       "type": "object",
       "description": "読み出し起点。fold はこの kind を常に無視する（実体化結果には影響しない）。",
       "properties": {
-        "state": { "type": "object" },
-        "count": { "type": "integer", "minimum": 0 },
-        "hash": { "type": "string" }
+        "state": {
+          "type": "object"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hash": {
+          "type": "string"
+        }
       },
-      "required": ["state", "count", "hash"],
+      "required": [
+        "state",
+        "count",
+        "hash"
+      ],
       "additionalProperties": true
     }
   }

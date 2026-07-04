@@ -22,10 +22,10 @@ hosted モードの限界は明確である。
 git のコミット署名機構（`gpg.format ssh`）をそのまま使う（[ADR-0007](adr/0007-ssh-signing.md)）。
 
 - 署名対象はコミットそのもの。イベント JSON はコミットメッセージに含まれるため、署名はイベントの完全性を含む。
-- 検証は users 台帳から allowed_signers 形式（`<principal> <keytype> <pub>`）を生成して `git verify-commit` 相当を行う。
+- 検証は users 台帳から allowed_signers 形式（`<email> <keytype> <pub>`。principal には台帳の emails[] を使う）を生成して `git verify-commit` 相当を行う。
 - 検証規則：
   1. コミットの署名が台帳のいずれかの鍵で有効であること。
-  2. その鍵の持ち主（台帳上のユーザー）とイベントの `actor` が一致すること。
+  2. イベントの `actor`（email）が、その鍵を登録した台帳ユーザーの `emails[]` に含まれること。actor はコミッタの email とも一致すること。
   3. 署名時刻が鍵の revoked_at より前であること。
   4. registry ref への変更は、変更時点の台帳で `role:admin` を持つ actor によること。
 

@@ -7,7 +7,7 @@
       "kind": "issue.create",
       "id": "01jzanfwe03jfk7pkqbtqvfyvz",
       "ts": "2025-07-04T12:10:00.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yatz85fpcrykrdqym06v0",
       "data": {
         "title": "初期タイトル",
@@ -20,7 +20,7 @@
       "kind": "issue.edit",
       "id": "01jzanfycg3jfn7pksbtqxfyv1",
       "ts": "2025-07-04T12:10:02.000Z",
-      "actor": "dev-agent-01",
+      "actor": "dev-agent-01@example.com",
       "entity": "01hf7yatz85fpcrykrdqym06v0",
       "data": {
         "title": "後勝ちタイトルB"
@@ -31,7 +31,7 @@
       "kind": "issue.edit",
       "id": "01jzanfxd83jfm7pkrbtqwfyv0",
       "ts": "2025-07-04T12:10:01.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yatz85fpcrykrdqym06v0",
       "data": {
         "title": "先勝ちタイトルA(負ける)"
@@ -44,7 +44,7 @@
     "status": "open",
     "labels": [],
     "assignees": [],
-    "created_by": "yuumiya",
+    "created_by": "yuumiya@example.com",
     "created_at": "2025-07-04T12:10:00.000Z",
     "updated_at": "2025-07-04T12:10:02.000Z",
     "closed_at": null,

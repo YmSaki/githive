@@ -89,10 +89,12 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 
 | キー | 既定 | 意味 |
 |------|------|------|
-| githive.user | （なし） | 台帳上の自分のユーザー名。未設定時は鍵から逆引き |
-| githive.sign | auto | always / auto（鍵設定済みなら署名） / never |
 | githive.notify.auto | true | 操作に伴う自動 notify.post（[features/notify.md](features/notify.md)） |
 | githive.sync.retries | 5 | push 競合の再試行回数 |
+| githive.trust.root | （なし） | users 台帳の信頼の根の pin（[11](11-security.md)） |
+
+identity は git の `user.email` を、署名は git 標準の `commit.gpgsign` / `gpg.format` / `user.signingkey` をそのまま使う（[ADR-0009](adr/0009-identity-user-email.md)）。
+githive.* はすべて任意設定であり、未設定でも既定値で動作する。
 
 ## 出力例
 

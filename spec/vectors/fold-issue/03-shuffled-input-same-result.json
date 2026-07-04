@@ -7,11 +7,11 @@
       "kind": "issue.assign",
       "id": "01jzapeeyg3kfn7qksbvqxfzv1",
       "ts": "2025-07-04T12:26:42.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yavyg5fpcryksdqym06v1",
       "data": {
         "add": [
-          "dev-agent-01"
+          "dev-agent-01@example.com"
         ],
         "remove": []
       }
@@ -21,7 +21,7 @@
       "kind": "issue.status",
       "id": "01jzapegx03kfq7qkvbvqzfzv3",
       "ts": "2025-07-04T12:26:44.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yavyg5fpcryksdqym06v1",
       "data": {
         "from": "open",
@@ -33,7 +33,7 @@
       "kind": "issue.create",
       "id": "01jzaped003kfk7qkqbvqvfzvz",
       "ts": "2025-07-04T12:26:40.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yavyg5fpcryksdqym06v1",
       "data": {
         "title": "順序シャッフル検証",
@@ -48,7 +48,7 @@
       "kind": "issue.comment",
       "id": "01jzapefxr3kfp7qktbvqyfzv2",
       "ts": "2025-07-04T12:26:43.000Z",
-      "actor": "dev-agent-01",
+      "actor": "dev-agent-01@example.com",
       "entity": "01hf7yavyg5fpcryksdqym06v1",
       "data": {
         "body": "承知しました"
@@ -59,7 +59,7 @@
       "kind": "issue.label",
       "id": "01jzapedz83kfm7qkrbvqwfzv0",
       "ts": "2025-07-04T12:26:41.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yavyg5fpcryksdqym06v1",
       "data": {
         "add": [
@@ -79,9 +79,9 @@
       "bug"
     ],
     "assignees": [
-      "dev-agent-01"
+      "dev-agent-01@example.com"
     ],
-    "created_by": "yuumiya",
+    "created_by": "yuumiya@example.com",
     "created_at": "2025-07-04T12:26:40.000Z",
     "updated_at": "2025-07-04T12:26:44.000Z",
     "closed_at": null,
@@ -91,7 +91,7 @@
   "expected_comments": {
     "01jzapefxr3kfp7qktbvqyfzv2": {
       "id": "01jzapefxr3kfp7qktbvqyfzv2",
-      "author": "dev-agent-01",
+      "author": "dev-agent-01@example.com",
       "ts": "2025-07-04T12:26:43.000Z",
       "body": "承知しました"
     }

@@ -12,7 +12,7 @@ users 台帳（[features/users.md](../features/users.md)）が公開鍵を持つ
 
 git 標準の SSH コミット署名（gpg.format = ssh）を使う。
 
-- hosted モード：署名は推奨（githive.sign = auto）。`githive verify` が台帳と照合し、なりすましを事後検出する。
+- hosted モード：署名は推奨（git 標準の `commit.gpgsign` に従う。[ADR-0009](0009-identity-user-email.md)）。`githive verify` が台帳と照合し、なりすましを事後検出する。
 - forge モード：`refs/projects/*` への push は有効署名を必須とし、pre-receive で拒否する。
 
 ## 理由

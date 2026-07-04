@@ -44,6 +44,7 @@ tree:
 
 - **kind**：`human` または `agent`。Agent はそれを運用する人間とは別ユーザーとして登録し、専用の鍵を持たせる。表示と監査で区別できることが目的で、権限体系は共通。
 - **status**：`active` / `suspended`。suspended のユーザーの新規イベントは検証で警告になる。
+- **emails**：identity の正であり、「email → username・表示名」のマップを成す。イベントの `actor`（= git の `user.email`）はこの配列との突合で台帳ユーザーに解決される。複数登録可（端末ごとの使い分け）。
 - ユーザー名は `[a-z0-9][a-z0-9-]{1,38}` に制限する（ファイル名と target 指定に安全な範囲）。
 
 ### groups/<name>.json
@@ -126,4 +127,4 @@ git show refs/projects/users/registry:policy.json
 ## 設計判断
 
 - ユーザーごとに ref を分ける案（`refs/projects/users/<name>`）は退けた。グループと policy が単一ビューを要求すること、hosted モードでは ref 分割しても書き込み制限にならないことが理由である。forge モードの書き込み制御は policy ルールで registry ref 全体を admin に限定すれば足りる。
-- メールアドレスは通知配信（forge モード）と表示にのみ使い、認証には使わない。認証は常に鍵で行う。
+- メールアドレスは identity の突合（actor 解決）と通知配信に使う。本人性の証明は常に鍵で行い、email の自己申告は署名検証（actor と鍵の持ち主の一致、[11](../11-security.md)）で裏が取れる。

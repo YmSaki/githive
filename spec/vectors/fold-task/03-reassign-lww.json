@@ -7,11 +7,11 @@
       "kind": "task.create",
       "id": "01jzazzjm0m4mgms9snsyeyty3",
       "ts": "2025-07-04T15:13:20.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yavygm2nehamvhx3ry1f2",
       "data": {
         "title": "reassign の LWW 検証",
-        "owner": "yuumiya"
+        "owner": "yuumiya@example.com"
       }
     },
     {
@@ -19,10 +19,10 @@
       "kind": "task.reassign",
       "id": "01jzazzmjgm4mgps9snvyeyt03",
       "ts": "2025-07-04T15:13:22.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yavygm2nehamvhx3ry1f2",
       "data": {
-        "owner": "dev-agent-01-b"
+        "owner": "dev-agent-01-b@example.com"
       }
     },
     {
@@ -30,10 +30,10 @@
       "kind": "task.reassign",
       "id": "01jzazzkk8m4mgns9sntyeytz3",
       "ts": "2025-07-04T15:13:21.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yavygm2nehamvhx3ry1f2",
       "data": {
-        "owner": "dev-agent-01-a"
+        "owner": "dev-agent-01-a@example.com"
       }
     }
   ],
@@ -41,14 +41,14 @@
     "id": "01hf7yavygm2nehamvhx3ry1f2",
     "title": "reassign の LWW 検証",
     "status": "todo",
-    "owner": "dev-agent-01-b",
-    "created_by": "yuumiya",
+    "owner": "dev-agent-01-b@example.com",
+    "created_by": "yuumiya@example.com",
     "created_at": "2025-07-04T15:13:20.000Z",
     "updated_at": "2025-07-04T15:13:22.000Z",
     "status_history": [
       {
         "to": "todo",
-        "by": "yuumiya",
+        "by": "yuumiya@example.com",
         "ts": "2025-07-04T15:13:20.000Z"
       }
     ],

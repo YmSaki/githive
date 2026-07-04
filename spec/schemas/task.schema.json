@@ -10,37 +10,72 @@
     },
     "username": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9-]{1,38}$"
+      "pattern": "^[^\\s@]+@[^\\s]+$"
     },
     "status": {
       "type": "string",
-      "enum": ["todo", "doing", "review", "done", "blocked", "cancelled"]
+      "enum": [
+        "todo",
+        "doing",
+        "review",
+        "done",
+        "blocked",
+        "cancelled"
+      ]
     },
     "priority": {
       "type": "string",
-      "enum": ["low", "normal", "high"]
+      "enum": [
+        "low",
+        "normal",
+        "high"
+      ]
     },
     "task.create": {
       "type": "object",
       "description": "初期状態。owner 省略時は actor。",
       "properties": {
-        "title": { "type": "string", "minLength": 1 },
-        "body": { "type": "string" },
-        "owner": { "$ref": "#/$defs/username" },
-        "due": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
-        "priority": { "$ref": "#/$defs/priority" }
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        },
+        "owner": {
+          "$ref": "#/$defs/username"
+        },
+        "due": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "priority": {
+          "$ref": "#/$defs/priority"
+        }
       },
-      "required": ["title"],
+      "required": [
+        "title"
+      ],
       "additionalProperties": true
     },
     "task.edit": {
       "type": "object",
       "description": "LWW 上書き。",
       "properties": {
-        "title": { "type": "string", "minLength": 1 },
-        "body": { "type": "string" },
-        "due": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
-        "priority": { "$ref": "#/$defs/priority" }
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        },
+        "due": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "priority": {
+          "$ref": "#/$defs/priority"
+        }
       },
       "additionalProperties": true
     },
@@ -48,51 +83,92 @@
       "type": "object",
       "description": "遷移し status_history に追記する。note があれば notes にも追加する。",
       "properties": {
-        "from": { "$ref": "#/$defs/status" },
-        "to": { "$ref": "#/$defs/status" },
-        "note": { "type": "string" }
+        "from": {
+          "$ref": "#/$defs/status"
+        },
+        "to": {
+          "$ref": "#/$defs/status"
+        },
+        "note": {
+          "type": "string"
+        }
       },
-      "required": ["to"],
+      "required": [
+        "to"
+      ],
       "additionalProperties": true
     },
     "task.reassign": {
       "type": "object",
       "description": "owner を上書きする（LWW）。",
       "properties": {
-        "owner": { "$ref": "#/$defs/username" }
+        "owner": {
+          "$ref": "#/$defs/username"
+        }
       },
-      "required": ["owner"],
+      "required": [
+        "owner"
+      ],
       "additionalProperties": true
     },
     "task.note": {
       "type": "object",
       "description": "notes に追記する。",
       "properties": {
-        "body": { "type": "string" }
+        "body": {
+          "type": "string"
+        }
       },
-      "required": ["body"],
+      "required": [
+        "body"
+      ],
       "additionalProperties": true
     },
     "task.link": {
       "type": "object",
       "description": "links 集合に適用する。",
       "properties": {
-        "rel": { "type": "string", "enum": ["task", "issue", "chat"] },
-        "id": { "$ref": "#/$defs/ulid" },
-        "remove": { "type": "boolean" }
+        "rel": {
+          "type": "string",
+          "enum": [
+            "task",
+            "issue",
+            "chat"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/ulid"
+        },
+        "remove": {
+          "type": "boolean"
+        }
       },
-      "required": ["rel", "id"],
+      "required": [
+        "rel",
+        "id"
+      ],
       "additionalProperties": true
     },
     "task.checkpoint": {
       "type": "object",
       "description": "読み出し起点。fold はこの kind を常に無視する。",
       "properties": {
-        "state": { "type": "object" },
-        "count": { "type": "integer", "minimum": 0 },
-        "hash": { "type": "string" }
+        "state": {
+          "type": "object"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hash": {
+          "type": "string"
+        }
       },
-      "required": ["state", "count", "hash"],
+      "required": [
+        "state",
+        "count",
+        "hash"
+      ],
       "additionalProperties": true
     }
   }

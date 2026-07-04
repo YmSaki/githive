@@ -33,7 +33,7 @@ tree:
 
 ```json
 {
-  "targets": ["user:yuumiya", "group:core", "all"],
+  "targets": ["user:yuumiya@example.com", "group:core", "all"],
   "title": "task 01j8xt5e が done になりました",
   "body": "レビューをお願いします。",
   "source": { "kind": "task", "id": "01j8xt5e6f7g8h9j0k1a2b3c4d" },
@@ -41,7 +41,7 @@ tree:
 }
 ```
 
-- **targets**：`user:<name>`、`group:<name>`、`all` の配列。グループ展開は読み手が users 台帳を参照して行う。
+- **targets**：`user:<email>`、`group:<name>`、`all` の配列。user の識別子は identity（[ADR-0009](../adr/0009-identity-user-email.md)）で、CLI 入力では username も受け付けて書き込み時に解決する。グループ展開は読み手が users 台帳を参照して行う。
 - **source**：通知の発生元エンティティ。CLI はここからジャンプできる。
 - **priority**：`low` / `normal` / `high`。表示順制御のみで意味論は持たない。
 
@@ -82,7 +82,7 @@ git show refs/projects/notify/stream:events/2026-07.jsonl   # 当月の通知一
 git show refs/projects/notify/stream:acks.json              # 既読状況
 ```
 
-jsonl は 1 行 1 通知なので grep で自分宛てを拾える（`grep 'user:yuumiya' ...`）。
+jsonl は 1 行 1 通知なので grep で自分宛てを拾える（`grep 'user:yuumiya@example.com' ...`）。
 
 ## 設計判断
 

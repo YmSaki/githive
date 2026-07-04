@@ -25,15 +25,15 @@ tree:
   "id": "01j8xt5e6f7g8h9j0k1a2b3c4d",
   "title": "sync のパス正規化を修正する",
   "status": "doing",
-  "owner": "yuumiya",
-  "created_by": "yuumiya",
+  "owner": "yuumiya@example.com",
+  "created_by": "yuumiya@example.com",
   "due": "2026-07-10",
   "priority": "high",
   "created_at": "2026-07-04T10:00:00.000Z",
   "updated_at": "2026-07-04T12:00:00.000Z",
   "status_history": [
-    { "to": "todo",  "by": "yuumiya", "ts": "2026-07-04T10:00:00.000Z" },
-    { "to": "doing", "by": "yuumiya", "ts": "2026-07-04T12:00:00.000Z" }
+    { "to": "todo",  "by": "yuumiya@example.com", "ts": "2026-07-04T10:00:00.000Z" },
+    { "to": "doing", "by": "yuumiya@example.com", "ts": "2026-07-04T12:00:00.000Z" }
   ],
   "links": [{ "rel": "issue", "id": "01j8x..." }]
 }
@@ -66,9 +66,9 @@ todo -> doing -> review -> done
 
 ## ユーザーとの紐づけ
 
-`owner` は users 台帳のユーザー名である。
-`githive task list --mine` は、git config の `githive.user`（未設定なら署名鍵から台帳を逆引き）で自分を特定する。
-どちらでも解決できない場合はエラーになる（[02](../02-data-model.md) の actor 解決規則）。
+`owner` はイベント内では identity（email、[02](../02-data-model.md) の actor と同じ規則）で保持する。
+CLI の入力では台帳の username も受け付け、書き込み時に email へ解決する。表示はその逆を行う。
+`githive task list --mine` は git の `user.email` で自分を特定する。
 Agent も同じ仕組みで自分の task を特定する。Agent 用ユーザーの扱いは [users.md](users.md) を参照。
 
 ## CLI

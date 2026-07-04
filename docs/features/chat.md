@@ -24,11 +24,11 @@ tree:
   "id": "01j8xw1a2b3c4d5e6f7g8h9j0k",
   "title": "リリース手順の相談",
   "status": "open",
-  "created_by": "yuumiya",
+  "created_by": "yuumiya@example.com",
   "created_at": "2026-07-04T10:00:00.000Z",
   "updated_at": "2026-07-04T15:00:00.000Z",
   "message_count": 12,
-  "participants": ["yuumiya", "dev-agent-01"]
+  "participants": ["yuumiya@example.com", "dev-agent-01@example.com"]
 }
 ```
 

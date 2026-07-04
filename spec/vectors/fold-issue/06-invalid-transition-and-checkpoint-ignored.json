@@ -7,7 +7,7 @@
       "kind": "issue.create",
       "id": "01jzas9yp03pfk7tkqbyqvf2vz",
       "ts": "2025-07-04T13:16:40.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yayw85fpcrykwdqym06v4",
       "data": {
         "title": "不正遷移とcheckpoint無視の検証",
@@ -20,7 +20,7 @@
       "kind": "issue.status",
       "id": "01jzas9zn83pfm7tkrbyqwf2v0",
       "ts": "2025-07-04T13:16:41.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yayw85fpcrykwdqym06v4",
       "data": {
         "from": "open",
@@ -32,7 +32,7 @@
       "kind": "issue.status",
       "id": "01jzasa0mg3pfn7tksbyqxf2v1",
       "ts": "2025-07-04T13:16:42.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yayw85fpcrykwdqym06v4",
       "data": {
         "from": "in_progress",
@@ -44,7 +44,7 @@
       "kind": "issue.checkpoint",
       "id": "01jzasa1kr3pfp7tktbyqyf2v2",
       "ts": "2025-07-04T13:16:43.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yayw85fpcrykwdqym06v4",
       "data": {
         "state": {
@@ -59,7 +59,7 @@
       "kind": "issue.status",
       "id": "01jzasa2k03pfq7tkvbyqzf2v3",
       "ts": "2025-07-04T13:16:44.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yayw85fpcrykwdqym06v4",
       "data": {
         "from": "in_progress",
@@ -73,7 +73,7 @@
     "status": "resolved",
     "labels": [],
     "assignees": [],
-    "created_by": "yuumiya",
+    "created_by": "yuumiya@example.com",
     "created_at": "2025-07-04T13:16:40.000Z",
     "updated_at": "2025-07-04T13:16:44.000Z",
     "closed_at": null,

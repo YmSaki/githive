@@ -25,9 +25,11 @@
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
     },
     "actor": {
-      "description": "users 台帳上のユーザー名。ユーザー名規則に従う。",
+      "description": "書き手の identity。git の user.email の値（ADR-0009）。",
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9-]{1,38}$"
+      "minLength": 3,
+      "maxLength": 320,
+      "pattern": "^[^\\s@]+@[^\\s]+$"
     },
     "entity": {
       "description": "対象エンティティの ID。ULID。ref 名から自明でも冗長に持つ。",
@@ -39,6 +41,14 @@
       "type": "object"
     }
   },
-  "required": ["v", "kind", "id", "ts", "actor", "entity", "data"],
+  "required": [
+    "v",
+    "kind",
+    "id",
+    "ts",
+    "actor",
+    "entity",
+    "data"
+  ],
   "additionalProperties": true
 }

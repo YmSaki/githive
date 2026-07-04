@@ -24,8 +24,8 @@ tree:
   "title": "sync が Windows でパスを壊す",
   "status": "in_progress",
   "labels": ["bug", "windows"],
-  "assignees": ["yuumiya"],
-  "created_by": "yuumiya",
+  "assignees": ["yuumiya@example.com"],
+  "created_by": "yuumiya@example.com",
   "created_at": "2026-07-04T10:00:00.000Z",
   "updated_at": "2026-07-04T12:34:56.789Z",
   "closed_at": null,
@@ -38,7 +38,7 @@ tree:
 
 ```markdown
 ---
-author: yuumiya
+author: yuumiya@example.com
 ts: 2026-07-04T12:34:56.789Z
 event: 01j8xq4d3nbz9k7w2m5e8h1t6a
 ---

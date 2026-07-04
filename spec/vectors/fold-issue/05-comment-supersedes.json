@@ -7,7 +7,7 @@
       "kind": "issue.create",
       "id": "01jzarbe403nfk7skqbxqvf1vz",
       "ts": "2025-07-04T13:00:00.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yaxx05fpcrykvdqym06v3",
       "data": {
         "title": "コメント訂正の検証",
@@ -20,7 +20,7 @@
       "kind": "issue.comment",
       "id": "01jzarbf383nfm7skrbxqwf1v0",
       "ts": "2025-07-04T13:00:01.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yaxx05fpcrykvdqym06v3",
       "data": {
         "body": "誤字がある元コメント"
@@ -31,7 +31,7 @@
       "kind": "issue.comment",
       "id": "01jzarbg2g3nfn7sksbxqxf1v1",
       "ts": "2025-07-04T13:00:02.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yaxx05fpcrykvdqym06v3",
       "data": {
         "body": "訂正後のコメント",
@@ -45,7 +45,7 @@
     "status": "open",
     "labels": [],
     "assignees": [],
-    "created_by": "yuumiya",
+    "created_by": "yuumiya@example.com",
     "created_at": "2025-07-04T13:00:00.000Z",
     "updated_at": "2025-07-04T13:00:02.000Z",
     "closed_at": null,
@@ -55,14 +55,14 @@
   "expected_comments": {
     "01jzarbf383nfm7skrbxqwf1v0": {
       "id": "01jzarbf383nfm7skrbxqwf1v0",
-      "author": "yuumiya",
+      "author": "yuumiya@example.com",
       "ts": "2025-07-04T13:00:01.000Z",
       "body": "誤字がある元コメント",
       "superseded_by": "01jzarbg2g3nfn7sksbxqxf1v1"
     },
     "01jzarbg2g3nfn7sksbxqxf1v1": {
       "id": "01jzarbg2g3nfn7sksbxqxf1v1",
-      "author": "yuumiya",
+      "author": "yuumiya@example.com",
       "ts": "2025-07-04T13:00:02.000Z",
       "body": "訂正後のコメント",
       "supersedes": "01jzarbf383nfm7skrbxqwf1v0"

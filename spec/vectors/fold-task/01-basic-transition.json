@@ -7,11 +7,11 @@
       "kind": "task.create",
       "id": "01jzay2hg0m4jgms9qnsyewty3",
       "ts": "2025-07-04T14:40:00.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yat00m2nehamvhx3rw1f2",
       "data": {
         "title": "sync のパス正規化を修正する",
-        "owner": "yuumiya",
+        "owner": "yuumiya@example.com",
         "due": "2026-07-10",
         "priority": "high"
       }
@@ -21,7 +21,7 @@
       "kind": "task.status",
       "id": "01jzay2jf8m4jgns9qntyewtz3",
       "ts": "2025-07-04T14:40:01.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yat00m2nehamvhx3rw1f2",
       "data": {
         "from": "todo",
@@ -33,7 +33,7 @@
       "kind": "task.status",
       "id": "01jzay2kegm4jgps9qnvyewt03",
       "ts": "2025-07-04T14:40:02.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yat00m2nehamvhx3rw1f2",
       "data": {
         "from": "doing",
@@ -45,7 +45,7 @@
       "kind": "task.status",
       "id": "01jzay2mdrm4jgqs9qnwyewt13",
       "ts": "2025-07-04T14:40:03.000Z",
-      "actor": "yuumiya",
+      "actor": "yuumiya@example.com",
       "entity": "01hf7yat00m2nehamvhx3rw1f2",
       "data": {
         "from": "review",
@@ -57,29 +57,29 @@
     "id": "01hf7yat00m2nehamvhx3rw1f2",
     "title": "sync のパス正規化を修正する",
     "status": "done",
-    "owner": "yuumiya",
-    "created_by": "yuumiya",
+    "owner": "yuumiya@example.com",
+    "created_by": "yuumiya@example.com",
     "created_at": "2025-07-04T14:40:00.000Z",
     "updated_at": "2025-07-04T14:40:03.000Z",
     "status_history": [
       {
         "to": "todo",
-        "by": "yuumiya",
+        "by": "yuumiya@example.com",
         "ts": "2025-07-04T14:40:00.000Z"
       },
       {
         "to": "doing",
-        "by": "yuumiya",
+        "by": "yuumiya@example.com",
         "ts": "2025-07-04T14:40:01.000Z"
       },
       {
         "to": "review",
-        "by": "yuumiya",
+        "by": "yuumiya@example.com",
         "ts": "2025-07-04T14:40:02.000Z"
       },
       {
         "to": "done",
-        "by": "yuumiya",
+        "by": "yuumiya@example.com",
         "ts": "2025-07-04T14:40:03.000Z"
       }
     ],
