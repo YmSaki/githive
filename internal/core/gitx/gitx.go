@@ -159,6 +159,69 @@ func (r *Runner) RevParse(ctx context.Context, ref string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// IsAncestor reports whether ancestor is an ancestor of (or equal to)
+// descendant, per `git merge-base --is-ancestor`. Used by syncapp to decide
+// between fast-forward and event-union merge
+// (docs/03-sync-and-concurrency.md「sync のアルゴリズム」).
+func (r *Runner) IsAncestor(ctx context.Context, ancestor, descendant string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("gitx: merge-base --is-ancestor: %w", err)
+}
+
+// ConfigGet reads a git config value (`git config --get key`). It returns
+// ("", nil) if the key is unset, distinguishing "unset" from a real error.
+func (r *Runner) ConfigGet(ctx context.Context, key string) (string, error) {
+	out, err := r.run(ctx, "config", "--get", key)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ConfigGetAll reads all values of a (possibly multi-valued) git config key
+// (`git config --get-all key`). Returns an empty slice if unset.
+func (r *Runner) ConfigGetAll(ctx context.Context, key string) ([]string, error) {
+	out, err := r.run(ctx, "config", "--get-all", key)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, err
+	}
+	trimmed := strings.TrimRight(string(out), "\n")
+	if trimmed == "" {
+		return nil, nil
+	}
+	return strings.Split(trimmed, "\n"), nil
+}
+
+// ConfigAdd appends a value to a (possibly multi-valued) git config key
+// (`git config --add key value`), without removing existing values.
+func (r *Runner) ConfigAdd(ctx context.Context, key, value string) error {
+	_, err := r.run(ctx, "config", "--add", key, value)
+	return err
+}
+
+// ConfigSet replaces a git config key with a single value
+// (`git config key value`).
+func (r *Runner) ConfigSet(ctx context.Context, key, value string) error {
+	_, err := r.run(ctx, "config", key, value)
+	return err
+}
+
 // UpdateRef performs a compare-and-swap ref update: it succeeds only if ref
 // currently points at oldOID (use ZeroOID for "must not exist yet").
 // (docs/03-sync-and-concurrency.md「クラッシュ安全性とローカル競合」).
@@ -213,16 +276,22 @@ func (r *Runner) Push(ctx context.Context, remote string, refspecs ...string) ([
 
 func parsePushPorcelain(out string) []PushResult {
 	var results []PushResult
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "To ") || strings.HasPrefix(line, "Done") {
+	for _, rawLine := range strings.Split(out, "\n") {
+		// NOTE: do not TrimSpace the whole line before reading the status
+		// flag - a successful fast-forward update's flag is a literal
+		// space (' '), which TrimSpace would eat, making the line look
+		// like it starts with the refspec instead and silently
+		// misreporting every successful fast-forward push as a failure.
+		line := strings.TrimRight(rawLine, "\r")
+		if line == "" {
 			continue
 		}
-		if len(line) == 0 {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "To ") || trimmed == "Done" {
 			continue
 		}
 		code := line[0]
-		rest := strings.TrimSpace(line[1:])
+		rest := strings.TrimPrefix(line[1:], "\t")
 		fields := strings.Split(rest, "\t")
 		refspec := ""
 		reason := ""
@@ -234,8 +303,11 @@ func parsePushPorcelain(out string) []PushResult {
 		}
 		results = append(results, PushResult{
 			Refspec: refspec,
-			OK:      code == '*' || code == '=',
-			Reason:  reason,
+			// git push --porcelain status flags: ' ' fast-forward, '+'
+			// forced, '*' new ref, '=' already up to date all succeed;
+			// '!' is an error and '-' is a prune (not used by githive).
+			OK:     code == ' ' || code == '+' || code == '*' || code == '=',
+			Reason: reason,
 		})
 	}
 	return results

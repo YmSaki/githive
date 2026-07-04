@@ -147,6 +147,54 @@ func TestUpdateRefCAS(t *testing.T) {
 	}
 }
 
+// TestParsePushPorcelainFastForward guards against a real regression: a
+// successful fast-forward push's status flag is a literal space (' '), and
+// naively TrimSpace-ing the whole porcelain line before reading the flag
+// eats it, making the line look like it starts with the refspec text
+// instead - which silently misreports every successful fast-forward push
+// as a failure (caught via internal/app/syncapp's convergence test).
+func TestParsePushPorcelainFastForward(t *testing.T) {
+	out := "To /tmp/pushtest/origin\n" +
+		" \trefs/projects/issue/xyz:refs/projects/issue/xyz\t62ba6ab..378c1ca\n" +
+		"Done\n"
+	results := parsePushPorcelain(out)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %+v", results)
+	}
+	if !results[0].OK {
+		t.Errorf("expected fast-forward push to parse as OK, got %+v", results[0])
+	}
+	if results[0].Refspec != "refs/projects/issue/xyz:refs/projects/issue/xyz" {
+		t.Errorf("unexpected refspec: %q", results[0].Refspec)
+	}
+}
+
+func TestParsePushPorcelainVariants(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		ok   bool
+	}{
+		{"new ref", "*\trefs/a:refs/a\t[new reference]", true},
+		{"fast-forward", " \trefs/a:refs/a\tabc..def", true},
+		{"forced", "+\trefs/a:refs/a\tabc...def (forced update)", true},
+		{"up to date", "=\trefs/a:refs/a\t[up to date]", true},
+		{"rejected", "!\trefs/a:refs/a\t[rejected] (non-fast-forward)", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out := "To origin\n" + c.line + "\nDone\n"
+			results := parsePushPorcelain(out)
+			if len(results) != 1 {
+				t.Fatalf("expected 1 result, got %+v", results)
+			}
+			if results[0].OK != c.ok {
+				t.Errorf("got OK=%v, want %v (line %q)", results[0].OK, c.ok, c.line)
+			}
+		})
+	}
+}
+
 func TestFetchAndPush(t *testing.T) {
 	requireGit(t)
 	origin := t.TempDir()
