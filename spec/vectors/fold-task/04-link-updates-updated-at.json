@@ -1,0 +1,50 @@
+{
+  "events": [
+    {
+      "v": 1,
+      "kind": "task.create",
+      "id": "01jzb2aaaaaaaaaaaaaaaaaaa1",
+      "ts": "2026-07-04T00:00:00.000Z",
+      "actor": "a@example.com",
+      "entity": "01jzb2aaaaaaaaaaaaaaaaaaea",
+      "data": {
+        "title": "t"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "task.link",
+      "id": "01jzb2aaaaaaaaaaaaaaaaaaa2",
+      "ts": "2026-07-04T00:01:00.000Z",
+      "actor": "a@example.com",
+      "entity": "01jzb2aaaaaaaaaaaaaaaaaaea",
+      "data": {
+        "rel": "task",
+        "id": "01jzb2aaaaaaaaaaaaaaaaazza"
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "01jzb2aaaaaaaaaaaaaaaaaaea",
+    "title": "t",
+    "status": "todo",
+    "owner": "a@example.com",
+    "created_by": "a@example.com",
+    "created_at": "2026-07-04T00:00:00.000Z",
+    "updated_at": "2026-07-04T00:01:00.000Z",
+    "status_history": [
+      {
+        "to": "todo",
+        "by": "a@example.com",
+        "ts": "2026-07-04T00:00:00.000Z"
+      }
+    ],
+    "links": [
+      {
+        "rel": "task",
+        "id": "01jzb2aaaaaaaaaaaaaaaaazza"
+      }
+    ]
+  },
+  "expected_notes": {}
+}
