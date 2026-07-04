@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ymsaki/githive/internal/app/notifyapp"
+	"github.com/ymsaki/githive/internal/app/syncapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/gitx"
@@ -74,10 +75,12 @@ func newStatusCmd() *cobra.Command {
 	}
 }
 
-// unpushedRefs compares each local refs/projects/{issue,task,chat} ref
-// against its last-known remote tracking ref (refs/githive-remote/*)
-// without fetching, so this stays a fast, network-free local summary
-// (docs/01-architecture.md「読み取り（高速路と互換路）」).
+// unpushedRefs compares each local ref among syncapp.SupportedFeatures
+// (issue/task/chat/notify) against its last-known remote tracking ref
+// (refs/githive-remote/*) without fetching, so this stays a fast,
+// network-free local summary (docs/01-architecture.md「読み取り（高速路と
+// 互換路）」). meta/config, users/registry, and wiki/main are not sync'd yet
+// (docs/13-roadmap.md P3/P4) so they are excluded here too.
 func unpushedRefs(ctx context.Context, dir string) ([]string, error) {
 	r := gitx.New(dir)
 	entries, err := r.ForEachRef(ctx, "refs/projects/")
@@ -87,11 +90,8 @@ func unpushedRefs(ctx context.Context, dir string) ([]string, error) {
 	var unpushed []string
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
-		if err != nil {
+		if err != nil || !syncapp.SupportedFeatures[parsed.Feature] {
 			continue
-		}
-		if parsed.ID == "" {
-			continue // singleton refs (meta/config, notify/stream, ...) not tracked here
 		}
 		trackingRef, err := refspace.RemoteTrackingRef(e.Ref)
 		if err != nil {

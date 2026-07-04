@@ -91,3 +91,22 @@ func TestRemoteTrackingRef(t *testing.T) {
 		t.Errorf("got %q want %q", got, want)
 	}
 }
+
+func TestLocalRefFromTrackingIsInverse(t *testing.T) {
+	original := "refs/projects/issue/" + sampleID
+	tracking, err := RemoteTrackingRef(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := LocalRefFromTracking(tracking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back != original {
+		t.Errorf("got %q want %q", back, original)
+	}
+
+	if _, err := LocalRefFromTracking("refs/heads/main"); err == nil {
+		t.Error("expected error for a ref outside refs/githive-remote/")
+	}
+}
