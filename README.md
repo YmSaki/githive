@@ -92,6 +92,11 @@ python3 spec/validate.py
 - 同期はリアルタイムではない（粒度は push/fetch）
 - 想定規模は 1〜50 人程度のプロジェクト
 
+## ライセンス
+
+MIT（[LICENSE](LICENSE)）。
+forge サーバーは将来の別リポジトリで AGPL-3.0-or-later とする予定（[ADR-0010](docs/adr/0010-licensing.md)）。
+
 ## 実装言語
 
 Go。
