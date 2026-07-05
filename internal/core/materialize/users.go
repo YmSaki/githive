@@ -232,3 +232,54 @@ func IsAdmin(s *State, email string) bool {
 	}
 	return false
 }
+
+// SignerEntry is one (principal, key) pair for an allowed_signers file.
+// RevokedAt is the ISO8601 timestamp the key was revoked at, or "" if it is
+// still active (docs/11-security.md「SSH 署名」).
+type SignerEntry struct {
+	Email     string
+	Pub       string
+	RevokedAt string
+}
+
+// AllowedSigners returns every (email, key) pair in the registry,
+// including revoked keys, sorted deterministically. Revoked keys are
+// included (rather than dropped) so that old signatures made before
+// revocation still verify cryptographically; docs/11-security.md's rule
+// "revoke 時刻より後の署名は無効（過去の署名は有効なまま）" is enforced by
+// the caller comparing a commit's timestamp against RevokedAt, not by
+// omitting the key from the file (core/sign).
+func AllowedSigners(s *State) []SignerEntry {
+	usernames := make([]string, 0, len(s.Collections["users"]))
+	for username := range s.Collections["users"] {
+		usernames = append(usernames, username)
+	}
+	sort.Strings(usernames)
+
+	var out []SignerEntry
+	for _, username := range usernames {
+		user, ok := s.Collections["users"][username].(map[string]any)
+		if !ok {
+			continue
+		}
+		emails := asStringSlice(user["emails"])
+		sort.Strings(emails)
+		for _, key := range asMapSlice(user["keys"]) {
+			pub, _ := key["pub"].(string)
+			if pub == "" {
+				continue
+			}
+			revokedAt, _ := key["revoked_at"].(string)
+			for _, email := range emails {
+				out = append(out, SignerEntry{Email: email, Pub: pub, RevokedAt: revokedAt})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Email != out[j].Email {
+			return out[i].Email < out[j].Email
+		}
+		return out[i].Pub < out[j].Pub
+	})
+	return out
+}

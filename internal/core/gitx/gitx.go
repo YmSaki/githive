@@ -222,6 +222,44 @@ func (r *Runner) ConfigSet(ctx context.Context, key, value string) error {
 	return err
 }
 
+// VerifyCommitResult is the outcome of one `git verify-commit` check.
+type VerifyCommitResult struct {
+	// Valid is true if git considers the commit's signature cryptographically
+	// good against allowedSignersFile.
+	Valid bool
+	// Output is git's combined stdout+stderr (verify-commit writes its
+	// human-readable "Good/Bad signature" report there), for diagnostics
+	// and for extracting the matched principal (docs/11-security.md
+	// 「実装上の注意」: 検証はsystem gitに委譲).
+	Output string
+}
+
+// VerifyCommit runs `git verify-commit` against commitHash using an
+// ephemeral gpg.ssh.allowedSignersFile (passed via -c, never written to the
+// repo's permanent config), per docs/11-security.md「実装上の注意」
+// (allowed_signers は一時ファイルとして都度生成し、検証後に削除する - the
+// caller owns creating/removing allowedSignersFile; this just points git at
+// it for one invocation).
+func (r *Runner) VerifyCommit(ctx context.Context, commitHash, allowedSignersFile string) (VerifyCommitResult, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir,
+		"-c", "gpg.ssh.allowedSignersFile="+allowedSignersFile,
+		"-c", "gpg.format=ssh",
+		"verify-commit", "--raw", commitHash,
+	)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	if err == nil {
+		return VerifyCommitResult{Valid: true, Output: out.String()}, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return VerifyCommitResult{Valid: false, Output: out.String()}, nil
+	}
+	return VerifyCommitResult{}, fmt.Errorf("gitx: git verify-commit: %w", err)
+}
+
 // UpdateRef performs a compare-and-swap ref update: it succeeds only if ref
 // currently points at oldOID (use ZeroOID for "must not exist yet").
 // (docs/03-sync-and-concurrency.md「クラッシュ安全性とローカル競合」).
