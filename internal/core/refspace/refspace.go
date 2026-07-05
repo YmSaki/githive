@@ -131,3 +131,17 @@ func RemoteTrackingRef(ref string) (string, error) {
 	}
 	return RemoteTrackingRoot + "/" + rest, nil
 }
+
+// LocalRefFromTracking is RemoteTrackingRef's inverse: it maps a
+// refs/githive-remote/... ref back to its refs/projects/... counterpart.
+// Sync uses this to discover entities that exist only on the remote (e.g.
+// an issue another clone created) so they can be fast-forwarded in, not
+// just refresh refs this clone already has locally
+// (docs/03-sync-and-concurrency.md「sync のアルゴリズム」).
+func LocalRefFromTracking(trackingRef string) (string, error) {
+	rest, ok := strings.CutPrefix(trackingRef, RemoteTrackingRoot+"/")
+	if !ok {
+		return "", fmt.Errorf("refspace: ref %q is not under %s/", trackingRef, RemoteTrackingRoot)
+	}
+	return Root + "/" + rest, nil
+}

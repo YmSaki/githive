@@ -1,4 +1,4 @@
-package issueapp
+package taskapp
 
 import (
 	"context"
@@ -19,8 +19,7 @@ import (
 const minIDPrefixLen = 8
 
 // ResolveID resolves a full or shortened (>=8 char) ULID to the full ID of
-// exactly one existing issue. Returns *AmbiguousIDError if more than one
-// issue matches, or ErrNotFound if none do.
+// exactly one existing task.
 func (s *Service) ResolveID(ctx context.Context, prefix string) (string, error) {
 	if event.IsValidULID(prefix) {
 		r := gitx.New(s.Dir)
@@ -34,7 +33,7 @@ func (s *Service) ResolveID(ctx context.Context, prefix string) (string, error) 
 		return prefix, nil
 	}
 	if len(prefix) < minIDPrefixLen {
-		return "", fmt.Errorf("issueapp: id prefix %q is shorter than %d characters", prefix, minIDPrefixLen)
+		return "", fmt.Errorf("taskapp: id prefix %q is shorter than %d characters", prefix, minIDPrefixLen)
 	}
 
 	ids, err := s.listIDs(ctx)
@@ -60,14 +59,14 @@ func (s *Service) ResolveID(ctx context.Context, prefix string) (string, error) 
 
 func (s *Service) listIDs(ctx context.Context) ([]string, error) {
 	r := gitx.New(s.Dir)
-	entries, err := r.ForEachRef(ctx, "refs/projects/issue/")
+	entries, err := r.ForEachRef(ctx, "refs/projects/task/")
 	if err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(entries))
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
-		if err != nil || parsed.Feature != refspace.FeatureIssue {
+		if err != nil || parsed.Feature != refspace.FeatureTask {
 			continue
 		}
 		ids = append(ids, parsed.ID)
@@ -75,19 +74,20 @@ func (s *Service) listIDs(ctx context.Context) ([]string, error) {
 	return ids, nil
 }
 
-// ListFilter narrows List results. Zero value means "no filter".
+// ListFilter narrows List results. Zero value means "no filter". Mine, when
+// set, matches meta.owner against actorEmail.
 type ListFilter struct {
-	Status   string
-	Label    string
-	Assignee string
+	Status     string
+	Owner      string
+	Mine       bool
+	ActorEmail string
 }
 
-// List returns a snapshot summary of every issue, using the fast
-// snapshot-read path (meta.json at the ref head) rather than a full
-// history fold (docs/01-architecture.md「読み取り（高速路と互換路）」).
+// List returns a snapshot summary of every task, using the fast
+// snapshot-read path (meta.json at the ref head).
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 	r := gitx.New(s.Dir)
-	entries, err := r.ForEachRef(ctx, "refs/projects/issue/")
+	entries, err := r.ForEachRef(ctx, "refs/projects/task/")
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 	var out []Meta
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
-		if err != nil || parsed.Feature != refspace.FeatureIssue {
+		if err != nil || parsed.Feature != refspace.FeatureTask {
 			continue
 		}
 		files, err := chain.ReadTree(repo, plumbing.NewHash(e.OID))
@@ -112,7 +112,7 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 		}
 		decoded, err := event.DecodeGeneric(metaRaw)
 		if err != nil {
-			return nil, fmt.Errorf("issueapp: decode %s meta.json: %w", parsed.ID, err)
+			return nil, fmt.Errorf("taskapp: decode %s meta.json: %w", parsed.ID, err)
 		}
 		meta, ok := decoded.(map[string]any)
 		if !ok {
@@ -135,35 +135,17 @@ func matchesFilter(meta Meta, filter ListFilter) bool {
 			return false
 		}
 	}
-	if filter.Label != "" {
-		if !containsString(meta["labels"], filter.Label) {
-			return false
-		}
+	owner, _ := meta["owner"].(string)
+	if filter.Owner != "" && owner != filter.Owner {
+		return false
 	}
-	if filter.Assignee != "" {
-		if !containsString(meta["assignees"], filter.Assignee) {
-			return false
-		}
+	if filter.Mine && owner != filter.ActorEmail {
+		return false
 	}
 	return true
 }
 
-func containsString(v any, want string) bool {
-	arr, ok := v.([]any)
-	if !ok {
-		return false
-	}
-	for _, item := range arr {
-		if s, ok := item.(string); ok && s == want {
-			return true
-		}
-	}
-	return false
-}
-
-// Show returns the full state of one issue (meta, body, comments),
-// reconstructed by folding the issue's complete event history
-// (docs/01-architecture.md「イベント読み」).
+// Show returns the full state of one task (meta, body, notes).
 func (s *Service) Show(ctx context.Context, id string) (*Show, error) {
 	state, err := s.writer.Fold(ctx, id)
 	if err != nil {
@@ -185,12 +167,12 @@ func (s *Service) Show(ctx context.Context, id string) (*Show, error) {
 		metaCopy[k] = v
 	}
 
-	var comments []Comment
-	for _, cid := range sortedCommentIDs(state.Collections["comments"]) {
-		if c, ok := state.Collections["comments"][cid].(map[string]any); ok {
-			comments = append(comments, c)
+	var notes []Note
+	for _, nid := range sortedNoteIDs(state.Collections["notes"]) {
+		if n, ok := state.Collections["notes"][nid].(map[string]any); ok {
+			notes = append(notes, n)
 		}
 	}
 
-	return &Show{Meta: metaCopy, Body: body, Comments: comments}, nil
+	return &Show{Meta: metaCopy, Body: body, Notes: notes}, nil
 }

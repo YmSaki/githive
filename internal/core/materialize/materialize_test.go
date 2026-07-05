@@ -132,6 +132,22 @@ func canonicalOf(t *testing.T, v any) string {
 	return s
 }
 
+// canonicalStateSignature renders a fold State's Meta plus every
+// Collection into one canonical JSON string, for order-invariance tests
+// that just need to compare "did this fold produce the same result" rather
+// than inspect individual fields.
+func canonicalStateSignature(t *testing.T, s *State) string {
+	t.Helper()
+	collections := make(map[string]any, len(s.Collections))
+	for name, coll := range s.Collections {
+		collections[name] = map[string]any(coll)
+	}
+	return canonicalOf(t, map[string]any{
+		"meta":        metaAsAny(s.Meta),
+		"collections": collections,
+	})
+}
+
 func metaAsAny(meta map[string]any) any {
 	if meta == nil {
 		return nil

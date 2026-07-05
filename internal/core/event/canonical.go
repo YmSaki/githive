@@ -292,6 +292,118 @@ func encodeArray(b *strings.Builder, arr []any, indent int) error {
 	return nil
 }
 
+// EncodeCompactLine renders v as a single-line canonical JSON object/value:
+// same key ordering, escaping, and number rules as Encode, but with no
+// indentation or newlines and no trailing newline. This exists for formats
+// that need one-record-per-line JSON (e.g. notify's events/*.jsonl,
+// docs/features/notify.md「ref とツリー」: "1 行 1 通知") - grep-ability
+// requires a single line per record, which Encode's pretty-printed, always
+// multi-line output cannot provide. It reuses the same value/string/number
+// encoding as Encode so there is still exactly one canonical JSON
+// implementation (docs/13-roadmap.md 手戻りリスク表), just two renderings
+// of it (pretty vs. compact).
+func EncodeCompactLine(v any) (string, error) {
+	var b strings.Builder
+	if err := encodeValueCompact(&b, v); err != nil {
+		return "", err
+	}
+	return b.String(), nil
+}
+
+func encodeValueCompact(b *strings.Builder, v any) error {
+	switch x := v.(type) {
+	case nil:
+		b.WriteString("null")
+		return nil
+	case bool:
+		if x {
+			b.WriteString("true")
+		} else {
+			b.WriteString("false")
+		}
+		return nil
+	case string:
+		encodeStringValue(b, x)
+		return nil
+	case json.Number:
+		s, err := encodeJSONNumber(x)
+		if err != nil {
+			return err
+		}
+		b.WriteString(s)
+		return nil
+	case int:
+		b.WriteString(strconv.Itoa(x))
+		return nil
+	case int64:
+		b.WriteString(strconv.FormatInt(x, 10))
+		return nil
+	case float64:
+		s, err := encodeFloat(x)
+		if err != nil {
+			return err
+		}
+		b.WriteString(s)
+		return nil
+	case map[string]any:
+		return encodeObjectCompact(b, x)
+	case []any:
+		return encodeArrayCompact(b, x)
+	case []string:
+		arr := make([]any, len(x))
+		for i, s := range x {
+			arr[i] = s
+		}
+		return encodeArrayCompact(b, arr)
+	default:
+		return encodeErrorf("unsupported type: %T", v)
+	}
+}
+
+func encodeObjectCompact(b *strings.Builder, obj map[string]any) error {
+	if len(obj) == 0 {
+		b.WriteString("{}")
+		return nil
+	}
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	b.WriteByte('{')
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		encodeStringValue(b, k)
+		b.WriteString(": ")
+		if err := encodeValueCompact(b, obj[k]); err != nil {
+			return err
+		}
+	}
+	b.WriteByte('}')
+	return nil
+}
+
+func encodeArrayCompact(b *strings.Builder, arr []any) error {
+	if len(arr) == 0 {
+		b.WriteString("[]")
+		return nil
+	}
+	b.WriteByte('[')
+	for i, v := range arr {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		if err := encodeValueCompact(b, v); err != nil {
+			return err
+		}
+	}
+	b.WriteByte(']')
+	return nil
+}
+
 // DecodeGeneric parses raw JSON into canonical Go values (map[string]any,
 // []any, json.Number, string, bool, nil), preserving number literals so that
 // re-encoding via Encode round-trips through the same canonical form.

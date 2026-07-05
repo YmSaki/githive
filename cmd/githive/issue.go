@@ -10,6 +10,7 @@ import (
 
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/cliout"
+	"github.com/ymsaki/githive/internal/core/identity"
 )
 
 func newIssueCmd() *cobra.Command {
@@ -182,7 +183,31 @@ func newIssueCommentCmd() *cobra.Command {
 			if err := svc.Comment(ctx, id, message, replyTo, supersedes); err != nil {
 				return err
 			}
+			var warnStrings []string
+			if replyTo != "" {
+				// Notify the author being replied to, unless they are
+				// replying to themselves (docs/features/notify.md「自動通知」).
+				if show, showErr := svc.Show(ctx, id); showErr == nil {
+					selfEmail := ""
+					if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
+						selfEmail = sig.Email
+					}
+					for _, c := range show.Comments {
+						if c["id"] == replyTo {
+							if author, ok := c["author"].(string); ok && author != "" && author != selfEmail {
+								warnStrings = append(warnStrings, autoNotify(ctx, dir, "user:"+author,
+									fmt.Sprintf("issue %s にコメントが返信されました", shortID(id)),
+									map[string]any{"kind": "issue", "id": id})...)
+							}
+							break
+						}
+					}
+				}
+			}
 			warnings := syncIfEnabled(dir, issueRef(id))
+			for _, w := range warnStrings {
+				warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})
+			}
 			if flags.json {
 				cliout.PrintSuccess(nil, warnings)
 				return nil
@@ -303,7 +328,53 @@ func newIssueAssignCmd() *cobra.Command {
 		Short: "Add/remove assignees",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSetOp(args[0], add, remove, (*issueapp.Service).Assign)
+			dir, err := repoDir()
+			if err != nil {
+				return err
+			}
+			svc := issueapp.New(dir)
+			ctx := context.Background()
+			id, err := resolveIssueID(ctx, svc, args[0])
+			if err != nil {
+				return err
+			}
+			// Snapshot assignees before the change so we only notify
+			// genuinely new assignees, not people re-added who were
+			// already assigned (docs/features/notify.md「自動通知」).
+			before, showErr := svc.Show(ctx, id)
+			alreadyAssigned := map[string]bool{}
+			if showErr == nil {
+				for _, a := range asStringSliceAny(before.Meta["assignees"]) {
+					alreadyAssigned[a] = true
+				}
+			}
+
+			if err := svc.Assign(ctx, id, add, remove); err != nil {
+				return err
+			}
+
+			var warnings []cliout.Warning
+			selfEmail := ""
+			if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
+				selfEmail = sig.Email
+			}
+			for _, assignee := range add {
+				if assignee == selfEmail || alreadyAssigned[assignee] {
+					continue // don't notify yourself, or re-notify an existing assignee
+				}
+				for _, w := range autoNotify(ctx, dir, "user:"+assignee,
+					fmt.Sprintf("issue %s の担当になりました", shortID(id)),
+					map[string]any{"kind": "issue", "id": id}) {
+					warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})
+				}
+			}
+			warnings = append(warnings, syncIfEnabled(dir, issueRef(id))...)
+			if flags.json {
+				cliout.PrintSuccess(nil, warnings)
+				return nil
+			}
+			printWarnings(warnings)
+			return nil
 		},
 	}
 	cmd.Flags().StringSliceVar(&add, "add", nil, "assignees to add")
@@ -391,4 +462,20 @@ func readFile(path string) (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(string(data), "\n"), nil
+}
+
+// asStringSliceAny converts a decoded JSON []any of strings (as found in a
+// fold's meta map, e.g. "assignees") into a []string.
+func asStringSliceAny(v any) []string {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }

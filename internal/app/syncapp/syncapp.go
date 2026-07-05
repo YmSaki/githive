@@ -10,7 +10,10 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/ymsaki/githive/internal/app/chatapp"
 	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/app/notifyapp"
+	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
@@ -44,13 +47,31 @@ type Result struct {
 // simply be re-run.
 var ErrRetriesExhausted = errors.New("syncapp: push retries exhausted")
 
+// SupportedFeatures lists the features sync can fetch/merge/push today:
+// issue/task/chat (per-entity refs) and notify (the single notify/stream
+// ref - event-union merge works identically for a singleton stream, since
+// it is just union-then-fold like any other ref). users/wiki are not yet
+// wired up (docs/13-roadmap.md P3/P4). cmd/githive's `sync` and `status`
+// commands both use this so the set of synced refs stays in one place.
+var SupportedFeatures = map[refspace.Feature]bool{
+	refspace.FeatureIssue:  true,
+	refspace.FeatureTask:   true,
+	refspace.FeatureChat:   true,
+	refspace.FeatureNotify: true,
+}
+
 // registryAndWriter returns the fold registry and tree writer for a
-// feature. Only issue is wired up in P1; other features return an error
-// until their app-layer package exists (docs/13-roadmap.md P2/P3).
+// feature.
 func registryAndWriter(feature refspace.Feature) (*materialize.Registry, func(*materialize.State) (map[string][]byte, error), error) {
 	switch feature {
 	case refspace.FeatureIssue:
 		return materialize.IssueRegistry, issueapp.TreeFiles, nil
+	case refspace.FeatureTask:
+		return materialize.TaskRegistry, taskapp.TreeFiles, nil
+	case refspace.FeatureChat:
+		return materialize.ChatRegistry, chatapp.TreeFiles, nil
+	case refspace.FeatureNotify:
+		return materialize.NotifyRegistry, notifyapp.TreeFiles, nil
 	default:
 		return nil, nil, fmt.Errorf("syncapp: feature %q is not yet supported by sync", feature)
 	}

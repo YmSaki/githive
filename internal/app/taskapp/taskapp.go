@@ -1,4 +1,4 @@
-package issueapp
+package taskapp
 
 import (
 	"context"
@@ -14,42 +14,41 @@ import (
 	"github.com/ymsaki/githive/internal/core/materialize"
 )
 
-// ErrIdentityNotConfigured means git's user.email is unset
-// (docs/02-data-model.md「actor」: 未設定ならエラー、終了コード 5).
+// ErrIdentityNotConfigured means git's user.email is unset.
 var ErrIdentityNotConfigured = identity.ErrNotConfigured
 
-// ErrNotFound means no issue ref matched the given ID/prefix.
-var ErrNotFound = errors.New("issueapp: issue not found")
+// ErrNotFound means no task ref matched the given ID/prefix.
+var ErrNotFound = errors.New("taskapp: task not found")
 
 // ErrRetriesExhausted means a local CAS write kept losing to concurrent
 // writers (docs/03-sync-and-concurrency.md「クラッシュ安全性とローカル競合」).
 var ErrRetriesExhausted = entitychain.ErrRetriesExhausted
 
 // AmbiguousIDError is returned when a short ID prefix matches more than one
-// issue (docs/10-cli-spec.md「ID の入力解決」).
+// task (docs/10-cli-spec.md「ID の入力解決」).
 type AmbiguousIDError struct {
 	Prefix     string
 	Candidates []string
 }
 
 func (e *AmbiguousIDError) Error() string {
-	return fmt.Sprintf("issueapp: ambiguous id prefix %q matches %d issues", e.Prefix, len(e.Candidates))
+	return fmt.Sprintf("taskapp: ambiguous id prefix %q matches %d tasks", e.Prefix, len(e.Candidates))
 }
 
 // Meta is a convenience alias for the fold's meta.json-shaped map.
 type Meta = map[string]any
 
-// Comment is one folded comment.
-type Comment = map[string]any
+// Note is one folded note.
+type Note = map[string]any
 
-// Show is the full read result for githive issue show.
+// Show is the full read result for githive task show.
 type Show struct {
-	Meta     Meta
-	Body     string
-	Comments []Comment
+	Meta  Meta
+	Body  string
+	Notes []Note
 }
 
-// Service operates on issues within a single repository directory.
+// Service operates on tasks within a single repository directory.
 type Service struct {
 	Dir    string
 	writer *entitychain.Writer
@@ -62,7 +61,7 @@ func New(dir string) *Service {
 		writer: &entitychain.Writer{
 			Dir:         dir,
 			RefFor:      refFor,
-			Registry:    materialize.IssueRegistry,
+			Registry:    materialize.TaskRegistry,
 			TreeFiles:   TreeFiles,
 			NotFoundErr: ErrNotFound,
 		},
@@ -70,35 +69,33 @@ func New(dir string) *Service {
 }
 
 func refFor(id string) plumbing.ReferenceName {
-	return plumbing.ReferenceName("refs/projects/issue/" + id)
+	return plumbing.ReferenceName("refs/projects/task/" + id)
 }
 
-// currentEvents returns every event in the issue's chain (empty if the
-// issue does not exist yet) along with the ref's current OID.
-func (s *Service) currentEvents(ctx context.Context, id string) ([]*event.Envelope, string, error) {
-	return s.writer.CurrentEvents(ctx, id)
-}
-
-// NewIssue creates a new issue and returns its ID.
-func (s *Service) NewIssue(ctx context.Context, title, body string, labels, assignees []string) (string, error) {
+// NewTask creates a new task and returns its ID. owner defaults to the
+// actor if empty (docs/features/task.md「イベント定義」).
+func (s *Service) NewTask(ctx context.Context, title, body, owner, due, priority string) (string, error) {
 	id := idgen.New()
 	data := map[string]any{"title": title}
 	if body != "" {
 		data["body"] = body
 	}
-	if len(labels) > 0 {
-		data["labels"] = toAnySlice(labels)
+	if owner != "" {
+		data["owner"] = owner
 	}
-	if len(assignees) > 0 {
-		data["assignees"] = toAnySlice(assignees)
+	if due != "" {
+		data["due"] = due
+	}
+	if priority != "" {
+		data["priority"] = priority
 	}
 
 	_, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
-			V: 1, Kind: "issue.create", ID: eid, TS: ts,
+			V: 1, Kind: "task.create", ID: eid, TS: ts,
 			Entity: id, Data: data, Extra: map[string]any{},
-		}, "issue.create: " + title
+		}, "task.create: " + title
 	})
 	if err != nil {
 		return "", err

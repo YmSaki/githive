@@ -1,4 +1,4 @@
-package issueapp
+package chatapp
 
 import (
 	"context"
@@ -15,12 +15,11 @@ import (
 )
 
 // minIDPrefixLen is the shortest ID prefix githive resolves by itself
-// (docs/10-cli-spec.md「ID の入力解決」: 先頭 8 文字以上の前方一致).
+// (docs/10-cli-spec.md「ID の入力解決」).
 const minIDPrefixLen = 8
 
 // ResolveID resolves a full or shortened (>=8 char) ULID to the full ID of
-// exactly one existing issue. Returns *AmbiguousIDError if more than one
-// issue matches, or ErrNotFound if none do.
+// exactly one existing chat thread.
 func (s *Service) ResolveID(ctx context.Context, prefix string) (string, error) {
 	if event.IsValidULID(prefix) {
 		r := gitx.New(s.Dir)
@@ -34,7 +33,7 @@ func (s *Service) ResolveID(ctx context.Context, prefix string) (string, error) 
 		return prefix, nil
 	}
 	if len(prefix) < minIDPrefixLen {
-		return "", fmt.Errorf("issueapp: id prefix %q is shorter than %d characters", prefix, minIDPrefixLen)
+		return "", fmt.Errorf("chatapp: id prefix %q is shorter than %d characters", prefix, minIDPrefixLen)
 	}
 
 	ids, err := s.listIDs(ctx)
@@ -60,14 +59,14 @@ func (s *Service) ResolveID(ctx context.Context, prefix string) (string, error) 
 
 func (s *Service) listIDs(ctx context.Context) ([]string, error) {
 	r := gitx.New(s.Dir)
-	entries, err := r.ForEachRef(ctx, "refs/projects/issue/")
+	entries, err := r.ForEachRef(ctx, "refs/projects/chat/")
 	if err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(entries))
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
-		if err != nil || parsed.Feature != refspace.FeatureIssue {
+		if err != nil || parsed.Feature != refspace.FeatureChat {
 			continue
 		}
 		ids = append(ids, parsed.ID)
@@ -77,17 +76,14 @@ func (s *Service) listIDs(ctx context.Context) ([]string, error) {
 
 // ListFilter narrows List results. Zero value means "no filter".
 type ListFilter struct {
-	Status   string
-	Label    string
-	Assignee string
+	Status string
 }
 
-// List returns a snapshot summary of every issue, using the fast
-// snapshot-read path (meta.json at the ref head) rather than a full
-// history fold (docs/01-architecture.md「読み取り（高速路と互換路）」).
+// List returns a snapshot summary of every chat thread, using the fast
+// snapshot-read path (meta.json at the ref head).
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 	r := gitx.New(s.Dir)
-	entries, err := r.ForEachRef(ctx, "refs/projects/issue/")
+	entries, err := r.ForEachRef(ctx, "refs/projects/chat/")
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +95,7 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 	var out []Meta
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
-		if err != nil || parsed.Feature != refspace.FeatureIssue {
+		if err != nil || parsed.Feature != refspace.FeatureChat {
 			continue
 		}
 		files, err := chain.ReadTree(repo, plumbing.NewHash(e.OID))
@@ -112,14 +108,16 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 		}
 		decoded, err := event.DecodeGeneric(metaRaw)
 		if err != nil {
-			return nil, fmt.Errorf("issueapp: decode %s meta.json: %w", parsed.ID, err)
+			return nil, fmt.Errorf("chatapp: decode %s meta.json: %w", parsed.ID, err)
 		}
 		meta, ok := decoded.(map[string]any)
 		if !ok {
 			continue
 		}
-		if !matchesFilter(meta, filter) {
-			continue
+		if filter.Status != "" {
+			if st, _ := meta["status"].(string); st != filter.Status {
+				continue
+			}
 		}
 		out = append(out, meta)
 	}
@@ -129,41 +127,7 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 	return out, nil
 }
 
-func matchesFilter(meta Meta, filter ListFilter) bool {
-	if filter.Status != "" {
-		if s, _ := meta["status"].(string); s != filter.Status {
-			return false
-		}
-	}
-	if filter.Label != "" {
-		if !containsString(meta["labels"], filter.Label) {
-			return false
-		}
-	}
-	if filter.Assignee != "" {
-		if !containsString(meta["assignees"], filter.Assignee) {
-			return false
-		}
-	}
-	return true
-}
-
-func containsString(v any, want string) bool {
-	arr, ok := v.([]any)
-	if !ok {
-		return false
-	}
-	for _, item := range arr {
-		if s, ok := item.(string); ok && s == want {
-			return true
-		}
-	}
-	return false
-}
-
-// Show returns the full state of one issue (meta, body, comments),
-// reconstructed by folding the issue's complete event history
-// (docs/01-architecture.md「イベント読み」).
+// Show returns the full state of one chat thread (meta, messages).
 func (s *Service) Show(ctx context.Context, id string) (*Show, error) {
 	state, err := s.writer.Fold(ctx, id)
 	if err != nil {
@@ -173,24 +137,12 @@ func (s *Service) Show(ctx context.Context, id string) (*Show, error) {
 		return nil, ErrNotFound
 	}
 
-	metaCopy := make(map[string]any, len(state.Meta))
-	body := ""
-	for k, v := range state.Meta {
-		if k == "body" {
-			if b, ok := v.(string); ok {
-				body = b
-			}
-			continue
-		}
-		metaCopy[k] = v
-	}
-
-	var comments []Comment
-	for _, cid := range sortedCommentIDs(state.Collections["comments"]) {
-		if c, ok := state.Collections["comments"][cid].(map[string]any); ok {
-			comments = append(comments, c)
+	var messages []Message
+	for _, mid := range sortedMessageIDs(state.Collections["messages"]) {
+		if m, ok := state.Collections["messages"][mid].(map[string]any); ok {
+			messages = append(messages, m)
 		}
 	}
 
-	return &Show{Meta: metaCopy, Body: body, Comments: comments}, nil
+	return &Show{Meta: state.Meta, Messages: messages}, nil
 }

@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Service) mutate(ctx context.Context, id, kind, summary string, data map[string]any) error {
-	_, err := s.appendEvent(ctx, id, func() (*event.Envelope, string) {
+	_, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
 			V: 1, Kind: kind, ID: eid, TS: ts,
@@ -37,7 +37,7 @@ func (s *Service) Comment(ctx context.Context, id, body, replyTo, supersedes str
 // (docs/features/issue.md「ステータス機械」: 不正な遷移イベントは fold 時に
 // 無視する。エラーにせず検証コマンドで警告する).
 func (s *Service) Status(ctx context.Context, id, to string) (ok bool, err error) {
-	state, err := s.appendEvent(ctx, id, func() (*event.Envelope, string) {
+	state, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
 			V: 1, Kind: "issue.status", ID: eid, TS: ts,
