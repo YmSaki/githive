@@ -12,6 +12,8 @@ package entitychain
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"sync"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
@@ -27,6 +29,27 @@ import (
 var ErrRetriesExhausted = errors.New("entitychain: local ref update retries exhausted")
 
 const defaultRetries = 10
+
+// writeLocks serializes Append calls that target the same repository
+// directory, across all Writer instances and features. This is purely an
+// in-process safeguard: go-git's loose-object writer (temp file + rename)
+// is not safe against concurrent goroutines writing into the same
+// repository - on Windows this fails outright ("Access is denied" on the
+// rename) rather than merely racing. Cross-process concurrency (e.g. two
+// separate `githive` invocations, docs/03-sync-and-concurrency.md「クラッ
+// シュ安全性とローカル競合」) is unaffected and continues to rely on git's
+// atomic compare-and-swap ref update, since other processes have their own
+// independent lock table.
+var writeLocks sync.Map // map[string]*sync.Mutex
+
+func lockFor(dir string) *sync.Mutex {
+	key := dir
+	if abs, err := filepath.Abs(dir); err == nil {
+		key = abs
+	}
+	v, _ := writeLocks.LoadOrStore(key, &sync.Mutex{})
+	return v.(*sync.Mutex)
+}
 
 // Writer drives reads and CAS-safe writes for one feature's ref(s).
 type Writer struct {
@@ -73,6 +96,10 @@ func (w *Writer) CurrentEvents(ctx context.Context, id string) (events []*event.
 // the resulting fold state so callers can detect no-op writes (e.g. an
 // invalid status transition, which fold silently ignores).
 func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*event.Envelope, string)) (*materialize.State, error) {
+	mu := lockFor(w.Dir)
+	mu.Lock()
+	defer mu.Unlock()
+
 	r := gitx.New(w.Dir)
 	repo, err := chain.OpenRepository(w.Dir)
 	if err != nil {
