@@ -24,10 +24,22 @@
 // unlike the CLI, which turns a failed verification into an error envelope
 // with exit code 4. MCP tools have no exit-code channel, so failures are
 // represented in the structured data instead of as a protocol-level error.
+//
+// Concurrency: an MCP client may pipeline several tool calls without
+// waiting for each response, so two write tools can genuinely execute
+// concurrently against the same repository. This is already safe: every
+// write goes through internal/app/entitychain.Writer.Append, which takes a
+// process-wide, per-repository-directory mutex around its whole
+// read-fold-commit-CAS-advance critical section (added for the same
+// reason multiple goroutines writing concurrently within one process isn't
+// safe on Windows - see that package's writeLocks). Two tool calls
+// targeting the same repo simply serialize through that lock; they do not
+// race or corrupt each other's writes.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -239,7 +251,12 @@ func registerIssueTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "issue_list", Description: "List issues (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args issueListParams) (*mcp.CallToolResult, map[string]any, error) {
-			items, err := issueapp.New(dir).List(ctx, issueapp.ListFilter{Status: args.Status, Label: args.Label, Assignee: args.Assignee})
+			// Resolve assignee the same way issue_new/issue_assign resolve
+			// their person args, so filtering by the username you just
+			// assigned someone with actually matches (leniently: an
+			// unknown name just filters to nothing, as it always did).
+			assignee := resolveUserRefLenient(ctx, dir, args.Assignee)
+			items, err := issueapp.New(dir).List(ctx, issueapp.ListFilter{Status: args.Status, Label: args.Label, Assignee: assignee})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -452,7 +469,10 @@ func registerTaskTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "task_list", Description: "List tasks (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args taskListParams) (*mcp.CallToolResult, map[string]any, error) {
-			filter := taskapp.ListFilter{Status: args.Status, Owner: args.Owner, Mine: args.Mine}
+			// See issue_list's comment: resolve owner the same way task_new/
+			// task_reassign resolve it, leniently.
+			owner := resolveUserRefLenient(ctx, dir, args.Owner)
+			filter := taskapp.ListFilter{Status: args.Status, Owner: owner, Mine: args.Mine}
 			if args.Mine {
 				sig, err := identity.Resolve(ctx, dir)
 				if err != nil {
@@ -749,6 +769,11 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 				}
 			}
 			if len(ids) == 0 {
+				if args.All {
+					// An Agent acking defensively ("clear my inbox") with
+					// nothing unread is a no-op success, not an error.
+					return nil, map[string]any{"acked": []any{}}, nil
+				}
 				return nil, nil, fmt.Errorf("notify_ack: no event ids given (pass ids or all=true)")
 			}
 			if err := svc.Ack(ctx, ids); err != nil {
@@ -839,11 +864,13 @@ func registerUsersTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "users_key_add", Description: "Register an SSH public key for a user"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args usersKeyParams) (*mcp.CallToolResult, map[string]any, error) {
-			key, err := resolveKeyArg(args.Pub)
-			if err != nil {
-				return nil, nil, err
+			// Unlike the CLI's --pub (which also accepts a file path),
+			// pub here must be a literal key line - see
+			// looksLikeSSHPublicKey's doc comment for why.
+			if !looksLikeSSHPublicKey(args.Pub) {
+				return nil, nil, fmt.Errorf("users_key_add: pub must be a literal SSH public key line (\"<type> <base64-data> [comment]\"), not a file path")
 			}
-			if err := usersapp.New(dir).KeyAdd(ctx, args.Name, key); err != nil {
+			if err := usersapp.New(dir).KeyAdd(ctx, args.Name, args.Pub); err != nil {
 				return nil, nil, err
 			}
 			return nil, map[string]any{}, nil
@@ -851,11 +878,10 @@ func registerUsersTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "users_key_revoke", Description: "Revoke a user's SSH public key"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args usersKeyParams) (*mcp.CallToolResult, map[string]any, error) {
-			key, err := resolveKeyArg(args.Pub)
-			if err != nil {
-				return nil, nil, err
+			if !looksLikeSSHPublicKey(args.Pub) {
+				return nil, nil, fmt.Errorf("users_key_revoke: pub must be a literal SSH public key line (\"<type> <base64-data> [comment]\"), not a file path")
 			}
-			if err := usersapp.New(dir).KeyRevoke(ctx, args.Name, key); err != nil {
+			if err := usersapp.New(dir).KeyRevoke(ctx, args.Name, args.Pub); err != nil {
 				return nil, nil, err
 			}
 			return nil, map[string]any{}, nil
@@ -1018,7 +1044,7 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 // し、wiki の githive: リンクと対応させる」), each returning the same JSON
 // shape as its *_show tool.
 func registerMcpResources(server *mcp.Server, dir string) {
-	registerShowResource(server, dir, "issue", "githive://issue/{id}", func(ctx context.Context, id string) (any, error) {
+	registerShowResource(server, dir, "issue", "githive://issue/{id}", issueapp.ErrNotFound, func(ctx context.Context, id string) (any, error) {
 		svc := issueapp.New(dir)
 		resolved, err := svc.ResolveID(ctx, id)
 		if err != nil {
@@ -1034,7 +1060,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		}
 		return map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, nil
 	})
-	registerShowResource(server, dir, "task", "githive://task/{id}", func(ctx context.Context, id string) (any, error) {
+	registerShowResource(server, dir, "task", "githive://task/{id}", taskapp.ErrNotFound, func(ctx context.Context, id string) (any, error) {
 		svc := taskapp.New(dir)
 		resolved, err := svc.ResolveID(ctx, id)
 		if err != nil {
@@ -1050,7 +1076,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		}
 		return map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, nil
 	})
-	registerShowResource(server, dir, "chat", "githive://chat/{id}", func(ctx context.Context, id string) (any, error) {
+	registerShowResource(server, dir, "chat", "githive://chat/{id}", chatapp.ErrNotFound, func(ctx context.Context, id string) (any, error) {
 		svc := chatapp.New(dir)
 		resolved, err := svc.ResolveID(ctx, id)
 		if err != nil {
@@ -1068,7 +1094,13 @@ func registerMcpResources(server *mcp.Server, dir string) {
 	})
 }
 
-func registerShowResource(server *mcp.Server, dir, feature, uriTemplate string, show func(ctx context.Context, id string) (any, error)) {
+// registerShowResource wires one githive://<feature>/<id> resource
+// template. notFoundErr is the feature's own "no such entity" sentinel
+// (e.g. issueapp.ErrNotFound) - only that specific error is translated to
+// the MCP protocol's ResourceNotFoundError; anything else (an ambiguous id
+// prefix, a git-level failure) is returned as-is, so a real failure isn't
+// misreported as "this resource doesn't exist".
+func registerShowResource(server *mcp.Server, dir, feature, uriTemplate string, notFoundErr error, show func(ctx context.Context, id string) (any, error)) {
 	prefix := "githive://" + feature + "/"
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
 		Name:        feature,
@@ -1083,7 +1115,10 @@ func registerShowResource(server *mcp.Server, dir, feature, uriTemplate string, 
 		}
 		data, err := show(ctx, id)
 		if err != nil {
-			return nil, mcp.ResourceNotFoundError(uri)
+			if errors.Is(err, notFoundErr) {
+				return nil, mcp.ResourceNotFoundError(uri)
+			}
+			return nil, err
 		}
 		encoded, err := event.Encode(data)
 		if err != nil {

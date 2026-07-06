@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -264,5 +267,132 @@ func TestMcpIssueListPagination(t *testing.T) {
 	}
 	if len(seen) != total {
 		t.Fatalf("expected to see all %d issues across pages, got %d", total, len(seen))
+	}
+}
+
+// TestMcpIssueListFiltersByUsername covers a review finding: issue_new
+// resolves "assignees" from username to email, but issue_list's "assignee"
+// filter used to compare against the filter's raw value without the same
+// resolution, so filtering by the username you just assigned someone with
+// silently matched nothing.
+func TestMcpIssueListFiltersByUsername(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+	session := newMcpTestSession(t, dir)
+
+	callMcpTool(t, session, "users_add", map[string]any{"name": "bob", "email": "bob@example.com"})
+	callMcpTool(t, session, "issue_new", map[string]any{"title": "t1", "assignees": []any{"bob"}})
+
+	byUsername := callMcpTool(t, session, "issue_list", map[string]any{"assignee": "bob"})
+	if total, _ := byUsername["total"].(float64); total != 1 {
+		t.Fatalf("expected filtering by username 'bob' to find 1 issue, got %+v", byUsername)
+	}
+
+	// An unknown name should filter to nothing rather than erroring the
+	// whole list call.
+	byUnknown := callMcpTool(t, session, "issue_list", map[string]any{"assignee": "nobody"})
+	if total, _ := byUnknown["total"].(float64); total != 0 {
+		t.Fatalf("expected filtering by an unregistered name to find 0 issues, got %+v", byUnknown)
+	}
+}
+
+// TestMcpUsersKeyAddRejectsNonKeyInput covers a review finding: the CLI's
+// --pub flag treats its argument as a file path if one exists and reads it,
+// which is fine for an operator on their own machine but would let an MCP
+// caller drive an arbitrary server-side file read (e.g. pointing pub at
+// ~/.ssh/id_ed25519 and reading it back via users_list). users_key_add must
+// reject anything that isn't a literal "<type> <base64> [comment]" key
+// line, including something that happens to be a real file path.
+func TestMcpUsersKeyAddRejectsNonKeyInput(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+	session := newMcpTestSession(t, dir)
+	callMcpTool(t, session, "users_add", map[string]any{"name": "alice", "email": "cli@example.com"})
+
+	notAKeyFile := filepath.Join(dir, "secret.txt")
+	if err := os.WriteFile(notAKeyFile, []byte("ssh-ed25519 AAAAsecretcontent should-not-be-readable\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "users_key_add",
+		Arguments: map[string]any{"name": "alice", "pub": notAKeyFile},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected users_key_add to reject a file path instead of reading it, got %+v", res.StructuredContent)
+	}
+
+	// A garbage string that isn't shaped like a key at all must also be
+	// rejected.
+	callMcpToolExpectError(t, session, "users_key_add", map[string]any{"name": "alice", "pub": "not a key"})
+
+	// A real key line must still work.
+	callMcpTool(t, session, "users_key_add", map[string]any{
+		"name": "alice", "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGVoZWhlaGVoZWhlaGVoZWhlaGVoZWhlaGU= alice@laptop",
+	})
+}
+
+func callMcpToolExpectError(t *testing.T, session *mcp.ClientSession, name string, args map[string]any) *mcp.CallToolResult {
+	t.Helper()
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: name, Arguments: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatalf("%s: expected an error result, got %+v", name, res.StructuredContent)
+	}
+	return res
+}
+
+// TestMcpNotifyAckAllNoOpWhenEmpty covers a review finding: notify_ack with
+// all=true and nothing unread used to return an error ("no event ids
+// given"), which is unfriendly for an Agent acking defensively - it should
+// just report zero acked ids.
+func TestMcpNotifyAckAllNoOpWhenEmpty(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+	session := newMcpTestSession(t, dir)
+
+	acked := callMcpTool(t, session, "notify_ack", map[string]any{"all": true})
+	ids, _ := acked["acked"].([]any)
+	if len(ids) != 0 {
+		t.Fatalf("expected 0 acked ids on an empty inbox, got %+v", acked)
+	}
+}
+
+// TestMcpIssueResourceDistinguishesNotFoundFromOtherErrors covers a review
+// finding: registerShowResource used to collapse every error from show()
+// into a generic "Resource not found", which would misreport a real
+// failure as "this resource doesn't exist" instead of surfacing it. A
+// too-short id prefix makes issueapp.ResolveID return a plain error (not
+// issueapp.ErrNotFound) - that must reach the client as-is, distinguishable
+// from the genuine not-found case.
+func TestMcpIssueResourceDistinguishesNotFoundFromOtherErrors(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+	session := newMcpTestSession(t, dir)
+
+	_, genuinelyMissingErr := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "githive://issue/does-not-exist"})
+	if genuinelyMissingErr == nil || !strings.Contains(genuinelyMissingErr.Error(), "Resource not found") {
+		t.Fatalf("expected a genuinely missing issue to report \"Resource not found\", got %v", genuinelyMissingErr)
+	}
+
+	_, tooShortErr := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "githive://issue/short"})
+	if tooShortErr == nil {
+		t.Fatal("expected an error reading with a too-short id prefix")
+	}
+	if strings.Contains(tooShortErr.Error(), "Resource not found") {
+		t.Fatalf("expected a too-short-prefix error to be distinguishable from \"Resource not found\", got %v", tooShortErr)
 	}
 }
