@@ -1,0 +1,13 @@
+{
+  "name": "githive",
+  "displayName": "githive",
+  "version": "0.1.0",
+  "description": "githive (project memory - issues/tasks/chat/notify/users - stored in git refs) as an MCP server and skill for Claude Code.",
+  "author": {
+    "name": "githive",
+    "url": "https://github.com/ymsaki/githive"
+  },
+  "repository": "https://github.com/ymsaki/githive",
+  "license": "MIT",
+  "keywords": ["mcp", "git", "issue-tracker", "project-management", "event-sourcing"]
+}

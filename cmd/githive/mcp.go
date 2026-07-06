@@ -68,14 +68,66 @@ func newMcpServeCmd() *cobra.Command {
 	}
 }
 
-// itemsResult shapes a list result exactly like the CLI's list subcommands
-// (`{"items": [...], "total": n}`).
-func itemsResult(items []map[string]any) map[string]any {
-	anyItems := make([]any, len(items))
-	for i, m := range items {
+// defaultPageSize/maxPageSize bound paginatedResult (docs/15-clients.md
+// 「読み取り系ツールにはページングと絞り込みを持たせ、Agent のコンテキス
+// トを浪費させない」). issue/task/chat/notify lists grow without bound
+// over a project's lifetime, so they are paginated; users/groups are
+// bounded by team size and are not (see users_list).
+const (
+	defaultPageSize = 50
+	maxPageSize     = 200
+)
+
+// paginate slices an already-sorted-ascending-by-"id" list into one page
+// starting just after cursor (an opaque, previously-returned id), returning
+// the page and the cursor to pass for the next page (empty if this was the
+// last page). Every List() in this codebase already returns items sorted
+// this way, so this works generically across issue/task/chat/notify.
+func paginate(items []map[string]any, cursor string, limit int) (page []map[string]any, nextCursor string) {
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	if limit > maxPageSize {
+		limit = maxPageSize
+	}
+	start := 0
+	if cursor != "" {
+		start = len(items)
+		for i, m := range items {
+			if id, _ := m["id"].(string); id > cursor {
+				start = i
+				break
+			}
+		}
+	}
+	if start >= len(items) {
+		return nil, ""
+	}
+	end := start + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	page = items[start:end]
+	if end < len(items) {
+		nextCursor, _ = page[len(page)-1]["id"].(string)
+	}
+	return page, nextCursor
+}
+
+// paginatedResult shapes a paginated list result: `total` is the full
+// (unpaginated) match count, `items` is just this page, and `next_cursor`
+// is present only when more pages remain.
+func paginatedResult(all []map[string]any, cursor string, limit int) map[string]any {
+	page, next := paginate(all, cursor, limit)
+	anyItems := make([]any, len(page))
+	for i, m := range page {
 		anyItems[i] = m
 	}
-	return map[string]any{"items": anyItems, "total": len(items)}
+	res := map[string]any{"items": anyItems, "total": len(all)}
+	if next != "" {
+		res["next_cursor"] = next
+	}
+	return res
 }
 
 // autoNotifyWarnings shapes autoNotify's returned failure strings like the
@@ -126,6 +178,8 @@ type issueListParams struct {
 	Status   string `json:"status,omitempty" jsonschema:"filter by status"`
 	Label    string `json:"label,omitempty" jsonschema:"filter by label"`
 	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee email"`
+	Cursor   string `json:"cursor,omitempty" jsonschema:"resume after this id (from a previous response's next_cursor)"`
+	Limit    int    `json:"limit,omitempty" jsonschema:"max items to return (default 50, max 200)"`
 }
 
 type issueIDParams struct {
@@ -183,13 +237,13 @@ func registerIssueTools(server *mcp.Server, dir string) {
 			return nil, map[string]any{"id": id}, nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "issue_list", Description: "List issues"},
+	mcp.AddTool(server, &mcp.Tool{Name: "issue_list", Description: "List issues (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args issueListParams) (*mcp.CallToolResult, map[string]any, error) {
 			items, err := issueapp.New(dir).List(ctx, issueapp.ListFilter{Status: args.Status, Label: args.Label, Assignee: args.Assignee})
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, itemsResult(items), nil
+			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "issue_show", Description: "Show an issue's meta, body, and comments"},
@@ -358,6 +412,8 @@ type taskListParams struct {
 	Status string `json:"status,omitempty" jsonschema:"filter by status"`
 	Owner  string `json:"owner,omitempty" jsonschema:"filter by owner email"`
 	Mine   bool   `json:"mine,omitempty" jsonschema:"only tasks owned by the actor"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"resume after this id (from a previous response's next_cursor)"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"max items to return (default 50, max 200)"`
 }
 
 type taskIDParams struct {
@@ -394,7 +450,7 @@ func registerTaskTools(server *mcp.Server, dir string) {
 			return nil, map[string]any{"id": id}, nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "task_list", Description: "List tasks"},
+	mcp.AddTool(server, &mcp.Tool{Name: "task_list", Description: "List tasks (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args taskListParams) (*mcp.CallToolResult, map[string]any, error) {
 			filter := taskapp.ListFilter{Status: args.Status, Owner: args.Owner, Mine: args.Mine}
 			if args.Mine {
@@ -408,7 +464,7 @@ func registerTaskTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, itemsResult(items), nil
+			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "task_show", Description: "Show a task's meta, body, and notes"},
@@ -514,6 +570,8 @@ type chatNewParams struct {
 
 type chatListParams struct {
 	Status string `json:"status,omitempty" jsonschema:"filter by status"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"resume after this id (from a previous response's next_cursor)"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"max items to return (default 50, max 200)"`
 }
 
 type chatIDParams struct {
@@ -543,13 +601,13 @@ func registerChatTools(server *mcp.Server, dir string) {
 			return nil, map[string]any{"id": id}, nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "chat_list", Description: "List chat threads"},
+	mcp.AddTool(server, &mcp.Tool{Name: "chat_list", Description: "List chat threads (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args chatListParams) (*mcp.CallToolResult, map[string]any, error) {
 			items, err := chatapp.New(dir).List(ctx, chatapp.ListFilter{Status: args.Status})
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, itemsResult(items), nil
+			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "chat_show", Description: "Show a chat thread's meta and messages"},
@@ -625,7 +683,9 @@ type notifyPostParams struct {
 }
 
 type notifyListParams struct {
-	Unread bool `json:"unread,omitempty" jsonschema:"only unread notifications addressed to the actor"`
+	Unread bool   `json:"unread,omitempty" jsonschema:"only unread notifications addressed to the actor"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"resume after this id (from a previous response's next_cursor)"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"max items to return (default 50, max 200)"`
 }
 
 type notifyAckParams struct {
@@ -651,7 +711,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 			return nil, map[string]any{"id": id}, nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "notify_list", Description: "List notifications"},
+	mcp.AddTool(server, &mcp.Tool{Name: "notify_list", Description: "List notifications (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args notifyListParams) (*mcp.CallToolResult, map[string]any, error) {
 			filter := notifyapp.ListFilter{UnreadOnly: args.Unread}
 			if args.Unread {
@@ -665,7 +725,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, itemsResult(items), nil
+			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "notify_ack", Description: "Acknowledge notifications"},

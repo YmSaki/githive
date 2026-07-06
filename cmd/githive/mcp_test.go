@@ -213,3 +213,56 @@ func TestMcpNotifyAckAll(t *testing.T) {
 		t.Fatalf("expected 0 unread notifications after ack all, got %+v", unread)
 	}
 }
+
+// TestMcpIssueListPagination covers issue_list's cursor/limit pagination
+// (docs/15-clients.md「読み取り系ツールにはページングと絞り込みを持たせ、
+// Agent のコンテキストを浪費させない」): a small limit must return only
+// that many items plus a next_cursor, and resuming from that cursor must
+// walk through the rest without gaps or repeats.
+func TestMcpIssueListPagination(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+	session := newMcpTestSession(t, dir)
+
+	const total = 5
+	for i := 0; i < total; i++ {
+		callMcpTool(t, session, "issue_new", map[string]any{"title": "t"})
+	}
+
+	seen := map[string]bool{}
+	cursor := ""
+	for page := 0; ; page++ {
+		if page > total {
+			t.Fatal("pagination did not terminate")
+		}
+		res := callMcpTool(t, session, "issue_list", map[string]any{"limit": 2, "cursor": cursor})
+		if got, _ := res["total"].(float64); int(got) != total {
+			t.Fatalf("expected total=%d on every page, got %+v", total, res)
+		}
+		items, _ := res["items"].([]any)
+		if len(items) == 0 {
+			t.Fatal("got an empty page before exhausting all items")
+		}
+		if len(items) > 2 {
+			t.Fatalf("expected at most 2 items per page, got %d", len(items))
+		}
+		for _, raw := range items {
+			m, _ := raw.(map[string]any)
+			id, _ := m["id"].(string)
+			if seen[id] {
+				t.Fatalf("issue %s returned on more than one page", id)
+			}
+			seen[id] = true
+		}
+		next, ok := res["next_cursor"].(string)
+		if !ok || next == "" {
+			break
+		}
+		cursor = next
+	}
+	if len(seen) != total {
+		t.Fatalf("expected to see all %d issues across pages, got %d", total, len(seen))
+	}
+}

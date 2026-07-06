@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "githive": {
+      "command": "githive",
+      "args": ["mcp", "serve", "--repo", "${CLAUDE_PROJECT_DIR}"]
+    }
+  }
+}
