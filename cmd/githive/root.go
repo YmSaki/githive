@@ -11,6 +11,7 @@ import (
 
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/syncapp"
+	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/identity"
 )
@@ -49,6 +50,8 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newTaskCmd())
 	root.AddCommand(newChatCmd())
 	root.AddCommand(newNotifyCmd())
+	root.AddCommand(newUsersCmd())
+	root.AddCommand(newVerifyCmd())
 	root.AddCommand(newStatusCmd())
 	return root
 }
@@ -120,6 +123,13 @@ var errNotARepo = errors.New("not a githive/git repository (no .git found; use -
 // (docs/10-cli-spec.md「終了コード」).
 func classifyError(err error) (int, cliout.ErrorInfo) {
 	var ambiguous *issueapp.AmbiguousIDError
+	if vfe, ok := asVerifyFailedError(err); ok {
+		return cliout.ExitVerifyFailed, cliout.ErrorInfo{
+			Code:    "verify_failed",
+			Message: err.Error(),
+			Data:    map[string]any{"reports": reportsToAny(vfe.reports)},
+		}
+	}
 	switch {
 	case errors.As(err, &ambiguous):
 		return cliout.ExitUsageError, cliout.ErrorInfo{
@@ -131,7 +141,9 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "not_a_repo", Message: err.Error()}
 	case errors.Is(err, identity.ErrNotConfigured), errors.Is(err, issueapp.ErrIdentityNotConfigured):
 		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "identity_not_configured", Message: err.Error()}
-	case errors.Is(err, issueapp.ErrNotFound):
+	case errors.Is(err, usersapp.ErrInvalidName):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_name", Message: err.Error()}
+	case errors.Is(err, issueapp.ErrNotFound), errors.Is(err, usersapp.ErrUserNotFound), errors.Is(err, usersapp.ErrGroupNotFound):
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "not_found", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrRetriesExhausted), errors.Is(err, syncapp.ErrRetriesExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "conflict_retry_exhausted", Message: err.Error(), Retryable: true}

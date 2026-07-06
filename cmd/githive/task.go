@@ -40,9 +40,13 @@ func newTaskNewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc := taskapp.New(dir)
 			ctx := context.Background()
-			id, err := svc.NewTask(ctx, title, body, owner, due, priority)
+			resolvedOwner, err := resolveUserRef(ctx, dir, owner)
+			if err != nil {
+				return err
+			}
+			svc := taskapp.New(dir)
+			id, err := svc.NewTask(ctx, title, body, resolvedOwner, due, priority)
 			if err != nil {
 				return err
 			}
@@ -262,13 +266,18 @@ func newTaskReassignCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			resolvedOwner, err := resolveUserRef(ctx, dir, owner)
+			if err != nil {
+				return err
+			}
+
 			before, showErr := svc.Show(ctx, id)
 			previousOwner := ""
 			if showErr == nil {
 				previousOwner, _ = before.Meta["owner"].(string)
 			}
 
-			if err := svc.Reassign(ctx, id, owner); err != nil {
+			if err := svc.Reassign(ctx, id, resolvedOwner); err != nil {
 				return err
 			}
 
@@ -277,10 +286,10 @@ func newTaskReassignCmd() *cobra.Command {
 			if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
 				selfEmail = sig.Email
 			}
-			if owner != selfEmail && owner != previousOwner {
+			if resolvedOwner != selfEmail && resolvedOwner != previousOwner {
 				// Don't notify yourself, and don't re-notify the owner
 				// this task already had (docs/features/notify.md「自動通知」).
-				for _, w := range autoNotify(ctx, dir, "user:"+owner,
+				for _, w := range autoNotify(ctx, dir, "user:"+resolvedOwner,
 					fmt.Sprintf("task %s の担当になりました", shortID(id)),
 					map[string]any{"kind": "task", "id": id}) {
 					warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})

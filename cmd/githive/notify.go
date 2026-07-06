@@ -37,9 +37,13 @@ func newNotifyPostCmd() *cobra.Command {
 				}
 				sourceMap = map[string]any{"kind": kind, "id": id}
 			}
-			svc := notifyapp.New(dir)
 			ctx := context.Background()
-			id, err := svc.Post(ctx, to, title, message, sourceMap, "")
+			resolvedTo, err := resolveNotifyTargets(ctx, dir, to)
+			if err != nil {
+				return err
+			}
+			svc := notifyapp.New(dir)
+			id, err := svc.Post(ctx, resolvedTo, title, message, sourceMap, "")
 			if err != nil {
 				return err
 			}
