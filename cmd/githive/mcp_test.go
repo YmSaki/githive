@@ -125,3 +125,91 @@ func TestMcpToolsExerciseCrossFeatureFlow(t *testing.T) {
 		t.Errorf("expected verify to flag unsigned commits, got %+v", verified)
 	}
 }
+
+// notifyTargetCount counts posted notifications addressed to "user:"+email
+// by listing every post (unread=false) and checking targets, so it works
+// regardless of which identity the test process's git config names as
+// actor (unlike notify_list's unread filter, which is always "for me").
+func notifyTargetCount(t *testing.T, session *mcp.ClientSession, email string) int {
+	t.Helper()
+	all := callMcpTool(t, session, "notify_list", map[string]any{})
+	items, _ := all["items"].([]any)
+	count := 0
+	for _, raw := range items {
+		post, _ := raw.(map[string]any)
+		targets, _ := post["targets"].([]any)
+		for _, target := range targets {
+			if target == "user:"+email {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
+// TestMcpAutoNotifySuppressionRules exercises issue_assign's auto-notify
+// hook across two distinct identities (the CLI's suppression rules -
+// docs/features/notify.md「自動通知」- only make sense to test with someone
+// other than the actor): a genuinely new assignee must be notified exactly
+// once, re-adding the same assignee must not renotify, and assigning the
+// actor to themselves must never notify at all.
+func TestMcpAutoNotifySuppressionRules(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t) // actor (git user.email) is cli@example.com
+	session := newMcpTestSession(t, dir)
+
+	callMcpTool(t, session, "users_add", map[string]any{"name": "bob", "email": "bob@example.com"})
+
+	created := callMcpTool(t, session, "issue_new", map[string]any{"title": "t1"})
+	id, _ := created["id"].(string)
+
+	callMcpTool(t, session, "issue_assign", map[string]any{"id": id, "add": []any{"bob"}})
+	if got := notifyTargetCount(t, session, "bob@example.com"); got != 1 {
+		t.Fatalf("expected exactly 1 notification to a newly-assigned bob, got %d", got)
+	}
+
+	// Re-adding an already-assigned bob must not renotify.
+	callMcpTool(t, session, "issue_assign", map[string]any{"id": id, "add": []any{"bob"}})
+	if got := notifyTargetCount(t, session, "bob@example.com"); got != 1 {
+		t.Fatalf("expected re-adding an existing assignee not to renotify, got %d notifications", got)
+	}
+
+	// Assigning the actor to themselves must never notify.
+	callMcpTool(t, session, "issue_assign", map[string]any{"id": id, "add": []any{"cli@example.com"}})
+	if got := notifyTargetCount(t, session, "cli@example.com"); got != 0 {
+		t.Fatalf("expected self-assignment not to notify, got %d notifications", got)
+	}
+}
+
+// TestMcpNotifyAckAll covers notify_ack's all=true path (list every unread
+// notification addressed to the actor and acknowledge all of them), which
+// TestMcpToolsExerciseCrossFeatureFlow's single-notification round trip
+// does not exercise.
+func TestMcpNotifyAckAll(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t) // actor is cli@example.com
+	session := newMcpTestSession(t, dir)
+
+	callMcpTool(t, session, "notify_post", map[string]any{"to": []any{"user:cli@example.com"}, "title": "one"})
+	callMcpTool(t, session, "notify_post", map[string]any{"to": []any{"user:cli@example.com"}, "title": "two"})
+
+	unread := callMcpTool(t, session, "notify_list", map[string]any{"unread": true})
+	if items, _ := unread["items"].([]any); len(items) != 2 {
+		t.Fatalf("expected 2 unread notifications before ack, got %+v", unread)
+	}
+
+	acked := callMcpTool(t, session, "notify_ack", map[string]any{"all": true})
+	if ids, _ := acked["acked"].([]any); len(ids) != 2 {
+		t.Fatalf("expected notify_ack all=true to acknowledge 2 ids, got %+v", acked)
+	}
+
+	unread = callMcpTool(t, session, "notify_list", map[string]any{"unread": true})
+	if items, _ := unread["items"].([]any); len(items) != 0 {
+		t.Fatalf("expected 0 unread notifications after ack all, got %+v", unread)
+	}
+}

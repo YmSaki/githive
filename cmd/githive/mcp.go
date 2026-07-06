@@ -14,7 +14,16 @@
 // and an Agent may call many tools in a row - syncing (a network round
 // trip) after each one would make every call slow and its failure mode
 // unclear. Agents call the `sync` tool explicitly instead, matching the
-// CLI's --no-sync behavior by default.
+// CLI's --no-sync behavior by default. See docs/adr/0011-mcp-no-auto-sync.md
+// for the full rationale, including why this does not change the CLI's
+// existing auto-notify behavior (auto-notify events were never part of the
+// CLI's auto-sync scope either).
+//
+// Also note: `verify`'s tool result always reports success (ok:true) at the
+// MCP layer even when reports contain issues (ok:false in the data) -
+// unlike the CLI, which turns a failed verification into an error envelope
+// with exit code 4. MCP tools have no exit-code channel, so failures are
+// represented in the structured data instead of as a protocol-level error.
 package main
 
 import (
