@@ -195,6 +195,27 @@ func TestParsePushPorcelainVariants(t *testing.T) {
 	}
 }
 
+func TestVerifyCommitUnsigned(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	initRepo(t, dir)
+	oid := commitEmpty(t, dir, "unsigned commit")
+
+	allowedSigners := filepath.Join(t.TempDir(), "allowed_signers")
+	if err := os.WriteFile(allowedSigners, []byte("test@example.com ssh-ed25519 AAAA\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := New(dir)
+	result, err := r.VerifyCommit(context.Background(), oid, allowedSigners)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Valid {
+		t.Errorf("expected an unsigned commit to fail verification, got Valid=true: %s", result.Output)
+	}
+}
+
 func TestFetchAndPush(t *testing.T) {
 	requireGit(t)
 	origin := t.TempDir()

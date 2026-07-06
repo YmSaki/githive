@@ -178,6 +178,36 @@ func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, err
 	return envelopes, nil
 }
 
+// WalkCommits traverses the commit DAG reachable from head (like
+// WalkChain) but returns the raw commit objects instead of just their
+// envelopes, for callers that need commit-level metadata (hash, author/
+// committer identity and time, signature) - e.g. core/sign's per-commit
+// signature verification (docs/11-security.md「SSH 署名」).
+func WalkCommits(repo *git.Repository, head plumbing.Hash) ([]*object.Commit, error) {
+	if head == plumbing.ZeroHash {
+		return nil, nil
+	}
+	visited := map[plumbing.Hash]bool{}
+	var commits []*object.Commit
+	stack := []plumbing.Hash{head}
+	for len(stack) > 0 {
+		h := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if visited[h] {
+			continue
+		}
+		visited[h] = true
+
+		commit, err := object.GetCommit(repo.Storer, h)
+		if err != nil {
+			return nil, fmt.Errorf("chain: get commit %s: %w", h, err)
+		}
+		commits = append(commits, commit)
+		stack = append(stack, commit.ParentHashes...)
+	}
+	return commits, nil
+}
+
 // ReadTree reads a commit's full tree into a flat map of path -> file
 // content, recursing into subdirectories. Paths always use "/" regardless of
 // platform (docs/01-architecture.md「プラットフォーム」).

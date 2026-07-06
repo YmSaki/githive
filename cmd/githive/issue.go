@@ -53,9 +53,13 @@ func newIssueNewCmd() *cobra.Command {
 				}
 				body = content
 			}
-			svc := issueapp.New(dir)
 			ctx := context.Background()
-			id, err := svc.NewIssue(ctx, title, body, labels, assignees)
+			resolvedAssignees, err := resolveUserRefs(ctx, dir, assignees)
+			if err != nil {
+				return err
+			}
+			svc := issueapp.New(dir)
+			id, err := svc.NewIssue(ctx, title, body, labels, resolvedAssignees)
 			if err != nil {
 				return err
 			}
@@ -338,6 +342,15 @@ func newIssueAssignCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			resolvedAdd, err := resolveUserRefs(ctx, dir, add)
+			if err != nil {
+				return err
+			}
+			resolvedRemove, err := resolveUserRefs(ctx, dir, remove)
+			if err != nil {
+				return err
+			}
+
 			// Snapshot assignees before the change so we only notify
 			// genuinely new assignees, not people re-added who were
 			// already assigned (docs/features/notify.md「自動通知」).
@@ -349,7 +362,7 @@ func newIssueAssignCmd() *cobra.Command {
 				}
 			}
 
-			if err := svc.Assign(ctx, id, add, remove); err != nil {
+			if err := svc.Assign(ctx, id, resolvedAdd, resolvedRemove); err != nil {
 				return err
 			}
 
@@ -358,7 +371,7 @@ func newIssueAssignCmd() *cobra.Command {
 			if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
 				selfEmail = sig.Email
 			}
-			for _, assignee := range add {
+			for _, assignee := range resolvedAdd {
 				if assignee == selfEmail || alreadyAssigned[assignee] {
 					continue // don't notify yourself, or re-notify an existing assignee
 				}

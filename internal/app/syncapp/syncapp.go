@@ -14,6 +14,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
+	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
@@ -48,16 +49,19 @@ type Result struct {
 var ErrRetriesExhausted = errors.New("syncapp: push retries exhausted")
 
 // SupportedFeatures lists the features sync can fetch/merge/push today:
-// issue/task/chat (per-entity refs) and notify (the single notify/stream
-// ref - event-union merge works identically for a singleton stream, since
-// it is just union-then-fold like any other ref). users/wiki are not yet
-// wired up (docs/13-roadmap.md P3/P4). cmd/githive's `sync` and `status`
-// commands both use this so the set of synced refs stays in one place.
+// issue/task/chat (per-entity refs), notify (the single notify/stream ref),
+// and users (the single users/registry ref) - event-union merge works
+// identically for a singleton ref, since it is just union-then-fold like
+// any other ref. wiki is not yet wired up (docs/13-roadmap.md P4: it uses
+// ordinary git history, not event-union merge). cmd/githive's `sync` and
+// `status` commands both use this so the set of synced refs stays in one
+// place.
 var SupportedFeatures = map[refspace.Feature]bool{
 	refspace.FeatureIssue:  true,
 	refspace.FeatureTask:   true,
 	refspace.FeatureChat:   true,
 	refspace.FeatureNotify: true,
+	refspace.FeatureUsers:  true,
 }
 
 // registryAndWriter returns the fold registry and tree writer for a
@@ -72,6 +76,8 @@ func registryAndWriter(feature refspace.Feature) (*materialize.Registry, func(*m
 		return materialize.ChatRegistry, chatapp.TreeFiles, nil
 	case refspace.FeatureNotify:
 		return materialize.NotifyRegistry, notifyapp.TreeFiles, nil
+	case refspace.FeatureUsers:
+		return materialize.UsersRegistry, usersapp.TreeFiles, nil
 	default:
 		return nil, nil, fmt.Errorf("syncapp: feature %q is not yet supported by sync", feature)
 	}
