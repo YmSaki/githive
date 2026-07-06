@@ -11,11 +11,12 @@ import (
 	"github.com/ymsaki/githive/internal/core/materialize"
 )
 
-// usernameRe/groupnameRe match spec/schemas/users.schema.json exactly
-// (docs/features/users.md「users/<name>.json」「groups/<name>.json」).
+// usernameRe/groupnameRe match spec/schemas/users.schema.json exactly.
+// Group names share the username namespace and thus its exact rule
+// (docs/features/users.md「グループ名の文字集合はユーザー名と同じ規則」).
 var (
 	usernameRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,38}$`)
-	groupnameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+	groupnameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,38}$`)
 )
 
 // ValidUsername reports whether name is a legal username.
