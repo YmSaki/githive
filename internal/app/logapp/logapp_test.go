@@ -9,6 +9,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
+	"github.com/ymsaki/githive/internal/app/usersapp"
 )
 
 func requireGit(t *testing.T) {
@@ -34,8 +35,8 @@ func newTestRepo(t *testing.T) string {
 	return dir
 }
 
-// seedEvents creates one event in each of issue/task/chat/notify so the
-// timeline has cross-feature entries to merge.
+// seedEvents creates one event in each of issue/task/chat/notify/users so
+// the timeline has cross-feature entries to merge.
 func seedEvents(t *testing.T, dir string) {
 	t.Helper()
 	ctx := context.Background()
@@ -52,6 +53,9 @@ func seedEvents(t *testing.T, dir string) {
 	if _, err := notifyapp.New(dir).Post(ctx, []string{"all"}, "notify1", "", nil, ""); err != nil {
 		t.Fatalf("Post: %v", err)
 	}
+	if err := usersapp.New(dir).AddUser(ctx, "user1", "", "user1@example.com", "human", nil); err != nil {
+		t.Fatalf("AddUser: %v", err)
+	}
 }
 
 func TestListMergesAcrossFeatures(t *testing.T) {
@@ -65,12 +69,12 @@ func TestListMergesAcrossFeatures(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// issue.create, task.create, chat.create, notify.post: 4 events minimum
-	// (notify.post may itself trigger no further auto-events here, since
-	// there is no assignee/mention to notify about beyond the explicit
-	// notifyapp.Post call above).
-	if len(entries) < 4 {
-		t.Fatalf("expected at least 4 entries, got %d: %+v", len(entries), entries)
+	// issue.create, task.create, chat.create, notify.post, users.user_set: 5
+	// events minimum (notify.post may itself trigger no further auto-events
+	// here, since there is no assignee/mention to notify about beyond the
+	// explicit notifyapp.Post call above).
+	if len(entries) < 5 {
+		t.Fatalf("expected at least 5 entries, got %d: %+v", len(entries), entries)
 	}
 
 	seenFeatures := map[string]bool{}
@@ -80,7 +84,7 @@ func TestListMergesAcrossFeatures(t *testing.T) {
 			t.Fatalf("entries not sorted chronologically at index %d: %q > %q", i, entries[i-1]["id"], e["id"])
 		}
 	}
-	for _, f := range []string{"issue", "task", "chat", "notify"} {
+	for _, f := range []string{"issue", "task", "chat", "notify", "users"} {
 		if !seenFeatures[f] {
 			t.Errorf("expected an entry from feature %q, got features %v", f, seenFeatures)
 		}
