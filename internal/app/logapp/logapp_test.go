@@ -69,7 +69,7 @@ func TestListMergesAcrossFeatures(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// issue.create, task.create, chat.create, notify.post, users.add: 5
+	// issue.create, task.create, chat.create, notify.post, users.user_set: 5
 	// events minimum (notify.post may itself trigger no further auto-events
 	// here, since there is no assignee/mention to notify about beyond the
 	// explicit notifyapp.Post call above).
