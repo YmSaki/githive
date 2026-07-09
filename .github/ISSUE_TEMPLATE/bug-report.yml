@@ -1,0 +1,54 @@
+name: バグ報告
+description: 期待と異なる挙動の報告
+labels: ["bug"]
+body:
+  - type: textarea
+    id: actual
+    attributes:
+      label: 現状の挙動
+      description: 何が起きたか。エラーメッセージ・出力は原文のまま貼る。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する挙動
+      description: 本来どうあるべきか。根拠となる設計文書（docs/NN、spec/）があれば示す。
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 再現手順
+      description: 最小の再現手順。コマンド列で。再現リポジトリの状態（clone数、bare origin の有無など）も。
+      placeholder: |
+        1. githive init
+        2. githive issue new "test" （clone A）
+        3. githive issue new "test2" （clone B、Aのpush前）
+        4. 両方 githive sync
+        5. → clone A で issue list に B の issue が出ない
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 環境
+      description: OS / go version / git version / githive のコミットハッシュ
+      placeholder: Windows 11 / go1.25.0 / git 2.47 / 2969ebe
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影響
+      description: >
+        データ破壊・決定性の破れ（同一イベント集合から異なるツリー）・収束失敗を
+        伴うか。伴う場合は最優先で扱う。
+      placeholder: 実体化ツリーの分岐は起きていない。表示上の問題のみ。
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: 回帰テストの当たり
+      description: 修正時にどのテストを足すべきか。空欄でも起票可（トリアージbotが補完提案する）。

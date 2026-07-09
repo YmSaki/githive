@@ -1,0 +1,111 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: claude-triage-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    # 発火条件:
+    # - issueの新規作成/編集（人間によるもの）
+    # - トリアージ中ラベルが付いたissueへの人間のコメント（対話の続き）
+    # bot自身のコメント・編集では発火させない（無限ループ防止）
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (
+        github.event_name == 'issues' ||
+        (
+          !github.event.issue.pull_request &&
+          (
+            contains(github.event.issue.labels.*.name, 'triage:info-needed') ||
+            contains(github.event.issue.labels.*.name, 'triage:split-suggested') ||
+            contains(github.event.issue.labels.*.name, 'triage:merge-suggested')
+          )
+        )
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            issue #${{ github.event.issue.number }} のトリアージを行ってください。
+            イベント種別: ${{ github.event_name }}（issue_comment の場合は対話の続き）
+
+            ## 準備
+            - `gh issue view ${{ github.event.issue.number }} --json title,body,labels,comments` で全文と経緯を読む。
+            - CLAUDE.md と docs/13-roadmap.md を読み、issueが現在のフェーズ・設計と
+              整合するかの判断材料にする。
+            - 必要なら関連するソース（internal/、cmd/、spec/）を読んで実態を確認する。
+
+            ## トリアージ観点（すべて実施し、該当するものだけ指摘する）
+
+            ### 1. 情報の充足
+            .github/ISSUE_TEMPLATE/ のフォーム（task.yml / bug-report.yml）の項目が
+            判定基準。フィールドが形式上埋まっていても中身が空虚な場合
+            （「とりあえず」「TBD」、受け入れ条件が検証不能、など）は不足として扱う。
+            テンプレを使わず起票された場合は、該当テンプレの項目に沿って不足を挙げる。
+            issueを着手可能にするために最低限必要な情報:
+            - 目的（なぜ必要か。どのフェーズ/設計文書に紐づくか）
+            - 現状の挙動と期待する挙動（バグの場合は再現手順）
+            - 受け入れ条件（何ができたら閉じられるか）
+            - 影響範囲（どのパッケージ/機能に触るか）
+            不足があれば、不足項目を具体的な記入例つきで質問し、
+            ラベル `triage:info-needed` を付ける。充足していれば外す。
+
+            ### 2. スコープの適正
+            1 issue = 1 PR で完結する粒度が目安。複数パッケージの独立した変更、
+            設計判断と実装の混在、複数フェーズにまたがる内容は広すぎる。
+            広すぎる場合は「このように分割できる」という分割案を、
+            それぞれの受け入れ条件つきで例示し、`triage:split-suggested` を付ける。
+            分割はあくまで提案とし、勝手に分割issueを作らない。
+            起票者が分割に同意するコメントをした場合のみ、分割issueを
+            `gh issue create` で作成し、元issueに一覧をコメントする。
+
+            ### 3. 重複・統合
+            `gh issue list --state all --search "<キーワード>"` で類似issueを探す。
+            類似があれば、重複箇所と差分を示して統合を推奨し、
+            `triage:merge-suggested` を付ける。
+            起票者が「統合しない理由」をコメントで返した場合は、その理由を
+            評価する: 妥当（スコープ・時期・依存関係が実際に異なる）なら
+            ラベルを外して撤回し、双方のissueに相互参照コメントを残す。
+            妥当でないなら、どこが重複したままかを具体的に再提示する。
+            評価は理由の中身に対して行い、起票者の決定自体は尊重する
+            （最終判断は起票者。二度目の拒否があればラベルを外して従う）。
+
+            ### 4. テスト観点の追記
+            このissueを解決したと言えるために必要なテストを、このリポジトリの
+            テスト規約（docs/14-testing.md、spec/vectors のgoldenテスト、
+            決定性プロパティテスト）に沿って具体的に列挙する:
+            - 必要な単体テスト（対象パッケージと境界ケース）
+            - fold規則に触るなら spec/vectors への追加ベクタ
+            - 並行性・Windows固有の考慮が要るか
+            issue本文に既にチェックリストがある場合は、それが上記を網羅して
+            いるかを評価し、不足項目と過剰項目（テスト不能・重複）を指摘する。
+
+            ## 出力ルール
+            - コメントは1本にまとめる。過去に自分が投稿したトリアージコメント
+              （本文先頭に `<!-- claude-triage -->` マーカー）があれば、新規投稿では
+              なく `gh api` でそのコメントを更新する。無ければマーカー付きで新規投稿。
+            - すべての観点で問題がなければ `triage:ready` を付け、
+              「着手可能」と一言コメントするだけにする。冗長な講評は書かない。
+            - ラベルが存在しない場合は `gh label create` で作成する
+              （triage:info-needed=黄, triage:split-suggested=橙,
+              triage:merge-suggested=紫, triage:ready=緑）。
+            - issue本文は書き換えない。指摘・追記はすべてコメントで行う。
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 30
+            --allowedTools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh issue create:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh label create:*),Bash(gh label list:*),Bash(gh api:*),Bash(git log:*)"

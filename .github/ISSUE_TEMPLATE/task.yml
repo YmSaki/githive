@@ -1,0 +1,71 @@
+name: 実装タスク
+description: 機能追加・改善・負債返済などの作業単位
+labels: ["task"]
+body:
+  - type: textarea
+    id: purpose
+    attributes:
+      label: 目的
+      description: なぜ必要か。docs/13-roadmap.md のどのフェーズ、どの設計文書（docs/NN）に紐づくか。
+      placeholder: |
+        例: P4 の fsck 実装の前提として、チェーン走査のエラー分類が必要。
+        根拠: docs/13-roadmap.md P4、docs/03-sync-and-concurrency.md
+    validations:
+      required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: フェーズ
+      options: [P0, P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, フェーズ外/横断]
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 受け入れ条件
+      description: 何ができたらこのissueを閉じられるか。検証可能な形で箇条書き。
+      placeholder: |
+        - [ ] `githive fsck` が壊れたチェーンを検出し非0で終了する
+        - [ ] 正常リポジトリでは exit 0
+        - [ ] go test ./... green
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 影響範囲（触るパッケージ）
+      multiple: true
+      options:
+        - internal/core/event
+        - internal/core/chain
+        - internal/core/materialize
+        - internal/core/merge
+        - internal/core/refspace
+        - internal/core/gitx
+        - internal/core/sign
+        - internal/core/identity・idgen
+        - internal/app/*
+        - internal/app/entitychain
+        - cmd/githive
+        - spec/
+        - clients/
+        - docs/
+        - .github/・scripts/（CI・開発環境）
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: テスト観点
+      description: >
+        解決に必要なテストの当たり。fold規則に触るなら spec/vectors への追加ベクタ、
+        決定性・並行性・Windows 固有の考慮の要否。空欄でも起票可（トリアージbotが補完提案する）。
+      placeholder: |
+        - [ ] 単体テスト: 壊れコミット3パターン（親欠落・封筒不正・署名不正）
+        - [ ] spec ベクタ: 不要（fold 規則に触らない）
+        - [ ] Windows: パス区切りの扱いに注意
+  - type: textarea
+    id: notes
+    attributes:
+      label: 補足
+      description: 設計逸脱の可能性（ADR要否）、依存する他issue、参考リンクなど。
