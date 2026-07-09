@@ -28,11 +28,7 @@ func newLogCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				anyEntries := make([]any, len(entries))
-				for i, e := range entries {
-					anyEntries[i] = e
-				}
-				cliout.PrintSuccess(map[string]any{"items": anyEntries, "total": len(entries)}, nil)
+				cliout.PrintList(entries, nil)
 				return nil
 			}
 			for _, e := range entries {

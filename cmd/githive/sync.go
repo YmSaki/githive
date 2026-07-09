@@ -31,11 +31,11 @@ func newSyncCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				items := make([]any, len(results))
+				items := make([]map[string]any, len(results))
 				for i, r := range results {
 					items[i] = map[string]any{"ref": r.Ref, "action": string(r.Action)}
 				}
-				cliout.PrintSuccess(map[string]any{"items": items, "total": len(items)}, nil)
+				cliout.PrintList(items, nil)
 				return nil
 			}
 			for _, r := range results {

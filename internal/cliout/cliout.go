@@ -65,6 +65,27 @@ func PrintFailure(info ErrorInfo) {
 	printEnvelope(map[string]any{"ok": false, "error": errMap})
 }
 
+// ItemsMap builds the { "items": [...], "total": total } shape that list
+// commands return (docs/10-cli-spec.md「一覧系は { "items": [...], "total":
+// n } で統一する」). It does not print; callers that need pagination fields
+// alongside items/total (e.g. an MCP tool adding "next_cursor") add those to
+// the returned map before returning it themselves.
+func ItemsMap[T any](items []T, total int) map[string]any {
+	anyItems := make([]any, len(items))
+	for i, item := range items {
+		anyItems[i] = item
+	}
+	return map[string]any{"items": anyItems, "total": total}
+}
+
+// PrintList writes the {"ok":true,"data":{"items":[...],"total":n}}
+// envelope for a non-paginated list command, where total is always
+// len(items). Paginated results (where total can exceed len(items)) build
+// their own map with ItemsMap instead of using this helper.
+func PrintList[T any](items []T, warnings []Warning) {
+	PrintSuccess(ItemsMap(items, len(items)), warnings)
+}
+
 func warningsToAny(warnings []Warning) []any {
 	out := make([]any, len(warnings))
 	for i, w := range warnings {
