@@ -32,7 +32,7 @@ func newLogCmd() *cobra.Command {
 				for i, e := range entries {
 					anyEntries[i] = e
 				}
-				cliout.PrintSuccess(map[string]any{"entries": anyEntries, "total": len(entries)}, nil)
+				cliout.PrintSuccess(map[string]any{"items": anyEntries, "total": len(entries)}, nil)
 				return nil
 			}
 			for _, e := range entries {
