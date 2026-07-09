@@ -1,0 +1,144 @@
+package logapp
+
+import (
+	"context"
+	"os/exec"
+	"testing"
+
+	"github.com/ymsaki/githive/internal/app/chatapp"
+	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/app/notifyapp"
+	"github.com/ymsaki/githive/internal/app/taskapp"
+)
+
+func requireGit(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+}
+
+func newTestRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init", "--quiet", dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	for _, kv := range [][2]string{{"user.email", "tester@example.com"}, {"user.name", "Tester"}} {
+		cmd := exec.Command("git", "-C", dir, "config", kv[0], kv[1])
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git config: %v\n%s", err, out)
+		}
+	}
+	return dir
+}
+
+// seedEvents creates one event in each of issue/task/chat/notify so the
+// timeline has cross-feature entries to merge.
+func seedEvents(t *testing.T, dir string) {
+	t.Helper()
+	ctx := context.Background()
+
+	if _, err := issueapp.New(dir).NewIssue(ctx, "issue1", "", nil, nil); err != nil {
+		t.Fatalf("NewIssue: %v", err)
+	}
+	if _, err := taskapp.New(dir).NewTask(ctx, "task1", "", "", "", ""); err != nil {
+		t.Fatalf("NewTask: %v", err)
+	}
+	if _, err := chatapp.New(dir).NewThread(ctx, "chat1", ""); err != nil {
+		t.Fatalf("NewThread: %v", err)
+	}
+	if _, err := notifyapp.New(dir).Post(ctx, []string{"all"}, "notify1", "", nil, ""); err != nil {
+		t.Fatalf("Post: %v", err)
+	}
+}
+
+func TestListMergesAcrossFeatures(t *testing.T) {
+	requireGit(t)
+	dir := newTestRepo(t)
+	seedEvents(t, dir)
+	ctx := context.Background()
+
+	entries, err := New(dir).List(ctx, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// issue.create, task.create, chat.create, notify.post: 4 events minimum
+	// (notify.post may itself trigger no further auto-events here, since
+	// there is no assignee/mention to notify about beyond the explicit
+	// notifyapp.Post call above).
+	if len(entries) < 4 {
+		t.Fatalf("expected at least 4 entries, got %d: %+v", len(entries), entries)
+	}
+
+	seenFeatures := map[string]bool{}
+	for i, e := range entries {
+		seenFeatures[e["feature"].(string)] = true
+		if i > 0 && entries[i-1]["id"].(string) > e["id"].(string) {
+			t.Fatalf("entries not sorted chronologically at index %d: %q > %q", i, entries[i-1]["id"], e["id"])
+		}
+	}
+	for _, f := range []string{"issue", "task", "chat", "notify"} {
+		if !seenFeatures[f] {
+			t.Errorf("expected an entry from feature %q, got features %v", f, seenFeatures)
+		}
+	}
+}
+
+func TestListFilterSince(t *testing.T) {
+	requireGit(t)
+	dir := newTestRepo(t)
+	seedEvents(t, dir)
+	ctx := context.Background()
+
+	all, err := New(dir).List(ctx, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) == 0 {
+		t.Fatal("expected at least one entry to test filtering against")
+	}
+
+	// Since set to just after the last event's ts should yield nothing.
+	future, err := New(dir).List(ctx, ListFilter{Since: "9999-01-01T00:00:00.000Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(future) != 0 {
+		t.Errorf("expected 0 entries with a far-future Since, got %d", len(future))
+	}
+
+	// Since set to the earliest ts should yield everything.
+	fromStart, err := New(dir).List(ctx, ListFilter{Since: all[0]["ts"].(string)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fromStart) != len(all) {
+		t.Errorf("expected %d entries with Since=earliest ts, got %d", len(all), len(fromStart))
+	}
+}
+
+func TestListFilterActor(t *testing.T) {
+	requireGit(t)
+	dir := newTestRepo(t)
+	seedEvents(t, dir)
+	ctx := context.Background()
+
+	mine, err := New(dir).List(ctx, ListFilter{ActorEmail: "tester@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mine) == 0 {
+		t.Fatal("expected entries for the configured actor")
+	}
+
+	nobody, err := New(dir).List(ctx, ListFilter{ActorEmail: "someone-else@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nobody) != 0 {
+		t.Errorf("expected 0 entries for an unrelated actor, got %d", len(nobody))
+	}
+}
