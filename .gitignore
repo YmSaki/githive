@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
 
+# 個人用ローカル指示（コミットしない）
+/CLAUDE.local.md
+
 # Go
 /bin/
 *.exe
