@@ -1,0 +1,30 @@
+{
+  "enabledPlugins": {
+    "code-review@claude-plugins-official": true,
+    "gopls-lsp@claude-plugins-official": true
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/post-edit-go.sh\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/pre-push-gate.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
