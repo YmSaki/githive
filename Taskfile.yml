@@ -49,3 +49,16 @@ tasks:
       - task: lint
       - task: test
       - task: spec:validate
+
+  clean:
+    desc: Remove local build artifacts (bin/, spec pycache)
+    cmds:
+      - cmd: rm -rf bin/
+        platforms: [linux, darwin, windows]
+      - cmd: rm -rf spec/reference/__pycache__/
+        platforms: [linux, darwin, windows]
+
+  build:smoke:
+    desc: Build the CLI to bin/ for manual smoke testing (cleaned up via `task clean`)
+    cmds:
+      - go build -o bin/githive ./cmd/githive
