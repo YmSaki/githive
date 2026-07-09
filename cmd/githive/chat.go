@@ -76,11 +76,7 @@ func newChatListCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				anyItems := make([]any, len(items))
-				for i, m := range items {
-					anyItems[i] = m
-				}
-				cliout.PrintSuccess(map[string]any{"items": anyItems, "total": len(items)}, nil)
+				cliout.PrintList(items, nil)
 				return nil
 			}
 			fmt.Printf("%-10s %-10s %-40s %s\n", "ID", "STATUS", "TITLE", "MESSAGES")

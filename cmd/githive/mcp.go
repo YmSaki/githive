@@ -53,6 +53,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/app/verifyapp"
+	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/identity"
 )
@@ -131,11 +132,7 @@ func paginate(items []map[string]any, cursor string, limit int) (page []map[stri
 // is present only when more pages remain.
 func paginatedResult(all []map[string]any, cursor string, limit int) map[string]any {
 	page, next := paginate(all, cursor, limit)
-	anyItems := make([]any, len(page))
-	for i, m := range page {
-		anyItems[i] = m
-	}
-	res := map[string]any{"items": anyItems, "total": len(all)}
+	res := cliout.ItemsMap(page, len(all))
 	if next != "" {
 		res["next_cursor"] = next
 	}
@@ -998,11 +995,11 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			items := make([]any, len(results))
+			items := make([]map[string]any, len(results))
 			for i, r := range results {
 				items[i] = map[string]any{"ref": r.Ref, "action": string(r.Action)}
 			}
-			return nil, map[string]any{"items": items, "total": len(items)}, nil
+			return nil, cliout.ItemsMap(items, len(items)), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "status", Description: "Summarize unpushed refs, unread notifications, and the actor's doing tasks"},

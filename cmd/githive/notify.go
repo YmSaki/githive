@@ -91,11 +91,7 @@ func newNotifyListCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				anyItems := make([]any, len(items))
-				for i, m := range items {
-					anyItems[i] = m
-				}
-				cliout.PrintSuccess(map[string]any{"items": anyItems, "total": len(items)}, nil)
+				cliout.PrintList(items, nil)
 				return nil
 			}
 			for _, m := range items {
