@@ -16,34 +16,16 @@
 
 set -uo pipefail
 
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
 INPUT="$(cat)"
 
 # JSON parsing here needs no third-party packages, so any interpreter works.
-PY=python3
-command -v python3 >/dev/null 2>&1 || PY=python
+PY="$(pick_json_python)"
 
-# spec/validate.py needs the jsonschema package specifically. On some
-# machines `python3` resolves to a stub (e.g. the Windows Store alias) that
-# has no packages installed, while `python` is the real, fully-provisioned
-# interpreter (or vice versa on other machines/CI). Pick whichever
-# interpreter can actually `import jsonschema` rather than trusting the name.
-pick_spec_python() {
-  for candidate in python3 python; do
-    if command -v "$candidate" >/dev/null 2>&1 \
-      && "$candidate" -c "import jsonschema" >/dev/null 2>&1; then
-      echo "$candidate"
-      return 0
-    fi
-  done
-  # Neither has jsonschema importable: fall back to python3 (CLAUDE.md's
-  # canonical invocation) so the failure names the missing dependency
-  # instead of masking it as "command not found".
-  if command -v python3 >/dev/null 2>&1; then
-    echo python3
-  else
-    echo python
-  fi
-}
+# spec/validate.py needs the jsonschema package specifically; pick_spec_python
+# (lib.sh) probes for an interpreter that can actually `import jsonschema`
+# rather than trusting the python3/python name.
 SPEC_PY="$(pick_spec_python)"
 
 COMMAND="$(printf '%s' "$INPUT" | "$PY" -c '
@@ -61,11 +43,7 @@ case "$COMMAND" in
   *) exit 0 ;;
 esac
 
-REPO_ROOT="${CLAUDE_PROJECT_DIR:-}"
-if [ -z "$REPO_ROOT" ]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-fi
+REPO_ROOT="$(resolve_repo_root)"
 cd "$REPO_ROOT" || exit 0
 
 FAILURES=""

@@ -16,10 +16,11 @@
 
 set -uo pipefail
 
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
 INPUT="$(cat)"
 
-PY=python3
-command -v python3 >/dev/null 2>&1 || PY=python
+PY="$(pick_json_python)"
 
 FILE_PATH="$(printf '%s' "$INPUT" | "$PY" -c '
 import json, sys
@@ -40,11 +41,7 @@ case "$FILE_PATH" in
   *) exit 0 ;;
 esac
 
-REPO_ROOT="${CLAUDE_PROJECT_DIR:-}"
-if [ -z "$REPO_ROOT" ]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-fi
+REPO_ROOT="$(resolve_repo_root)"
 cd "$REPO_ROOT" || exit 0
 
 STATUS=0
