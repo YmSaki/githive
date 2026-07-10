@@ -27,6 +27,7 @@ githive は、git リポジトリの refs にプロジェクト記憶（issue、
 | 12 | [12-forge-server.md](12-forge-server.md) | 自作 GitForge（LFS、WebHook、CI）の設計 |
 | 13 | [13-roadmap.md](13-roadmap.md) | 実装順序、マイルストーン、MVP 定義 |
 | 14 | [14-testing.md](14-testing.md) | テスト戦略 |
+| 16 | [16-coding-conventions.md](16-coding-conventions.md) | Go の命名・構成規約 |
 | ADR | [adr/](adr/) | 主要な設計決定の記録 |
 
 ## 確定済みの前提
