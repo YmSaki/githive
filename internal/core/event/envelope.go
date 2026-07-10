@@ -72,7 +72,7 @@ func (e *Envelope) Validate() error {
 	if !ulidRe.MatchString(e.ID) {
 		return &ValidationError{"id", fmt.Sprintf("must be a 26-char lowercase ULID, got %q", e.ID)}
 	}
-	if !tsRe.MatchString(e.TS) {
+	if !IsValidTimestamp(e.TS) {
 		return &ValidationError{"ts", fmt.Sprintf("must be RFC3339 UTC millisecond precision, got %q", e.TS)}
 	}
 	if len(e.Actor) < 3 || len(e.Actor) > 320 {
