@@ -102,3 +102,44 @@ func TestCLILogActorFilterJSON(t *testing.T) {
 		t.Errorf("expected zero items for an actor with no events, got total=%d items=%v", envelope.Data.Total, envelope.Data.Items)
 	}
 }
+
+// TestCLILogInvalidSinceExitCode verifies `githive log --since <invalid>`
+// exits with code 2 (usage error, docs/10-cli-spec.md「終了コード」) through
+// the actual CLI binary. internal/app/logapp's TestListInvalidSince only
+// covers this at the Go-value level (calling logapp.Service.List directly);
+// it cannot catch a regression in how cmd/githive/log.go or root.go's error
+// classification wires ErrInvalidSince to an exit code.
+func TestCLILogInvalidSinceExitCode(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+
+	// Each of these is RFC3339-valid but not the envelope ts format
+	// (RFC3339 UTC millisecond precision), matching
+	// internal/app/logapp/logapp_test.go's TestListInvalidSince cases.
+	invalid := []string{
+		"not-a-timestamp",
+		"2026-07-09T12:00:00Z",
+		"2026-07-09T12:00:00.000+00:00",
+	}
+	for _, since := range invalid {
+		res := runCLI(t, dir, "log", "--since", since, "--no-sync", "--json")
+		if res.code != 2 {
+			t.Errorf("log --since %q: expected exit code 2, got %d (stdout=%s stderr=%s)", since, res.code, res.stdout, res.stderr)
+		}
+
+		var envelope struct {
+			OK    bool `json:"ok"`
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(res.stdout), &envelope); err != nil {
+			t.Fatalf("log --since %q: bad json: %v\n%s", since, err, res.stdout)
+		}
+		if envelope.OK {
+			t.Errorf("log --since %q: expected ok:false, got %s", since, res.stdout)
+		}
+	}
+}
