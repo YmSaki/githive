@@ -2,7 +2,7 @@
 name: work-issue
 description: issue番号を1つ受け取り、実装ブランチ作成からPR作成まで一気通貫でやる。task/bugラベルの付いたissueに使う。マージはしない（/watch-pr、/merge-pr に続く）。
 disable-model-invocation: true
-allowed-tools: ["Bash", "Read", "Grep", "Glob", "Agent"]
+allowed-tools: ["Bash", "Read", "Edit", "Write", "Grep", "Glob", "Agent"]
 ---
 
 # /work-issue <issue番号>

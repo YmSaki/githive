@@ -38,5 +38,5 @@ Go 実装は spec/vectors/ のゴールデンベクタと出力が一致する g
 - **issue トリアージ**：`.github/workflows/claude-issue-triage.yml` が起票・コメントに反応し、情報充足・スコープ適正・重複・テスト観点をチェックする（`triage:*` ラベルで状態管理）。
 - **PR 自動レビュー**：`.github/workflows/auto-pr-review.yml` が PR ごとに CLAUDE.md の不変条件・層構造・テストを確認し、blocking/non-blocking/nit に分類して報告する。non-blocking 指摘は `from-review` ラベルで自動起票される。
 - **実装〜マージの自走ループ**：`.claude/skills/work-issue`・`watch-pr`・`merge-pr`（`disable-model-invocation: true`、`/work-issue <issue番号>` 等で人間が明示的に起動する）。**マージの実行は常に人間の承認を要求する設計**——`watch-pr` は判断のみ、`merge-pr` は承認済み前提でしか動かない。
-- **機械的強制**：`.claude/rules/`（determinism.md・go-layering.md・spec-sync.md）が該当パスのファイル編集時に自動で文脈注入され、`.claude/hooks/`（post-edit-go.sh・pre-push-gate.sh）が canonical JSON 集約規則と push 前の `main` 取り込みを機械的に検証する。
+- **機械的強制**：`.claude/rules/`（determinism.md・go-layering.md・spec-sync.md）が該当パスのファイル編集時に自動で文脈注入される。`.claude/hooks/post-edit-go.sh` は `.go` ファイル編集直後に gofmt と canonical JSON 集約規則（`scripts/check-canonical-json.sh`）を検証し、`.claude/hooks/pre-push-gate.sh` は `git push` 実行前に `go test ./...` と `python spec/validate.py` を通す（いずれもローカルの `.git/hooks/pre-push` とは別物。後者は `origin/main` の取り込み漏れを防ぐ個人環境限定のフックで、`.claude/` 管理外）。
 - **並列実装の注意**：複数 issue を並行して進める場合、触るファイルが重ならないことを確認してから並列化する（`Agent` に `isolation: "worktree"` を指定）。ファイルが重なる issue は順番にやる。
