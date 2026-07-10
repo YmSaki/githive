@@ -26,7 +26,7 @@ import (
 // forms (second precision, non-Z offsets) would otherwise be silently
 // accepted and compared lexically against ts, giving a wrong-but-unerrored
 // filter result.
-var ErrInvalidSince = errors.New("invalid --since: must be RFC3339 UTC millisecond precision, e.g. 2026-07-09T12:00:00.000Z")
+var ErrInvalidSince = errors.New("logapp: invalid --since: must be RFC3339 UTC millisecond precision, e.g. 2026-07-09T12:00:00.000Z")
 
 // Service provides read access to the cross-feature event timeline for the
 // repository at Dir.
