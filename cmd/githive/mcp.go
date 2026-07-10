@@ -48,6 +48,7 @@ import (
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
 	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/app/logapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/syncapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
@@ -705,6 +706,13 @@ type notifyListParams struct {
 	Limit  int    `json:"limit,omitempty" jsonschema:"max items to return (default 50, max 200)"`
 }
 
+type logListParams struct {
+	Since  string `json:"since,omitempty" jsonschema:"only events at or after this RFC3339 UTC millisecond-precision timestamp, e.g. 2026-07-09T12:00:00.000Z"`
+	Actor  string `json:"actor,omitempty" jsonschema:"filter by actor email (no username resolution)"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"resume after this id (from a previous response's next_cursor)"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"max items to return (default 50, max 200)"`
+}
+
 type notifyAckParams struct {
 	IDs []string `json:"ids,omitempty" jsonschema:"event ids to acknowledge"`
 	All bool     `json:"all,omitempty" jsonschema:"acknowledge every unread notification addressed to the actor"`
@@ -739,6 +747,15 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 				filter.ActorEmail = sig.Email
 			}
 			items, err := notifyapp.New(dir).List(ctx, filter)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
+		})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "log", Description: "Cross-feature event timeline across issue/task/chat/notify/users (paginated)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args logListParams) (*mcp.CallToolResult, map[string]any, error) {
+			items, err := logapp.New(dir).List(ctx, logapp.ListFilter{Since: args.Since, ActorEmail: args.Actor})
 			if err != nil {
 				return nil, nil, err
 			}
