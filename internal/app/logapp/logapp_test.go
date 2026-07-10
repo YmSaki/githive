@@ -5,12 +5,19 @@ import (
 	"errors"
 	"os/exec"
 	"testing"
+	"time"
+
+	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
+	"github.com/ymsaki/githive/internal/core/chain"
+	"github.com/ymsaki/githive/internal/core/event"
+	"github.com/ymsaki/githive/internal/core/gitx"
+	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
 func requireGit(t *testing.T) {
@@ -167,5 +174,65 @@ func TestListFilterActor(t *testing.T) {
 	}
 	if len(nobody) != 0 {
 		t.Errorf("expected 0 entries for an unrelated actor, got %d", len(nobody))
+	}
+}
+
+// TestListSkipsCheckpoints confirms List() honors checkpoint transparency
+// (internal/core/materialize/materialize.go's universal ".checkpoint"-suffix
+// skip, .claude/rules/determinism.md) even though it walks raw events rather
+// than folding through materialize.Registry.
+func TestListSkipsCheckpoints(t *testing.T) {
+	requireGit(t)
+	dir := newTestRepo(t)
+	ctx := context.Background()
+
+	issueID, err := issueapp.New(dir).NewIssue(ctx, "issue1", "", nil, nil)
+	if err != nil {
+		t.Fatalf("NewIssue: %v", err)
+	}
+
+	before, err := New(dir).List(ctx, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ref, err := refspace.EntityRef(refspace.FeatureIssue, issueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := gitx.New(dir)
+	oldOID, err := r.RevParse(ctx, ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := chain.OpenRepository(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig := chain.Signature{Name: "Tester", Email: "tester@example.com", When: time.Now()}
+	cpEnv := &event.Envelope{
+		V: 1, Kind: "issue.checkpoint", ID: "01j8xq4d3nbz9k7w2m5e8h1t99",
+		TS: "2026-07-04T12:00:00.000Z", Actor: "tester@example.com",
+		Entity: issueID, Data: map[string]any{"bogus": "should never surface"}, Extra: map[string]any{},
+	}
+	newHash, err := chain.AppendEvent(repo, plumbing.NewHash(oldOID), cpEnv, "issue.checkpoint", map[string][]byte{}, sig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := chain.AdvanceRef(dir, plumbing.ReferenceName(ref), newHash, oldOID); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := New(dir).List(ctx, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("expected checkpoint to be invisible to List(): before=%d after=%d", len(before), len(after))
+	}
+	for _, e := range after {
+		if e["id"] == cpEnv.ID {
+			t.Errorf("checkpoint event %q leaked into List() output", cpEnv.ID)
+		}
 	}
 }

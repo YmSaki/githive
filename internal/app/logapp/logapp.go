@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
@@ -87,7 +88,6 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Entry, error) 
 		return nil, err
 	}
 
-	seen := map[string]bool{}
 	var out []Entry
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
@@ -99,10 +99,13 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Entry, error) 
 			return nil, err
 		}
 		for _, env := range envelopes {
-			if seen[env.ID] {
+			// チェックポイントはfoldで常に無視される
+			// (internal/core/materialize/materialize.go:68、
+			// .claude/rules/determinism.md「チェックポイント透過性」)。
+			// raw event walkであるlogappもこの規則に合わせる。
+			if strings.HasSuffix(env.Kind, ".checkpoint") {
 				continue
 			}
-			seen[env.ID] = true
 
 			if filter.Since != "" && env.TS < filter.Since {
 				continue
