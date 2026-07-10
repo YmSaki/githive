@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/app/logapp"
 	"github.com/ymsaki/githive/internal/app/syncapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/cliout"
@@ -145,6 +146,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "identity_not_configured", Message: err.Error()}
 	case errors.Is(err, usersapp.ErrInvalidName):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_name", Message: err.Error()}
+	case errors.Is(err, logapp.ErrInvalidSince):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_since", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrNotFound), errors.Is(err, usersapp.ErrUserNotFound), errors.Is(err, usersapp.ErrGroupNotFound):
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "not_found", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrRetriesExhausted), errors.Is(err, syncapp.ErrRetriesExhausted):

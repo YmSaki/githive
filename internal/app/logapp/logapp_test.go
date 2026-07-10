@@ -2,6 +2,7 @@ package logapp
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"testing"
 
@@ -121,6 +122,28 @@ func TestListFilterSince(t *testing.T) {
 	}
 	if len(fromStart) != len(all) {
 		t.Errorf("expected %d entries with Since=earliest ts, got %d", len(all), len(fromStart))
+	}
+}
+
+func TestListInvalidSince(t *testing.T) {
+	requireGit(t)
+	dir := newTestRepo(t)
+	seedEvents(t, dir)
+	ctx := context.Background()
+
+	// Each of these is RFC3339-valid but not the envelope ts format
+	// (RFC3339 UTC millisecond precision, e.g. 2026-07-09T12:00:00.000Z):
+	// second precision, and a non-Z UTC offset.
+	invalid := []string{
+		"not-a-timestamp",
+		"2026-07-09T12:00:00Z",
+		"2026-07-09T12:00:00.000+00:00",
+	}
+	for _, since := range invalid {
+		_, err := New(dir).List(ctx, ListFilter{Since: since})
+		if !errors.Is(err, ErrInvalidSince) {
+			t.Errorf("List with Since=%q: expected ErrInvalidSince, got %v", since, err)
+		}
 	}
 }
 
