@@ -8,14 +8,24 @@ package logapp
 
 import (
 	"context"
+	"errors"
 	"sort"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/ymsaki/githive/internal/core/chain"
+	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
+
+// ErrInvalidSince is returned by List when ListFilter.Since is set but not
+// in the RFC3339 UTC millisecond-precision format event envelopes' ts uses
+// (docs/10-cli-spec.md「終了コード」: 使い方の誤り). Other RFC3339-valid
+// forms (second precision, non-Z offsets) would otherwise be silently
+// accepted and compared lexically against ts, giving a wrong-but-unerrored
+// filter result.
+var ErrInvalidSince = errors.New("invalid --since: must be RFC3339 UTC millisecond precision, e.g. 2026-07-09T12:00:00.000Z")
 
 // Service provides read access to the cross-feature event timeline for the
 // repository at Dir.
@@ -52,7 +62,7 @@ type ListFilter struct {
 	// Since, when non-empty, restricts to events with TS >= Since. Since
 	// must be in the same RFC3339 UTC millisecond format as event
 	// envelopes' ts field, so lexical comparison is a valid time
-	// comparison.
+	// comparison; List returns ErrInvalidSince otherwise.
 	Since string
 	// ActorEmail, when non-empty, restricts to events whose actor is
 	// exactly this email (actor is always a raw email per ADR-0009; no
@@ -63,6 +73,10 @@ type ListFilter struct {
 // List returns every event across issue/task/chat/notify/users, merged into
 // a single chronological (by ULID) timeline, optionally filtered.
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]Entry, error) {
+	if filter.Since != "" && !event.IsValidTimestamp(filter.Since) {
+		return nil, ErrInvalidSince
+	}
+
 	r := gitx.New(s.Dir)
 	entries, err := r.ForEachRef(ctx, refspace.Root+"/")
 	if err != nil {

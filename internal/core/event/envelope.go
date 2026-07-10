@@ -24,6 +24,16 @@ func IsValidULID(s string) bool {
 	return ulidRe.MatchString(s)
 }
 
+// IsValidTimestamp reports whether s is in the same RFC3339 UTC
+// millisecond-precision format as event envelopes' ts field (e.g.
+// "2026-07-09T12:00:00.000Z"), per docs/02-data-model.md「イベント封筒」.
+// Callers comparing against envelope ts values lexically (e.g. a --since
+// filter) must validate with this first, since other RFC3339-valid forms
+// (second precision, non-Z offsets) sort incorrectly against it.
+func IsValidTimestamp(s string) bool {
+	return tsRe.MatchString(s)
+}
+
 // Envelope is the common event envelope (docs/02-data-model.md「イベント封筒」).
 type Envelope struct {
 	V      int
