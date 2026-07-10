@@ -70,7 +70,14 @@ func PrintFailure(info ErrorInfo) {
 // n } で統一する」). It does not print; callers that need pagination fields
 // alongside items/total (e.g. an MCP tool adding "next_cursor") add those to
 // the returned map before returning it themselves.
-func ItemsMap[T any](items []T, total int) map[string]any {
+//
+// T is constrained to map[string]any-shaped types (rather than any) because
+// internal/core/event's canonical JSON encoder only renders
+// map[string]any/[]any/primitives (internal/core/event/canonical.go
+// encodeValue); passing anything else would build fine here but fail at
+// print time with an opaque "unsupported type" error. The constraint turns
+// that mismatch into a compile error instead.
+func ItemsMap[T ~map[string]any](items []T, total int) map[string]any {
 	anyItems := make([]any, len(items))
 	for i, item := range items {
 		anyItems[i] = item
@@ -82,7 +89,7 @@ func ItemsMap[T any](items []T, total int) map[string]any {
 // envelope for a non-paginated list command, where total is always
 // len(items). Paginated results (where total can exceed len(items)) build
 // their own map with ItemsMap instead of using this helper.
-func PrintList[T any](items []T, warnings []Warning) {
+func PrintList[T ~map[string]any](items []T, warnings []Warning) {
 	PrintSuccess(ItemsMap(items, len(items)), warnings)
 }
 
