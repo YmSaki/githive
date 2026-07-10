@@ -4,6 +4,12 @@ __pycache__/
 # 個人用ローカル指示（コミットしない）
 /CLAUDE.local.md
 
+# グローバルgitignore（~/.gitignore_global）が .claude/ を一括除外するため、
+# このリポジトリで意図的に追跡する .claude/ 配下（rules/hooks/skills/
+# settings.json 等）を明示的に例外化する。settings.local.json は個人設定
+# なので追跡しない（このファイル自体では除外せず、git add しない運用で担保）。
+!.claude/
+
 # Go
 /bin/
 *.exe
