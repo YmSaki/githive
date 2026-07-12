@@ -159,6 +159,59 @@ func (r *Runner) RevParse(ctx context.Context, ref string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// Show returns the bytes of path at ref, equivalent to
+// `git show <ref>:<path>` (docs/features/wiki.md「素の git での読み書き」).
+// It errors if ref or path does not exist; read-only callers (wikiapp) map
+// that to a not-found result.
+func (r *Runner) Show(ctx context.Context, ref, path string) ([]byte, error) {
+	return r.run(ctx, "show", ref+":"+path)
+}
+
+// LogEntry is one row of `git log` output.
+type LogEntry struct {
+	Hash    string // full commit hash
+	Author  string // author email
+	Date    string // author date, strict RFC3339 (git %aI)
+	Subject string // commit subject (first line)
+}
+
+// Log returns the commit history of ref, most-recent first, equivalent to
+// `git log <ref> [-- <path>]`. When ref does not exist it returns an empty
+// slice and no error: a repository may legitimately have no wiki yet
+// (docs/features/wiki.md; logapp likewise treats a missing wiki ref as
+// normal). path, when non-empty, restricts history to commits touching it.
+func (r *Runner) Log(ctx context.Context, ref, path string) ([]LogEntry, error) {
+	oid, err := r.RevParse(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if oid == "" {
+		return nil, nil
+	}
+	// %x1f (unit separator) between fields; subjects (%s) are single-line so
+	// newline is a safe record separator.
+	args := []string{"log", "--pretty=format:%H%x1f%aE%x1f%aI%x1f%s", ref}
+	if path != "" {
+		args = append(args, "--", path)
+	}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var entries []LogEntry
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x1f", 4)
+		if len(parts) != 4 {
+			continue
+		}
+		entries = append(entries, LogEntry{Hash: parts[0], Author: parts[1], Date: parts[2], Subject: parts[3]})
+	}
+	return entries, nil
+}
+
 // IsAncestor reports whether ancestor is an ancestor of (or equal to)
 // descendant, per `git merge-base --is-ancestor`. Used by syncapp to decide
 // between fast-forward and event-union merge
