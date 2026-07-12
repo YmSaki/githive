@@ -141,5 +141,8 @@ func TestCLILogInvalidSinceExitCode(t *testing.T) {
 		if envelope.OK {
 			t.Errorf("log --since %q: expected ok:false, got %s", since, res.stdout)
 		}
+		if envelope.Error.Code != "invalid_since" {
+			t.Errorf("log --since %q: expected error.code %q, got %q", since, "invalid_since", envelope.Error.Code)
+		}
 	}
 }
