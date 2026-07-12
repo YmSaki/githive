@@ -178,6 +178,54 @@ func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, err
 	return envelopes, nil
 }
 
+// WalkChainSince is like WalkChain but stops descending into a commit's
+// parent once it observes an event envelope with TS < since (the entity
+// chain is append-only, so a normal single-parent commit's ancestors are
+// never newer than it — docs/02-data-model.md「エンティティ = 追記専用
+// コミットチェーン」). Merge commits (ExtractEnvelope returns nil envelope,
+// chain.go:125-127) carry no ts of their own and combine two potentially
+// unrelated timelines, so pruning never happens at a merge commit: both
+// parents are always traversed regardless of since. since must be in the
+// same RFC3339 UTC millisecond format as envelope TS fields for lexical
+// comparison to be a valid time comparison (caller's responsibility —
+// mirrors internal/app/logapp.Service.List's existing validation via
+// event.IsValidTimestamp before calling this).
+func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*event.Envelope, error) {
+	if head == plumbing.ZeroHash {
+		return nil, nil
+	}
+	visited := map[plumbing.Hash]bool{}
+	var envelopes []*event.Envelope
+	stack := []plumbing.Hash{head}
+	for len(stack) > 0 {
+		h := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if visited[h] {
+			continue
+		}
+		visited[h] = true
+
+		commit, err := object.GetCommit(repo.Storer, h)
+		if err != nil {
+			return nil, fmt.Errorf("chain: get commit %s: %w", h, err)
+		}
+		env, err := ExtractEnvelope(commit)
+		if err != nil {
+			return nil, err
+		}
+		if env != nil && env.TS < since {
+			// Single-event commit older than the cutoff: its ancestors are
+			// only ever older still, so stop descending here.
+			continue
+		}
+		if env != nil {
+			envelopes = append(envelopes, env)
+		}
+		stack = append(stack, commit.ParentHashes...)
+	}
+	return envelopes, nil
+}
+
 // WalkCommits traverses the commit DAG reachable from head (like
 // WalkChain) but returns the raw commit objects instead of just their
 // envelopes, for callers that need commit-level metadata (hash, author/
