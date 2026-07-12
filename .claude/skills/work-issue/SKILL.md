@@ -11,7 +11,7 @@ allowed-tools: ["Bash", "Read", "Edit", "Write", "Grep", "Glob", "Agent"]
 
 ## gh コマンド
 
-`gh` は素の PATH に無い環境がある。`GH="/c/Program Files/GitHub CLI/gh.exe"` として、以降 `"$GH" ...` の形で呼ぶ。
+`gh` は素の PATH に無い環境がある。`GH=$(command -v gh || echo "/c/Program Files/GitHub CLI/gh.exe")` で検出し、以降 `"$GH" ...` の形で呼ぶ（PATHにあればそれを優先、無ければWindows Git Bash向けのフルパスにフォールバック）。
 
 ## 手順
 

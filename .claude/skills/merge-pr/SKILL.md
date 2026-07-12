@@ -11,7 +11,7 @@ allowed-tools: ["Bash"]
 
 ## gh コマンド
 
-`GH="/c/Program Files/GitHub CLI/gh.exe"` として `"$GH" ...` の形で呼ぶ。
+`GH=$(command -v gh || echo "/c/Program Files/GitHub CLI/gh.exe")` で検出し、以降 `"$GH" ...` の形で呼ぶ（PATHにあればそれを優先、無ければWindows Git Bash向けのフルパスにフォールバック）。
 
 ## 手順（この順で。省略しない）
 
