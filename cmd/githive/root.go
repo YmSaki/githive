@@ -55,6 +55,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newVerifyCmd())
 	root.AddCommand(newStatusCmd())
 	root.AddCommand(newLogCmd())
+	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newMcpCmd())
 	return root
 }
@@ -131,6 +132,13 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 			Code:    "verify_failed",
 			Message: err.Error(),
 			Data:    map[string]any{"reports": reportsToAny(vfe.reports)},
+		}
+	}
+	if eue, ok := asEnvironmentUnhealthyError(err); ok {
+		return cliout.ExitEnvironment, cliout.ErrorInfo{
+			Code:    "environment_unhealthy",
+			Message: err.Error(),
+			Data:    map[string]any{"checks": checksToAny(eue.checks)},
 		}
 	}
 	switch {
