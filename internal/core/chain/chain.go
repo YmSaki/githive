@@ -180,16 +180,27 @@ func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, err
 
 // WalkChainSince is like WalkChain but stops descending into a commit's
 // parent once it observes an event envelope with TS < since (the entity
-// chain is append-only, so a normal single-parent commit's ancestors are
-// never newer than it — docs/02-data-model.md「エンティティ = 追記専用
-// コミットチェーン」). Merge commits (ExtractEnvelope returns nil envelope,
-// chain.go:125-127) carry no ts of their own and combine two potentially
-// unrelated timelines, so pruning never happens at a merge commit: both
-// parents are always traversed regardless of since. since must be in the
-// same RFC3339 UTC millisecond format as envelope TS fields for lexical
-// comparison to be a valid time comparison (caller's responsibility —
-// mirrors internal/app/logapp.Service.List's existing validation via
-// event.IsValidTimestamp before calling this).
+// chain is append-only, so under normal clock behavior a single-parent
+// commit's ancestors are never newer than it — docs/02-data-model.md
+// 「エンティティ = 追記専用コミットチェーン」). Merge commits (ExtractEnvelope
+// returns nil envelope, chain.go:125-127) carry no ts of their own and
+// combine two potentially unrelated timelines, so pruning never happens at
+// a merge commit: both parents are always traversed regardless of since.
+//
+// This is a best-effort optimization, not a correctness guarantee: per
+// docs/03-sync-and-concurrency.md「時計異常への防御」, a client with a
+// backward-skewed local clock is only warned, never rejected, so a
+// single-parent commit's ts can in rare cases be lower than its parent's.
+// Under that scenario this function can silently omit an ancestor event
+// that actually qualifies (ts >= since). See docs/adr/0012-walkchainsince-
+// clock-skew-best-effort.md for the accepted-risk rationale (this affects
+// only `githive log --since` result completeness, not determinism/fold
+// semantics — logapp does not go through internal/core/materialize).
+//
+// since must be in the same RFC3339 UTC millisecond format as envelope TS
+// fields for lexical comparison to be a valid time comparison (caller's
+// responsibility — mirrors internal/app/logapp.Service.List's existing
+// validation via event.IsValidTimestamp before calling this).
 func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*event.Envelope, error) {
 	if head == plumbing.ZeroHash {
 		return nil, nil

@@ -45,6 +45,10 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 
 機能別サブコマンドの引数は各機能仕様に記載済み。
 
+### `githive log --since` の完全性について
+
+`--since` はエンティティチェーンの走査を `since` カットオフで早期終了する最適化（`internal/core/chain.WalkChainSince`）を経由する。これは通常のクロック挙動下では常に正しいが、端末の時計が実際に巻き戻った状態でイベントが追記された場合（[03-sync-and-concurrency.md](03-sync-and-concurrency.md)「時計異常への防御」が警告のみで拒否しないケース）に限り、`since` 以降であるはずの祖先イベントを取りこぼす可能性があるベストエフォートの保証である（[ADR-0012](adr/0012-walkchainsince-clock-skew-best-effort.md)）。`githive log` は `internal/core/materialize` を経由しないため、これは決定的実体化・fold意味論の不変条件には抵触しない。
+
 ## JSON 出力の封筒
 
 ```json
