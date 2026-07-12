@@ -95,7 +95,12 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Entry, error) 
 		if err != nil || !timelineFeatures[parsed.Feature] {
 			continue
 		}
-		envelopes, err := chain.WalkChain(repo, plumbing.NewHash(e.OID))
+		var envelopes []*event.Envelope
+		if filter.Since != "" {
+			envelopes, err = chain.WalkChainSince(repo, plumbing.NewHash(e.OID), filter.Since)
+		} else {
+			envelopes, err = chain.WalkChain(repo, plumbing.NewHash(e.OID))
+		}
 		if err != nil {
 			return nil, err
 		}
