@@ -37,7 +37,7 @@ func newLogCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&since, "since", "", "only events at or after this RFC3339 UTC timestamp")
+	cmd.Flags().StringVar(&since, "since", "", "only events at or after this RFC3339 UTC timestamp with millisecond precision, e.g. 2026-07-09T12:00:00.000Z")
 	cmd.Flags().StringVar(&actor, "actor", "", "only events by this actor (email)")
 	return cmd
 }
