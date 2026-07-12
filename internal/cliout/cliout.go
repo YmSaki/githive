@@ -71,13 +71,17 @@ func PrintFailure(info ErrorInfo) {
 // alongside items/total (e.g. an MCP tool adding "next_cursor") add those to
 // the returned map before returning it themselves.
 //
-// T is constrained to map[string]any-shaped types (rather than any) because
+// T is constrained to map[string]any (rather than any) because
 // internal/core/event's canonical JSON encoder only renders
-// map[string]any/[]any/primitives (internal/core/event/canonical.go
-// encodeValue); passing anything else would build fine here but fail at
-// print time with an opaque "unsupported type" error. The constraint turns
-// that mismatch into a compile error instead.
-func ItemsMap[T ~map[string]any](items []T, total int) map[string]any {
+// map[string]any/[]any/primitives via an exact type switch
+// (internal/core/event/canonical.go encodeValue); passing anything else
+// would build fine here but fail at print time with an opaque "unsupported
+// type" error. The constraint is intentionally tilde-free: `~map[string]any`
+// would also accept defined types (e.g. `type Defined map[string]any`),
+// which still fail encodeValue's exact match at runtime. Without the tilde,
+// only map[string]any and its type aliases satisfy T, so a defined type is
+// rejected at compile time instead.
+func ItemsMap[T map[string]any](items []T, total int) map[string]any {
 	anyItems := make([]any, len(items))
 	for i, item := range items {
 		anyItems[i] = item
@@ -89,7 +93,7 @@ func ItemsMap[T ~map[string]any](items []T, total int) map[string]any {
 // envelope for a non-paginated list command, where total is always
 // len(items). Paginated results (where total can exceed len(items)) build
 // their own map with ItemsMap instead of using this helper.
-func PrintList[T ~map[string]any](items []T, warnings []Warning) {
+func PrintList[T map[string]any](items []T, warnings []Warning) {
 	PrintSuccess(ItemsMap(items, len(items)), warnings)
 }
 
