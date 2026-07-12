@@ -141,18 +141,19 @@ func ExtractEnvelope(commit *object.Commit) (*event.Envelope, error) {
 	return env, nil
 }
 
-// WalkChain traverses the commit DAG reachable from head (following all
-// parents, so it works across event-union merge commits too) and returns
-// every event envelope found, in no particular order. Duplicate commits
-// reachable via multiple paths (diamonds from merges) are visited once.
-// Callers must sort by envelope ID before folding
-// (docs/02-data-model.md「イベントの全順序と実体化」).
-func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, error) {
+// walkDFS is the shared traversal behind WalkChain, WalkChainSince, and
+// WalkCommits: a DFS over the commit DAG reachable from head (following all
+// parents, so it works across event-union merge commits too), visiting each
+// reachable hash at most once (diamonds from merges are deduplicated).
+// visit is called once per unvisited commit; returning descend=false stops
+// the traversal at that commit without pushing its parents onto the stack
+// (used by WalkChainSince's since-cutoff pruning — WalkChain and
+// WalkCommits always return descend=true).
+func walkDFS(repo *git.Repository, head plumbing.Hash, visit func(*object.Commit) (descend bool, err error)) error {
 	if head == plumbing.ZeroHash {
-		return nil, nil
+		return nil
 	}
 	visited := map[plumbing.Hash]bool{}
-	var envelopes []*event.Envelope
 	stack := []plumbing.Hash{head}
 	for len(stack) > 0 {
 		h := stack[len(stack)-1]
@@ -164,16 +165,39 @@ func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, err
 
 		commit, err := object.GetCommit(repo.Storer, h)
 		if err != nil {
-			return nil, fmt.Errorf("chain: get commit %s: %w", h, err)
+			return fmt.Errorf("chain: get commit %s: %w", h, err)
 		}
+		descend, err := visit(commit)
+		if err != nil {
+			return err
+		}
+		if descend {
+			stack = append(stack, commit.ParentHashes...)
+		}
+	}
+	return nil
+}
+
+// WalkChain traverses the commit DAG reachable from head (following all
+// parents, so it works across event-union merge commits too) and returns
+// every event envelope found, in no particular order. Duplicate commits
+// reachable via multiple paths (diamonds from merges) are visited once.
+// Callers must sort by envelope ID before folding
+// (docs/02-data-model.md「イベントの全順序と実体化」).
+func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, error) {
+	var envelopes []*event.Envelope
+	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
 		env, err := ExtractEnvelope(commit)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 		if env != nil {
 			envelopes = append(envelopes, env)
 		}
-		stack = append(stack, commit.ParentHashes...)
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return envelopes, nil
 }
@@ -202,37 +226,24 @@ func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, err
 // responsibility — mirrors internal/app/logapp.Service.List's existing
 // validation via event.IsValidTimestamp before calling this).
 func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*event.Envelope, error) {
-	if head == plumbing.ZeroHash {
-		return nil, nil
-	}
-	visited := map[plumbing.Hash]bool{}
 	var envelopes []*event.Envelope
-	stack := []plumbing.Hash{head}
-	for len(stack) > 0 {
-		h := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if visited[h] {
-			continue
-		}
-		visited[h] = true
-
-		commit, err := object.GetCommit(repo.Storer, h)
-		if err != nil {
-			return nil, fmt.Errorf("chain: get commit %s: %w", h, err)
-		}
+	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
 		env, err := ExtractEnvelope(commit)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 		if env != nil && env.TS < since {
 			// Single-event commit older than the cutoff: its ancestors are
 			// only ever older still, so stop descending here.
-			continue
+			return false, nil
 		}
 		if env != nil {
 			envelopes = append(envelopes, env)
 		}
-		stack = append(stack, commit.ParentHashes...)
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return envelopes, nil
 }
@@ -243,26 +254,13 @@ func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*
 // committer identity and time, signature) - e.g. core/sign's per-commit
 // signature verification (docs/11-security.md「SSH 署名」).
 func WalkCommits(repo *git.Repository, head plumbing.Hash) ([]*object.Commit, error) {
-	if head == plumbing.ZeroHash {
-		return nil, nil
-	}
-	visited := map[plumbing.Hash]bool{}
 	var commits []*object.Commit
-	stack := []plumbing.Hash{head}
-	for len(stack) > 0 {
-		h := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if visited[h] {
-			continue
-		}
-		visited[h] = true
-
-		commit, err := object.GetCommit(repo.Storer, h)
-		if err != nil {
-			return nil, fmt.Errorf("chain: get commit %s: %w", h, err)
-		}
+	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
 		commits = append(commits, commit)
-		stack = append(stack, commit.ParentHashes...)
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return commits, nil
 }
