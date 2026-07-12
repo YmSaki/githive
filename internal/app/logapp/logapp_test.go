@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -150,6 +151,9 @@ func TestListInvalidSince(t *testing.T) {
 		_, err := New(dir).List(ctx, ListFilter{Since: since})
 		if !errors.Is(err, ErrInvalidSince) {
 			t.Errorf("List with Since=%q: expected ErrInvalidSince, got %v", since, err)
+		}
+		if !strings.Contains(err.Error(), since) {
+			t.Errorf("List with Since=%q: expected error message to contain the rejected value, got %v", since, err)
 		}
 	}
 }

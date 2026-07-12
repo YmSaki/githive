@@ -9,6 +9,7 @@ package logapp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -75,7 +76,7 @@ type ListFilter struct {
 // a single chronological (by ULID) timeline, optionally filtered.
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]Entry, error) {
 	if filter.Since != "" && !event.IsValidTimestamp(filter.Since) {
-		return nil, ErrInvalidSince
+		return nil, fmt.Errorf("%w: since %q", ErrInvalidSince, filter.Since)
 	}
 
 	r := gitx.New(s.Dir)
