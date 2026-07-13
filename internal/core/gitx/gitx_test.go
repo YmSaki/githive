@@ -257,3 +257,119 @@ func TestFetchAndPush(t *testing.T) {
 		t.Fatalf("got %+v", entries)
 	}
 }
+
+// commitFile writes path (relative to dir) with content, commits it, and
+// returns the new commit hash. Used by the Show/Log tests.
+func commitFile(t *testing.T, dir, path, content, msg string) string {
+	t.Helper()
+	full := filepath.Join(dir, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("add", path)
+	run("commit", "-m", msg)
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(bytes.TrimSpace(out))
+}
+
+func TestShow(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	initRepo(t, dir)
+	r := New(dir)
+	ctx := context.Background()
+
+	oid := commitFile(t, dir, "Home.md", "# hello wiki\n", "add Home")
+	if err := r.UpdateRef(ctx, "refs/projects/wiki/main", oid, ZeroOID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := r.Show(ctx, "refs/projects/wiki/main", "Home.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "# hello wiki\n" {
+		t.Errorf("Show content = %q", got)
+	}
+
+	if _, err := r.Show(ctx, "refs/projects/wiki/main", "Missing.md"); err == nil {
+		t.Error("expected error showing a missing path")
+	}
+	if _, err := r.Show(ctx, "refs/projects/wiki/does-not-exist", "Home.md"); err == nil {
+		t.Error("expected error showing under a missing ref")
+	}
+}
+
+func TestLog(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	initRepo(t, dir)
+	r := New(dir)
+	ctx := context.Background()
+
+	// Missing ref → empty, no error (a repo may have no wiki yet).
+	entries, err := r.Log(ctx, "refs/projects/wiki/main", "")
+	if err != nil {
+		t.Fatalf("Log on missing ref: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected empty log for missing ref, got %+v", entries)
+	}
+
+	c1 := commitFile(t, dir, "Home.md", "one\n", "first")
+	commitFile(t, dir, "design/sync.md", "sync\n", "second")
+	if err := r.UpdateRef(ctx, "refs/projects/wiki/main", mustHead(t, dir), ZeroOID); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err = r.Log(ctx, "refs/projects/wiki/main", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 commits, got %d: %+v", len(entries), entries)
+	}
+	// Most-recent first.
+	if entries[0].Subject != "second" || entries[1].Subject != "first" {
+		t.Errorf("wrong order/subjects: %+v", entries)
+	}
+	if entries[1].Hash != c1 {
+		t.Errorf("oldest hash = %q want %q", entries[1].Hash, c1)
+	}
+	if entries[0].Author != "test@example.com" {
+		t.Errorf("author = %q", entries[0].Author)
+	}
+	if entries[0].Date == "" {
+		t.Error("empty date")
+	}
+
+	// Path filter restricts to touching commits.
+	only, err := r.Log(ctx, "refs/projects/wiki/main", "Home.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(only) != 1 || only[0].Subject != "first" {
+		t.Fatalf("path-filtered log = %+v", only)
+	}
+}
+
+func mustHead(t *testing.T, dir string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(bytes.TrimSpace(out))
+}
