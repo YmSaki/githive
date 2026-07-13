@@ -11,7 +11,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -402,4 +404,243 @@ func parsePushPorcelain(out string) []PushResult {
 		})
 	}
 	return results
+}
+
+// --- wiki worktree plumbing (docs/features/wiki.md「編集フロー」) ---
+//
+// The wiki is the one feature that does NOT use event sourcing: it is a plain
+// git branch (refs/projects/wiki/main) edited through a temporary worktree and
+// reconciled with git's ordinary 3-way merge, never through
+// internal/core/materialize / fold / event-union. Worktree checkout, commit,
+// and merge are inherently filesystem/plumbing operations, so per ADR-0002
+// they run over the system git binary here rather than go-git.
+
+// runIn executes system git with -C dir instead of the Runner's own Dir, for
+// operations that must happen inside a linked wiki worktree (add/commit/merge/
+// diff/rev-parse on the worktree, whose shared object db and refs still live in
+// the Runner's repository).
+func runIn(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return stdout.Bytes(), fmt.Errorf("gitx: git -C %s %s: %w: %s", dir, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.Bytes(), nil
+}
+
+// WorktreeAdd creates a temporary detached worktree checked out at ref and
+// returns its path. When ref does not exist yet (the first-ever wiki save) the
+// worktree is checked out at a synthetic empty-tree root commit, so the caller
+// starts from an empty tree and the first CommitAll records the initial wiki
+// content on top of that root. The caller owns the returned directory and must
+// pass it to WorktreeRemove when done (WorktreeRemove also deletes the private
+// temp parent this creates).
+func (r *Runner) WorktreeAdd(ctx context.Context, ref string) (string, error) {
+	base, err := r.RevParse(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+	if base == "" {
+		base, err = r.emptyRootCommit(ctx)
+		if err != nil {
+			return "", err
+		}
+	}
+	tmp, err := os.MkdirTemp("", "githive-wiki-")
+	if err != nil {
+		return "", fmt.Errorf("gitx: create temp worktree dir: %w", err)
+	}
+	dir := filepath.Join(tmp, "worktree")
+	if _, err := r.run(ctx, "worktree", "add", "--detach", dir, base); err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", err
+	}
+	return dir, nil
+}
+
+// emptyRootCommit writes git's empty tree object (if absent) and returns a
+// fresh parentless commit of it, used as the base for a first-ever wiki save.
+func (r *Runner) emptyRootCommit(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "hash-object", "-w", "-t", "tree", "--stdin")
+	cmd.Stdin = bytes.NewReader(nil)
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("gitx: hash-object empty tree: %w: %s", err, strings.TrimSpace(errBuf.String()))
+	}
+	tree := strings.TrimSpace(out.String())
+	commit, err := r.run(ctx, "commit-tree", tree, "-m", "githive: wiki root")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(commit)), nil
+}
+
+// WorktreeRemove force-removes the worktree at dir (even when it is dirty or
+// has a conflicted merge in progress) and prunes git's administrative record,
+// then deletes the private temp parent WorktreeAdd created. It must succeed on
+// the cleanup path after a conflicted merge, so it falls back to deleting the
+// directory itself if `git worktree remove` refuses. dir must be a path
+// returned by WorktreeAdd.
+func (r *Runner) WorktreeRemove(ctx context.Context, dir string) error {
+	_, removeErr := r.run(ctx, "worktree", "remove", "--force", dir)
+	if removeErr != nil {
+		// Fall back to deleting the checkout ourselves so nothing leaks; the
+		// prune below drops the now-stale administrative entry.
+		_ = os.RemoveAll(dir)
+	}
+	_, _ = r.run(ctx, "worktree", "prune")
+	_ = os.RemoveAll(filepath.Dir(dir)) // the temp parent from WorktreeAdd
+	return removeErr
+}
+
+// HasChanges reports whether worktreeDir has any staged or unstaged change
+// (git status --porcelain non-empty).
+func (r *Runner) HasChanges(ctx context.Context, worktreeDir string) (bool, error) {
+	out, err := runIn(ctx, worktreeDir, "status", "--porcelain")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(out)) != "", nil
+}
+
+// CommitAll stages every change in worktreeDir (git add -A) and records a
+// commit with msg, returning the new commit hash. The same add+commit captures
+// an ordinary edit, the first-ever wiki commit (on top of the empty-tree root),
+// and the conclusion of a merge whose conflicts were just resolved (MERGE_HEAD
+// present, in which case git records the two-parent merge commit). It errors if
+// there is nothing to commit.
+func (r *Runner) CommitAll(ctx context.Context, worktreeDir, msg string) (string, error) {
+	if _, err := runIn(ctx, worktreeDir, "add", "-A"); err != nil {
+		return "", err
+	}
+	if _, err := runIn(ctx, worktreeDir, "commit", "-m", msg); err != nil {
+		return "", err
+	}
+	return r.WorktreeHead(ctx, worktreeDir)
+}
+
+// StageAll stages every change in worktreeDir (git add -A) without committing,
+// so callers can inspect the staged tree before recording it (used to conclude
+// a resolved merge).
+func (r *Runner) StageAll(ctx context.Context, worktreeDir string) error {
+	_, err := runIn(ctx, worktreeDir, "add", "-A")
+	return err
+}
+
+// WorktreeHead returns the commit hash the worktree's detached HEAD points at.
+func (r *Runner) WorktreeHead(ctx context.Context, worktreeDir string) (string, error) {
+	out, err := runIn(ctx, worktreeDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// MergeInProgress reports whether worktreeDir has a merge in progress
+// (MERGE_HEAD present): a previous wiki save stopped on conflicts and is
+// waiting for the human to resolve the markers and re-run save.
+func (r *Runner) MergeInProgress(ctx context.Context, worktreeDir string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", worktreeDir, "rev-parse", "--verify", "--quiet", "MERGE_HEAD")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	if err == nil {
+		return strings.TrimSpace(out.String()) != "", nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return false, nil
+	}
+	return false, fmt.Errorf("gitx: rev-parse MERGE_HEAD: %w", err)
+}
+
+// ConflictedPaths lists the unmerged paths in worktreeDir
+// (git diff --name-only --diff-filter=U), i.e. the files still carrying
+// conflict markers.
+func (r *Runner) ConflictedPaths(ctx context.Context, worktreeDir string) ([]string, error) {
+	out, err := runIn(ctx, worktreeDir, "diff", "--name-only", "--diff-filter=U")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, l := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if l != "" {
+			paths = append(paths, l)
+		}
+	}
+	return paths, nil
+}
+
+// lsRemoteRef resolves a single ref on remote via `git ls-remote`, returning
+// ("", nil) when the remote does not have that ref yet.
+func (r *Runner) lsRemoteRef(ctx context.Context, remote, ref string) (string, error) {
+	out, err := r.run(ctx, "ls-remote", remote, ref)
+	if err != nil {
+		return "", err
+	}
+	line := strings.TrimSpace(string(out))
+	if line == "" {
+		return "", nil
+	}
+	return strings.Fields(line)[0], nil
+}
+
+// MergeWikiRemote fetches remote's ref into trackingRef and merges it into the
+// detached HEAD of worktreeDir using git's ordinary 3-way merge — wiki is NOT
+// event-union merged (docs/features/wiki.md「イベントソーシングを使わない」). It
+// returns the paths left in conflict (git diff --name-only --diff-filter=U); an
+// empty slice means the merge completed cleanly, or the remote has no wiki ref
+// yet so there was nothing to merge. It does NOT return an error on merge
+// conflict: the worktree is deliberately left with conflict markers and
+// MERGE_HEAD so a human can resolve them and re-run save.
+func (r *Runner) MergeWikiRemote(ctx context.Context, worktreeDir, remote, ref, trackingRef string) ([]string, error) {
+	remoteOID, err := r.lsRemoteRef(ctx, remote, ref)
+	if err != nil {
+		return nil, err
+	}
+	if remoteOID == "" {
+		return nil, nil // remote has no wiki yet; nothing to merge
+	}
+	if err := r.Fetch(ctx, remote, "+"+ref+":"+trackingRef); err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", worktreeDir, "merge", "--no-edit", remoteOID)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	mergeErr := cmd.Run()
+	if mergeErr == nil {
+		return nil, nil // clean merge / fast-forward / already up to date
+	}
+	var exitErr *exec.ExitError
+	if errors.As(mergeErr, &exitErr) && exitErr.ExitCode() == 1 {
+		// Exit status 1 = merge stopped with conflicts.
+		conflicts, cErr := r.ConflictedPaths(ctx, worktreeDir)
+		if cErr != nil {
+			return nil, cErr
+		}
+		if len(conflicts) == 0 {
+			return nil, fmt.Errorf("gitx: git merge exited 1 with no unmerged paths: %s", strings.TrimSpace(stderr.String()))
+		}
+		return conflicts, nil
+	}
+	return nil, fmt.Errorf("gitx: git merge: %w: %s", mergeErr, strings.TrimSpace(stderr.String()))
+}
+
+// ConfigUnset removes a git config key (`git config --unset key`), tolerating
+// the "key not set" case (git exit status 5) as a no-op.
+func (r *Runner) ConfigUnset(ctx context.Context, key string) error {
+	_, err := r.run(ctx, "config", "--unset", key)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 5 {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
