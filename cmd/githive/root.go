@@ -58,6 +58,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newLogCmd())
 	root.AddCommand(newWikiCmd())
 	root.AddCommand(newDoctorCmd())
+	root.AddCommand(newFsckCmd())
 	root.AddCommand(newMcpCmd())
 	return root
 }
@@ -143,6 +144,15 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 			Data:    map[string]any{"checks": checksToAny(eue.checks)},
 		}
 	}
+	if ffe, ok := asFsckFailedError(err); ok {
+		return cliout.ExitVerifyFailed, cliout.ErrorInfo{
+			Code:    "fsck_failed",
+			Message: err.Error(),
+			Data:    map[string]any{"findings": findingsToAny(ffe.report.Findings), "checkpoints": checkpointsToAny(ffe.report.Checkpoints)},
+		}
+	}
+	var wikiValidation *wikiapp.ValidationError
+	var wikiConflict *wikiapp.ConflictError
 	switch {
 	case errors.As(err, &ambiguous):
 		return cliout.ExitUsageError, cliout.ErrorInfo{
@@ -162,6 +172,16 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "not_found", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrRetriesExhausted), errors.Is(err, syncapp.ErrRetriesExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "conflict_retry_exhausted", Message: err.Error(), Retryable: true}
+	case errors.As(err, &wikiValidation):
+		items := make([]any, len(wikiValidation.Violations))
+		for i, v := range wikiValidation.Violations {
+			items[i] = map[string]any{"path": v.Path, "code": v.Code, "message": v.Message}
+		}
+		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "wiki_validation_failed", Message: err.Error(), Data: map[string]any{"violations": items}}
+	case errors.As(err, &wikiConflict):
+		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_conflict", Message: err.Error(), Retryable: true, Data: map[string]any{"paths": toAnySlice(wikiConflict.Paths)}}
+	case errors.Is(err, wikiapp.ErrPushRaceExhausted):
+		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_push_race", Message: err.Error(), Retryable: true}
 	default:
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "error", Message: err.Error()}
 	}
