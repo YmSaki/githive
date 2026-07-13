@@ -442,3 +442,20 @@ func assertNoWorktree(t *testing.T, dir, wt string) {
 		t.Fatalf("leaked worktree registration:\n%s", out)
 	}
 }
+
+func TestHasConflictMarker(t *testing.T) {
+	real := "line\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> origin/wiki\ntail\n"
+	if !hasConflictMarker([]byte(real)) {
+		t.Error("real unresolved conflict should be detected")
+	}
+	// A legitimate setext-H1 underline of exactly seven '=' must NOT be flagged.
+	legit := "Title\n=======\n\nbody text\n"
+	if hasConflictMarker([]byte(legit)) {
+		t.Error("a bare '=======' line (setext underline) must not be treated as a conflict marker")
+	}
+	// A page a human resolved (markers removed) is clean even if it kept content.
+	resolved := "ours and theirs merged by hand\n=======\nstill fine\n"
+	if hasConflictMarker([]byte(resolved)) {
+		t.Error("resolved content with an incidental '=======' must be clean")
+	}
+}

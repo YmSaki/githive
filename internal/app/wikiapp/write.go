@@ -368,12 +368,17 @@ func filesWithConflictMarkers(worktreeDir string, paths []string) []string {
 	return bad
 }
 
-// hasConflictMarker reports whether content has a line that is one of git's
-// standard 3-way merge conflict markers.
+// hasConflictMarker reports whether content still carries an unresolved git
+// 3-way merge marker. It keys off the labelled start/end markers ("<<<<<<< "
+// and ">>>>>>> ", which always carry a branch/ref label) rather than the bare
+// "=======" separator: a real unresolved conflict always contains the
+// labelled markers, while a lone line of exactly "=======" is legitimate wiki
+// content (e.g. a Markdown setext-H1 underline), so matching it would falsely
+// reject a resolved page on the conflict re-run path.
 func hasConflictMarker(content []byte) bool {
 	for _, line := range strings.Split(string(content), "\n") {
 		line = strings.TrimRight(line, "\r")
-		if strings.HasPrefix(line, "<<<<<<< ") || strings.HasPrefix(line, ">>>>>>> ") || line == "=======" {
+		if strings.HasPrefix(line, "<<<<<<< ") || strings.HasPrefix(line, ">>>>>>> ") {
 			return true
 		}
 	}
