@@ -22,9 +22,15 @@ import (
 // does not exist. cmd/githive maps it to the not_found exit code.
 var ErrNotFound = errors.New("wikiapp: path not found in wiki")
 
-// Service provides read access to the wiki for the repository at Dir.
+// Service provides read and write access to the wiki for the repository at
+// Dir. Read (Show/Log) lives in wikiapp.go; write (Edit/Save) in write.go.
 type Service struct {
 	Dir string
+
+	// afterMerge is a test-only seam invoked once after a clean local wiki
+	// merge and before the push, letting tests advance the remote to exercise
+	// the push-race retry. It is nil in production.
+	afterMerge func()
 }
 
 // New returns a Service rooted at dir.
