@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/ymsaki/githive/internal/app/apperr"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
@@ -19,8 +20,8 @@ import (
 const minIDPrefixLen = 8
 
 // ResolveID resolves a full or shortened (>=8 char) ULID to the full ID of
-// exactly one existing issue. Returns *AmbiguousIDError if more than one
-// issue matches, or ErrNotFound if none do.
+// exactly one existing issue. Returns *apperr.AmbiguousIDError if more than
+// one issue matches, or ErrNotFound if none do.
 func (s *Service) ResolveID(ctx context.Context, prefix string) (string, error) {
 	if event.IsValidULID(prefix) {
 		r := gitx.New(s.Dir)
@@ -54,7 +55,7 @@ func (s *Service) ResolveID(ctx context.Context, prefix string) (string, error) 
 		return matches[0], nil
 	default:
 		sort.Strings(matches)
-		return "", &AmbiguousIDError{Prefix: prefix, Candidates: matches}
+		return "", &apperr.AmbiguousIDError{Prefix: prefix, Candidates: matches}
 	}
 }
 
