@@ -28,7 +28,7 @@ githive status                   # 未 push の ref、未読 notify、自分の 
 githive issue   new|list|show|comment|status|edit|label|assign|link
 githive task    new|list|show|status|note|reassign
 githive notify  post|list|ack     # list は [--unread] [--all] を取る（[features/notify.md](features/notify.md)）
-githive chat    new|list|show|post|archive
+githive chat    new|list|show|post|archive|edit-meta
 githive users   add|list|key|group|policy
 githive wiki    edit|save|show|log
 githive whoami
