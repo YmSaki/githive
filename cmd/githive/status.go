@@ -10,9 +10,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/syncapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/cliout"
-	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
-	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
 // newStatusCmd implements `githive status`: unpushed refs, unread notify
@@ -28,7 +26,7 @@ func newStatusCmd() *cobra.Command {
 			}
 			ctx := context.Background()
 
-			unpushed, err := unpushedRefs(ctx, dir)
+			unpushed, err := syncapp.UnpushedRefs(ctx, dir)
 			if err != nil {
 				return err
 			}
@@ -73,37 +71,4 @@ func newStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// unpushedRefs compares each local ref among syncapp.SupportedFeatures -
-// which now covers every feature including meta/config and wiki/main
-// (ADR-0017) - against its last-known remote tracking ref
-// (refs/githive-remote/*) without fetching, so this stays a fast,
-// network-free local summary (docs/01-architecture.md「読み取り（高速路と
-// 互換路）」).
-func unpushedRefs(ctx context.Context, dir string) ([]string, error) {
-	r := gitx.New(dir)
-	entries, err := r.ForEachRef(ctx, "refs/projects/")
-	if err != nil {
-		return nil, err
-	}
-	var unpushed []string
-	for _, e := range entries {
-		parsed, err := refspace.Parse(e.Ref)
-		if err != nil || !syncapp.SupportedFeatures[parsed.Feature] {
-			continue
-		}
-		trackingRef, err := refspace.RemoteTrackingRef(e.Ref)
-		if err != nil {
-			continue
-		}
-		trackingOID, err := r.RevParse(ctx, trackingRef)
-		if err != nil {
-			return nil, err
-		}
-		if trackingOID != e.OID {
-			unpushed = append(unpushed, e.Ref)
-		}
-	}
-	return unpushed, nil
 }

@@ -1026,7 +1026,7 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "status", Description: "Summarize unpushed refs, unread notifications, and the actor's doing tasks"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, map[string]any, error) {
-			unpushed, err := unpushedRefs(ctx, dir)
+			unpushed, err := syncapp.UnpushedRefs(ctx, dir)
 			if err != nil {
 				return nil, nil, err
 			}
