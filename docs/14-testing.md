@@ -39,8 +39,9 @@ test harness（`internal/testutil`）が次のシナリオを部品として提�
 
 ## golden ファイル
 
-- イベント封筒、各 kind のペイロード、実体化ツリー（tar 形式のスナップショット）を `testdata/golden/` に置く。
-- golden の変更はスキーマ変更を意味するので、diff がレビューで見える形にする（バイナリ化しない）。
+- イベント封筒、各 kind のペイロード、実体化結果の期待値は `spec/vectors/`（canonical JSON、fold-issue、fold-task、ordering 等）に集約する。`testdata/golden/` や tar 形式のスナップショットは無い。
+- Go 実装は `spec/vectors/` のベクタを読み込む golden テストを持つ（[16](16-coding-conventions.md)）。canonical JSON はベクタと byte 一致、fold はベクタの期待状態と構造一致で検証する。
+- golden（`spec/vectors/`）の変更はスキーマ変更を意味するので、diff がレビューで見える形にする（JSON テキストのまま管理し、バイナリ化しない）。`python3 spec/validate.py` が全ベクタに対して PASS することを常時維持する。
 - この golden は将来 forge の pre-receive 検証（[12](12-forge-server.md)）と共有し、クライアントとサーバーの判定一致を保証する。
 
 ## CI 構成
