@@ -25,7 +25,12 @@ import (
 // worktreeConfigKey records the active wiki edit worktree so a later `wiki
 // save` (a separate process) can find it. Edit sets it; a successful Save
 // clears it.
-const worktreeConfigKey = "githive.wiki.worktree"
+const WorktreeConfigKey = "githive.wiki.worktree"
+
+// worktreeConfigKey is the unexported spelling the rest of this package
+// uses; WorktreeConfigKey exists so syncapp can tell "a wiki edit is in
+// progress" without duplicating the key (ADR-0017).
+const worktreeConfigKey = WorktreeConfigKey
 
 // wikiPushRetries bounds the merge→push loop when the remote wiki keeps
 // advancing between our fetch and push (the push-race).
