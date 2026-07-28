@@ -27,7 +27,7 @@ tree:
 |------|------|-----------|
 | notify.post | targets[], title, body?, source?, priority? | 当月の jsonl に追記 |
 | notify.ack | ack_of（notify.post の event-id） | acks.json の該当エントリに actor を追加 |
-| notify.checkpoint | state, count, hash | 読み出し起点 |
+| notify.checkpoint | state（meta/collections/scratch）, event_count, head | 読み出し起点（[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
 ### notify.post の data
 

@@ -92,7 +92,7 @@ registry 型 ref もイベントソーシングで管理する（形式は他機
 | users.group_set | name, members[], description? | グループの作成または置換 |
 | users.group_remove | name | グループを削除 |
 | users.policy_set | rules[], default | policy.json 全体を置換（LWW） |
-| users.checkpoint | state, count, hash | 読み出し起点 |
+| users.checkpoint | state（meta/collections/scratch）, event_count, head | 読み出し起点（[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
 policy は部分編集イベントにせず全置換とする。
 ルールの順序が意味を持つため、部分編集の合併で順序が壊れることを避ける。

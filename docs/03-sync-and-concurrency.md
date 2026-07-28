@@ -68,7 +68,7 @@ CRDT の用語では、イベント集合を grow-only set とする operation-b
 チェーンが長くなると、fold の起点を毎回ルートまで遡るのは遅い。
 これを避けるため、**チェックポイントコミット**を導入する。
 
-- kind は `<機能>.checkpoint`。data に「この時点の完全な状態」と「包含するイベント数とハッシュ」を持つ。
+- kind は `<機能>.checkpoint`。data に「この時点の完全な状態」と「event_count と直前ヘッドコミット OID（head）」を持つ（[ADR-0013](adr/0013-checkpoint-envelope-convention.md)）。
 - チェックポイント以降のイベントだけ fold すれば現在状態を再構成できる。
 - 作成条件：直前のチェックポイントから 500 イベント、または 90 日経過。`githive fsck --compact` が作成する。
 - チェックポイントは履歴を削除しない。単なる読み出しの近道である。

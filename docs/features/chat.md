@@ -46,7 +46,7 @@ ULID ファイル名の辞書順が投稿順なので、`ls` の並びがその�
 | chat.create | title, body? | スレッド作成。body があれば最初のメッセージを兼ねる |
 | chat.post | body, reply_to? | messages に追記 |
 | chat.edit_meta | title?, status? | LWW 上書き。status は open / archived |
-| chat.checkpoint | state, count, hash | 読み出し起点 |
+| chat.checkpoint | state（meta/collections/scratch）, event_count, head | 読み出し起点（[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
 メッセージの編集・削除は issue のコメントと同じく `supersedes` 方式で表す。
 
