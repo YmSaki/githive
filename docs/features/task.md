@@ -46,11 +46,11 @@ tree:
 ```
 todo -> doing -> review -> done
         doing -> blocked -> doing
-任意   -> cancelled
+非終端 -> cancelled
 ```
 
 `done` と `cancelled` が終端。再開は `todo` への遷移イベントで表す。
-終端状態から `cancelled` への遷移イベントは不正遷移として無視する（fold の基本則どおりエラーにはしない）。
+終端状態から `cancelled` への遷移イベントは不正遷移として無視する（fold の基本則どおりエラーにはしない。[ADR-0015](../adr/0015-task-terminal-cancel-and-schema-version-2.md)）。
 
 ## イベント定義
 
