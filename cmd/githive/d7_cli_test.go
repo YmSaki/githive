@@ -128,3 +128,77 @@ func TestCLINotifyPostPriority(t *testing.T) {
 		t.Fatalf("notify post without --priority should still succeed: code=%d stderr=%s", res.code, res.stderr)
 	}
 }
+
+// TestCLITaskNewIssueAndLink covers item 4: `task new --issue <id>` creates
+// the task and links it to the issue (rel=issue) in one step, and `task
+// link`/`--remove` work standalone for arbitrary rel values, matching
+// `issue link`'s shape (positional linked-id + --rel + --remove).
+func TestCLITaskNewIssueAndLink(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+
+	issueID := newIssueForTest(t, dir, "bug report")
+
+	res := runCLI(t, dir, "task", "new", "--title", "fix it", "--issue", issueID, "--no-sync", "--json")
+	if res.code != 0 {
+		t.Fatalf("task new --issue failed: code=%d stderr=%s", res.code, res.stderr)
+	}
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &created); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, res.stdout)
+	}
+	taskID := created.Data.ID
+	if taskID == "" {
+		t.Fatalf("task new: no id in %s", res.stdout)
+	}
+
+	assertTaskLinks := func(want ...map[string]any) {
+		t.Helper()
+		res := runCLI(t, dir, "task", "show", taskID, "--no-sync", "--json")
+		if res.code != 0 {
+			t.Fatalf("task show failed: code=%d stderr=%s", res.code, res.stderr)
+		}
+		var shown struct {
+			Data struct {
+				Meta map[string]any `json:"meta"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(res.stdout), &shown); err != nil {
+			t.Fatalf("bad json: %v\n%s", err, res.stdout)
+		}
+		links, _ := shown.Data.Meta["links"].([]any)
+		if len(links) != len(want) {
+			t.Fatalf("expected %d link(s), got %+v", len(want), links)
+		}
+		for i, w := range want {
+			got, _ := links[i].(map[string]any)
+			if got["rel"] != w["rel"] || got["id"] != w["id"] {
+				t.Fatalf("link %d: expected %+v, got %+v", i, w, got)
+			}
+		}
+	}
+	assertTaskLinks(map[string]any{"rel": "issue", "id": issueID})
+
+	// `task link` with an explicit --rel adds a second link.
+	res = runCLI(t, dir, "task", "link", taskID, issueID, "--rel", "chat", "--no-sync", "--json")
+	if res.code != 0 {
+		t.Fatalf("task link failed: code=%d stderr=%s", res.code, res.stderr)
+	}
+	assertTaskLinks(
+		map[string]any{"rel": "issue", "id": issueID},
+		map[string]any{"rel": "chat", "id": issueID},
+	)
+
+	// --remove drops just that one link.
+	res = runCLI(t, dir, "task", "link", taskID, issueID, "--rel", "chat", "--remove", "--no-sync", "--json")
+	if res.code != 0 {
+		t.Fatalf("task link --remove failed: code=%d stderr=%s", res.code, res.stderr)
+	}
+	assertTaskLinks(map[string]any{"rel": "issue", "id": issueID})
+}

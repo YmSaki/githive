@@ -63,3 +63,53 @@ func TestMcpNotifyPostPriority(t *testing.T) {
 		"to": []any{"all"}, "title": "bad", "priority": "urgent",
 	})
 }
+
+// TestMcpTaskNewIssueAndLink covers item 4's MCP half: task_new's issue
+// field links the new task to the issue (rel=issue), and task_link
+// exercises the standalone add/remove path.
+func TestMcpTaskNewIssueAndLink(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+	session := newMcpTestSession(t, dir)
+
+	issue := callMcpTool(t, session, "issue_new", map[string]any{"title": "bug"})
+	issueID, _ := issue["id"].(string)
+	if issueID == "" {
+		t.Fatalf("issue_new: no id in %+v", issue)
+	}
+
+	created := callMcpTool(t, session, "task_new", map[string]any{"title": "fix it", "issue": issueID})
+	taskID, _ := created["id"].(string)
+	if taskID == "" {
+		t.Fatalf("task_new: no id in %+v", created)
+	}
+
+	shown := callMcpTool(t, session, "task_show", map[string]any{"id": taskID})
+	meta, _ := shown["meta"].(map[string]any)
+	links, _ := meta["links"].([]any)
+	if len(links) != 1 {
+		t.Fatalf("expected 1 link from task_new --issue, got %+v", links)
+	}
+	link0, _ := links[0].(map[string]any)
+	if link0["rel"] != "issue" || link0["id"] != issueID {
+		t.Fatalf("expected rel=issue link to %s, got %+v", issueID, link0)
+	}
+
+	callMcpTool(t, session, "task_link", map[string]any{"id": taskID, "linked_id": issueID, "rel": "chat"})
+	shown = callMcpTool(t, session, "task_show", map[string]any{"id": taskID})
+	meta, _ = shown["meta"].(map[string]any)
+	links, _ = meta["links"].([]any)
+	if len(links) != 2 {
+		t.Fatalf("expected 2 links after task_link, got %+v", links)
+	}
+
+	callMcpTool(t, session, "task_link", map[string]any{"id": taskID, "linked_id": issueID, "rel": "chat", "remove": true})
+	shown = callMcpTool(t, session, "task_show", map[string]any{"id": taskID})
+	meta, _ = shown["meta"].(map[string]any)
+	links, _ = meta["links"].([]any)
+	if len(links) != 1 {
+		t.Fatalf("expected 1 link after task_link --remove, got %+v", links)
+	}
+}

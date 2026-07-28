@@ -402,6 +402,7 @@ type taskNewParams struct {
 	Owner    string `json:"owner,omitempty" jsonschema:"owner (username or email; defaults to actor)"`
 	Due      string `json:"due,omitempty" jsonschema:"due date"`
 	Priority string `json:"priority,omitempty" jsonschema:"priority"`
+	Issue    string `json:"issue,omitempty" jsonschema:"issue id or an unambiguous >=8 char prefix to link (rel=issue)"`
 }
 
 type taskListParams struct {
@@ -432,6 +433,13 @@ type taskReassignParams struct {
 	Owner string `json:"owner" jsonschema:"new owner (username or email)"`
 }
 
+type taskLinkParams struct {
+	ID        string `json:"id" jsonschema:"task id or an unambiguous >=8 char prefix"`
+	LinkedID  string `json:"linked_id" jsonschema:"the id of the entity to link to"`
+	Rel       string `json:"rel,omitempty" jsonschema:"link relation: task/issue/chat (default issue)"`
+	Unlinking bool   `json:"remove,omitempty" jsonschema:"remove the link instead of adding it"`
+}
+
 func registerTaskTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "task_new", Description: "Create a new task"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args taskNewParams) (*mcp.CallToolResult, map[string]any, error) {
@@ -439,9 +447,22 @@ func registerTaskTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			id, err := taskapp.New(dir).NewTask(ctx, args.Title, args.Body, owner, args.Due, args.Priority)
+			var resolvedIssueID string
+			if args.Issue != "" {
+				resolvedIssueID, err = issueapp.New(dir).ResolveID(ctx, args.Issue)
+				if err != nil {
+					return nil, nil, err
+				}
+			}
+			svc := taskapp.New(dir)
+			id, err := svc.NewTask(ctx, args.Title, args.Body, owner, args.Due, args.Priority)
 			if err != nil {
 				return nil, nil, err
+			}
+			if resolvedIssueID != "" {
+				if err := svc.Link(ctx, id, "issue", resolvedIssueID, false); err != nil {
+					return nil, nil, err
+				}
 			}
 			return nil, map[string]any{"id": id}, nil
 		})
@@ -546,6 +567,23 @@ func registerTaskTools(server *mcp.Server, dir string) {
 				warnStrings = notifyapp.NotifyAssigned(ctx, dir, "task", id, selfEmail, resolvedOwner)
 			}
 			return nil, withWarnings(nil, autoNotifyWarnings(warnStrings)), nil
+		})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "task_link", Description: "Link a task to another entity"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args taskLinkParams) (*mcp.CallToolResult, map[string]any, error) {
+			svc := taskapp.New(dir)
+			id, err := svc.ResolveID(ctx, args.ID)
+			if err != nil {
+				return nil, nil, err
+			}
+			rel := args.Rel
+			if rel == "" {
+				rel = "issue"
+			}
+			if err := svc.Link(ctx, id, rel, args.LinkedID, args.Unlinking); err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{}, nil
 		})
 }
 

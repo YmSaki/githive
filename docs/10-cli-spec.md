@@ -26,7 +26,7 @@ githive sync [--kind issue,...]  # fetch -> merge -> push（[03] のアルゴリ
 githive status                   # 未 push の ref、未読 notify、自分の doing task の要約
 
 githive issue   new|list|show|comment|status|edit|label|assign|link
-githive task    new|list|show|status|note|reassign
+githive task    new|list|show|status|note|reassign|link
 githive notify  post|list|ack     # list は [--unread] [--all] を取る（[features/notify.md](features/notify.md)）
 githive chat    new|list|show|post|archive|edit-meta
 githive users   add|list|key|group|policy
