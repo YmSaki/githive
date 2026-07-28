@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 )
 
@@ -123,8 +122,12 @@ func TestCanonicalJSONRoundTrip(t *testing.T) {
 }
 
 // TestOrderingVectors exercises the ULID lexical-order vectors
-// (spec/vectors/ordering) against plain string sort, which is what
-// sort_by_event_id relies on (docs/02-data-model.md).
+// (spec/vectors/ordering) against the production ordering path,
+// event.SortEvents, which is what materialize.Registry.Fold actually calls
+// to realize state = fold(sort_by_event_id(events)) (docs/02-data-model.md).
+// Each raw ULID is wrapped in a minimal Envelope so this exercises the same
+// function real fold code paths use, rather than a parallel sort.Strings
+// call that could silently drift from SortEvents's behavior.
 func TestOrderingVectors(t *testing.T) {
 	dir := specDir(t, "vectors/ordering")
 	entries, err := os.ReadDir(dir)
@@ -148,8 +151,15 @@ func TestOrderingVectors(t *testing.T) {
 			if err := json.Unmarshal(raw, &vec); err != nil {
 				t.Fatal(err)
 			}
-			got := append([]string(nil), vec.Input...)
-			sort.Strings(got)
+			envs := make([]*Envelope, len(vec.Input))
+			for i, id := range vec.Input {
+				envs[i] = &Envelope{ID: id}
+			}
+			sorted := SortEvents(envs)
+			got := make([]string, len(sorted))
+			for i, e := range sorted {
+				got[i] = e.ID
+			}
 			if len(got) != len(vec.ExpectedSorted) {
 				t.Fatalf("length mismatch: got %v want %v", got, vec.ExpectedSorted)
 			}

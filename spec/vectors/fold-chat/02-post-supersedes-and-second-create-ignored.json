@@ -1,0 +1,99 @@
+{
+  "name": "02-post-supersedes-and-second-create-ignored",
+  "description": "chat.post の supersedes による置換表示（superseded_by の記録）、reply_to の素通し、そして 2 件目の chat.create が不正として無視されること（participants にも加わらない）を確認する。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "chat.create",
+      "id": "00001snn3zgjr5hjbawd74kssf",
+      "ts": "2026-07-05T09:00:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zh6mda6b1rn7kxhrzezg",
+      "data": {
+        "title": "デプロイ計画"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn469mkka2brxtjygcd5",
+      "ts": "2026-07-05T09:01:00.000Z",
+      "actor": "dev-agent-01@example.com",
+      "entity": "0000g6zh6mda6b1rn7kxhrzezg",
+      "data": {
+        "body": "タイポがあります: デプロイ"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn4dvejw16r3rnpcmd5q",
+      "ts": "2026-07-05T09:02:00.000Z",
+      "actor": "dev-agent-01@example.com",
+      "entity": "0000g6zh6mda6b1rn7kxhrzezg",
+      "data": {
+        "body": "訂正: デプロイ手順です",
+        "supersedes": "00001snn469mkka2brxtjygcd5"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.create",
+      "id": "00001snn4mw566b79n4d65ydrb",
+      "ts": "2026-07-05T09:03:00.000Z",
+      "actor": "mallory@example.com",
+      "entity": "0000g6zh6mda6b1rn7kxhrzezg",
+      "data": {
+        "title": "乗っ取り試行"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn4vcrxjb2r84nkszr12",
+      "ts": "2026-07-05T09:04:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zh6mda6b1rn7kxhrzezg",
+      "data": {
+        "body": "了解、続けましょう",
+        "reply_to": "00001snn4dvejw16r3rnpcmd5q"
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "0000g6zh6mda6b1rn7kxhrzezg",
+    "title": "デプロイ計画",
+    "status": "open",
+    "created_by": "yuumiya@example.com",
+    "created_at": "2026-07-05T09:00:00.000Z",
+    "updated_at": "2026-07-05T09:04:00.000Z",
+    "message_count": 3,
+    "participants": [
+      "dev-agent-01@example.com",
+      "yuumiya@example.com"
+    ]
+  },
+  "expected_messages": {
+    "00001snn469mkka2brxtjygcd5": {
+      "id": "00001snn469mkka2brxtjygcd5",
+      "author": "dev-agent-01@example.com",
+      "ts": "2026-07-05T09:01:00.000Z",
+      "body": "タイポがあります: デプロイ",
+      "superseded_by": "00001snn4dvejw16r3rnpcmd5q"
+    },
+    "00001snn4dvejw16r3rnpcmd5q": {
+      "id": "00001snn4dvejw16r3rnpcmd5q",
+      "author": "dev-agent-01@example.com",
+      "ts": "2026-07-05T09:02:00.000Z",
+      "body": "訂正: デプロイ手順です",
+      "supersedes": "00001snn469mkka2brxtjygcd5"
+    },
+    "00001snn4vcrxjb2r84nkszr12": {
+      "id": "00001snn4vcrxjb2r84nkszr12",
+      "author": "yuumiya@example.com",
+      "ts": "2026-07-05T09:04:00.000Z",
+      "body": "了解、続けましょう",
+      "reply_to": "00001snn4dvejw16r3rnpcmd5q"
+    }
+  }
+}

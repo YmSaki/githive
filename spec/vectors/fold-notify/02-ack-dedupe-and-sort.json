@@ -1,0 +1,86 @@
+{
+  "name": "02-ack-dedupe-and-sort",
+  "description": "notify.ack は actor を ack_of ごとに昇順ソートし、同一 actor の重複 ack は no-op になる。ack_of は acks 側の集合演算だけで完結し、対応する notify.post が存在するかどうかに関係なく積み上がる（acks.json は posts.json と独立に合併される）ことも確認する。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "notify.post",
+      "id": "00003kc73gsq8p6qb2b9kbmee6",
+      "ts": "2026-07-10T08:00:00.000Z",
+      "actor": "a@example.com",
+      "entity": "00003kc73gsq8p6qb2b9kbmee6",
+      "data": {
+        "targets": [
+          "all"
+        ],
+        "title": "重要なお知らせ"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.ack",
+      "id": "00003kc73qx8nnfxr89ced6yvk",
+      "ts": "2026-07-10T08:01:00.000Z",
+      "actor": "z@example.com",
+      "entity": "00003kc73qx8nnfxr89ced6yvk",
+      "data": {
+        "ack_of": "00003kc73gsq8p6qb2b9kbmee6"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.ack",
+      "id": "00003kc73y7znt761envd5mym7",
+      "ts": "2026-07-10T08:02:00.000Z",
+      "actor": "b@example.com",
+      "entity": "00003kc73y7znt761envd5mym7",
+      "data": {
+        "ack_of": "00003kc73gsq8p6qb2b9kbmee6"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.ack",
+      "id": "00003kc745w55cq4qqmm670x0x",
+      "ts": "2026-07-10T08:03:00.000Z",
+      "actor": "z@example.com",
+      "entity": "00003kc745w55cq4qqmm670x0x",
+      "data": {
+        "ack_of": "00003kc73gsq8p6qb2b9kbmee6"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.ack",
+      "id": "00003kc74c2608yyrbazyrtjr8",
+      "ts": "2026-07-10T08:04:00.000Z",
+      "actor": "c@example.com",
+      "entity": "00003kc74c2608yyrbazyrtjr8",
+      "data": {
+        "ack_of": "00003kc74t98506ewe56n38rr7"
+      }
+    }
+  ],
+  "expected_meta": {},
+  "expected_posts": {
+    "00003kc73gsq8p6qb2b9kbmee6": {
+      "id": "00003kc73gsq8p6qb2b9kbmee6",
+      "ts": "2026-07-10T08:00:00.000Z",
+      "actor": "a@example.com",
+      "targets": [
+        "all"
+      ],
+      "title": "重要なお知らせ",
+      "month": "2026-07"
+    }
+  },
+  "expected_acks": {
+    "00003kc73gsq8p6qb2b9kbmee6": [
+      "b@example.com",
+      "z@example.com"
+    ],
+    "00003kc74t98506ewe56n38rr7": [
+      "c@example.com"
+    ]
+  }
+}

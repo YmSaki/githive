@@ -111,9 +111,12 @@ func TestFoldCheckpointTransparency(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Golden vectors: issue and task fold rules must match
-// spec/vectors/fold-issue and spec/vectors/fold-task exactly (structurally),
-// including under shuffled input (spec/README.md「Go 実装への要求」).
+// Golden vectors: issue/task/chat/notify fold rules must match
+// spec/vectors/fold-issue, fold-task, fold-chat, fold-notify exactly
+// (structurally), including under shuffled input (spec/README.md「Go 実装
+// への要求」). users has no single meta and two collections (users/groups)
+// plus a Scratch-only policy value, so it cannot share this single-collection
+// helper; see TestFoldUsersVectors below.
 // ---------------------------------------------------------------------------
 
 type foldVector struct {
@@ -121,6 +124,8 @@ type foldVector struct {
 	ExpectedMeta     json.RawMessage   `json:"expected_meta"`
 	ExpectedComments json.RawMessage   `json:"expected_comments"`
 	ExpectedNotes    json.RawMessage   `json:"expected_notes"`
+	ExpectedMessages json.RawMessage   `json:"expected_messages"`
+	ExpectedPosts    json.RawMessage   `json:"expected_posts"`
 }
 
 func canonicalOf(t *testing.T, v any) string {
@@ -235,4 +240,114 @@ func TestFoldTaskVectors(t *testing.T) {
 	runFoldVectorDir(t, "vectors/fold-task", TaskRegistry, "notes", func(v foldVector) json.RawMessage {
 		return v.ExpectedNotes
 	})
+}
+
+func TestFoldChatVectors(t *testing.T) {
+	runFoldVectorDir(t, "vectors/fold-chat", ChatRegistry, "messages", func(v foldVector) json.RawMessage {
+		return v.ExpectedMessages
+	})
+}
+
+func TestFoldNotifyVectors(t *testing.T) {
+	runFoldVectorDir(t, "vectors/fold-notify", NotifyRegistry, "posts", func(v foldVector) json.RawMessage {
+		return v.ExpectedPosts
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Golden vectors: users. users/registry has no single meta.json and holds
+// two collections (users/groups) plus a Scratch-only policy value
+// (users.go package doc, .claude/skills/add-fold-vector/SKILL.md「複数
+// コレクションを持つ場合」), so runFoldVectorDir's single
+// meta+one-collection shape does not fit; compare all three individually
+// instead, spec/vectors/fold-users/*.json against spec/reference/fold_users.py
+// as the reference (docs/02-data-model.md 決定性の不変条件).
+// ---------------------------------------------------------------------------
+
+type usersFoldVector struct {
+	Events         []json.RawMessage `json:"events"`
+	ExpectedUsers  json.RawMessage   `json:"expected_users"`
+	ExpectedGroups json.RawMessage   `json:"expected_groups"`
+	ExpectedPolicy json.RawMessage   `json:"expected_policy"`
+}
+
+func TestFoldUsersVectors(t *testing.T) {
+	dir := specDir(t, "vectors/fold-users")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("no vectors found in vectors/fold-users")
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		t.Run(name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var vec usersFoldVector
+			if err := json.Unmarshal(raw, &vec); err != nil {
+				t.Fatal(err)
+			}
+
+			events := make([]*event.Envelope, len(vec.Events))
+			for i, evRaw := range vec.Events {
+				env, err := event.Decode(evRaw)
+				if err != nil {
+					t.Fatalf("event[%d]: %v", i, err)
+				}
+				events[i] = env
+			}
+
+			expectedUsersVal, err := event.DecodeGeneric(vec.ExpectedUsers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expectedGroupsVal, err := event.DecodeGeneric(vec.ExpectedGroups)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var expectedPolicyVal any
+			if len(vec.ExpectedPolicy) > 0 {
+				expectedPolicyVal, err = event.DecodeGeneric(vec.ExpectedPolicy)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			wantUsers := canonicalOf(t, expectedUsersVal)
+			wantGroups := canonicalOf(t, expectedGroupsVal)
+			wantPolicy := canonicalOf(t, expectedPolicyVal)
+
+			check := func(t *testing.T, events []*event.Envelope, label string) {
+				state := UsersRegistry.Fold(events)
+				gotUsers := canonicalOf(t, collectionAsAny(state.Collections["users"]))
+				if gotUsers != wantUsers {
+					t.Errorf("%s: users mismatch\n want: %s\n got:  %s", label, wantUsers, gotUsers)
+				}
+				gotGroups := canonicalOf(t, collectionAsAny(state.Collections["groups"]))
+				if gotGroups != wantGroups {
+					t.Errorf("%s: groups mismatch\n want: %s\n got:  %s", label, wantGroups, gotGroups)
+				}
+				var policyAny any
+				if p := Policy(state); p != nil {
+					policyAny = map[string]any(p)
+				}
+				gotPolicy := canonicalOf(t, policyAny)
+				if gotPolicy != wantPolicy {
+					t.Errorf("%s: policy mismatch\n want: %s\n got:  %s", label, wantPolicy, gotPolicy)
+				}
+			}
+
+			check(t, events, "original order")
+
+			rng := rand.New(rand.NewSource(int64(len(name)) + 11))
+			for trial := 0; trial < 3; trial++ {
+				shuffled := append([]*event.Envelope(nil), events...)
+				rng.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+				check(t, shuffled, fmt.Sprintf("shuffle trial %d", trial))
+			}
+		})
+	}
 }

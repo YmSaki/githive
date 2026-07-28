@@ -1,0 +1,110 @@
+{
+  "name": "02-key-revoke-and-user-set-lww",
+  "description": "users.user_set の2回目は fields の一部だけを LWW 上書きし、既存フィールド（kind/emails/roles）は保持される。users.key_revoke は該当鍵の revoked_at をセットする（削除しない）。未登録ユーザーへの users.key_add は無視される（自動作成しない）。失効済み鍵への再 key_add は重複として no-op になり、revoked_at を巻き戻さない。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "users.user_set",
+      "id": "00005d2vgkdgjnh3zhphxr66fd",
+      "ts": "2026-07-05T00:00:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vgkdgjnh3zhphxr66fd",
+      "data": {
+        "username": "dev-agent-01",
+        "fields": {
+          "kind": "agent",
+          "emails": [
+            "dev-agent-01@agents.githive.invalid"
+          ],
+          "roles": [
+            "member"
+          ]
+        }
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.key_add",
+      "id": "00005d2vgtjvtyq90k4mtm0b46",
+      "ts": "2026-07-05T00:01:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vgtjvtyq90k4mtm0b46",
+      "data": {
+        "username": "dev-agent-01",
+        "pub": "ssh-ed25519 AAAAKEY1"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.user_set",
+      "id": "00005d2vh1sj20a7xhcjq5txzy",
+      "ts": "2026-07-05T00:02:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vh1sj20a7xhcjq5txzy",
+      "data": {
+        "username": "dev-agent-01",
+        "fields": {
+          "status": "suspended"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.key_revoke",
+      "id": "00005d2vh8rrbes4y4a30z2r8n",
+      "ts": "2026-07-05T00:03:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vh8rrbes4y4a30z2r8n",
+      "data": {
+        "username": "dev-agent-01",
+        "pub": "ssh-ed25519 AAAAKEY1"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.key_add",
+      "id": "00005d2vhfn9mwnb4dm2x58zc4",
+      "ts": "2026-07-05T00:04:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vhfn9mwnb4dm2x58zc4",
+      "data": {
+        "username": "ghost",
+        "pub": "ssh-ed25519 GHOST"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.key_add",
+      "id": "00005d2vhpswz1v2jhmb8bqz0r",
+      "ts": "2026-07-05T00:05:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vhpswz1v2jhmb8bqz0r",
+      "data": {
+        "username": "dev-agent-01",
+        "pub": "ssh-ed25519 AAAAKEY1"
+      }
+    }
+  ],
+  "expected_users": {
+    "dev-agent-01": {
+      "username": "dev-agent-01",
+      "kind": "agent",
+      "status": "suspended",
+      "emails": [
+        "dev-agent-01@agents.githive.invalid"
+      ],
+      "roles": [
+        "member"
+      ],
+      "keys": [
+        {
+          "pub": "ssh-ed25519 AAAAKEY1",
+          "added_at": "2026-07-05T00:01:00.000Z",
+          "revoked_at": "2026-07-05T00:03:00.000Z"
+        }
+      ]
+    }
+  },
+  "expected_groups": {},
+  "expected_policy": null
+}

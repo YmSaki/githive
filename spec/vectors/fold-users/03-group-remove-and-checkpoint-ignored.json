@@ -1,0 +1,85 @@
+{
+  "name": "03-group-remove-and-checkpoint-ignored",
+  "description": "users.group_remove は該当グループを groups から削除する。users.checkpoint（ADR-0013 新形式: state/event_count/head）は fold から常に無視され、前後の group_set/group_remove の積み上げに影響しない。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "users.group_set",
+      "id": "00005d2vjsbcac370z5a2gc0yt",
+      "ts": "2026-07-06T00:00:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vjsbcac370z5a2gc0yt",
+      "data": {
+        "name": "temp",
+        "members": [
+          "alice-temp"
+        ],
+        "description": "一時"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.checkpoint",
+      "id": "00005d2vk00dr8j2aw4kyqpq2p",
+      "ts": "2026-07-06T00:01:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vk00dr8j2aw4kyqpq2p",
+      "data": {
+        "event_count": 1,
+        "head": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        "state": {
+          "meta": {},
+          "collections": {
+            "users": {},
+            "groups": {
+              "temp": {
+                "name": "temp",
+                "members": [
+                  "alice-temp"
+                ],
+                "description": "一時"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.group_remove",
+      "id": "00005d2vk7cpntg53fbkzx3fj5",
+      "ts": "2026-07-06T00:02:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vk7cpntg53fbkzx3fj5",
+      "data": {
+        "name": "temp"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.group_set",
+      "id": "00005d2vke2v5fd8gzt2aqb5yc",
+      "ts": "2026-07-06T00:03:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vke2v5fd8gzt2aqb5yc",
+      "data": {
+        "name": "core",
+        "members": [
+          "yuumiya",
+          "dev-agent-01"
+        ]
+      }
+    }
+  ],
+  "expected_users": {},
+  "expected_groups": {
+    "core": {
+      "name": "core",
+      "members": [
+        "yuumiya",
+        "dev-agent-01"
+      ]
+    }
+  },
+  "expected_policy": null
+}
