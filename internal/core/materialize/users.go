@@ -33,6 +33,7 @@ func Policy(s *State) map[string]any {
 
 func newUsersRegistry() *Registry {
 	r := NewRegistry()
+	r.SetScratchDecoder(decodeUsersScratch)
 
 	r.Register("users.user_set", func(s *State, env *event.Envelope) {
 		ensureUsersCollections(s)

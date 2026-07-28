@@ -68,6 +68,7 @@ func appendTaskStatusHistory(s *State, entry map[string]any) {
 
 func newTaskRegistry() *Registry {
 	r := NewRegistry()
+	r.SetScratchDecoder(decodeTaskScratch)
 
 	r.Register("task.create", func(s *State, env *event.Envelope) {
 		if s.Meta != nil {

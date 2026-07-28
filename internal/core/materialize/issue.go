@@ -93,6 +93,7 @@ func sortedKeysAny(m map[string]bool) []any {
 
 func newIssueRegistry() *Registry {
 	r := NewRegistry()
+	r.SetScratchDecoder(decodeIssueScratch)
 
 	r.Register("issue.create", func(s *State, env *event.Envelope) {
 		if s.Meta != nil {

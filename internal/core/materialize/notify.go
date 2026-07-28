@@ -32,6 +32,7 @@ func notifyAcks(s *State) map[string][]string {
 
 func newNotifyRegistry() *Registry {
 	r := NewRegistry()
+	r.SetScratchDecoder(decodeNotifyScratch)
 
 	r.Register("notify.post", func(s *State, env *event.Envelope) {
 		ensureNotifyMeta(s)
