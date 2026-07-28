@@ -165,6 +165,49 @@ func TestListAndFilter(t *testing.T) {
 	}
 }
 
+// TestListExcludesArchivedByDefault verifies that List() drops archived
+// issues unless the caller explicitly filters for status=archived
+// (docs/features/issue.md「archived は... 一覧の既定表示から外れる」).
+func TestListExcludesArchivedByDefault(t *testing.T) {
+	requireGit(t)
+	svc := newTestRepo(t)
+	ctx := context.Background()
+
+	openID, err := svc.NewIssue(ctx, "open one", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archivedID, err := svc.NewIssue(ctx, "archived one", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []string{"closed", "archived"} {
+		ok, err := svc.Status(ctx, archivedID, to)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Fatalf("transition to %q should have been accepted", to)
+		}
+	}
+
+	all, err := svc.List(ctx, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || all[0]["id"] != openID {
+		t.Fatalf("expected only the open issue in default list, got %+v", all)
+	}
+
+	archivedOnly, err := svc.List(ctx, ListFilter{Status: "archived"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archivedOnly) != 1 || archivedOnly[0]["id"] != archivedID {
+		t.Fatalf("expected the archived issue when explicitly filtered, got %+v", archivedOnly)
+	}
+}
+
 func TestResolveIDPrefixAndAmbiguity(t *testing.T) {
 	requireGit(t)
 	svc := newTestRepo(t)

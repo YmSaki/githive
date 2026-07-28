@@ -11,8 +11,11 @@
 //     unlike chain.WalkChain which stops at the first bad envelope).
 //   - meta/config is event-sourced too but is not one of the entity chains;
 //     it gets its own shape-appropriate check: envelope validation plus a
-//     config.json schema_version support check (docs/01-architecture.md
-//     「バージョニングと互換性」: 自分の対応版より新しい schema_version は拒否).
+//     config.json schema_version support check against initapp.SchemaVersion
+//     (the config schema's own version counter, independent of the envelope
+//     schema counter event.SchemaVersion, per docs/01-architecture.md「Go
+//     モジュールは...データスキーマはこの v と schema_version で、それぞれ
+//     独立に管理する」): 自分の対応版より新しい schema_version は拒否.
 //   - wiki/main is NOT event-sourced (a plain git branch); it gets the
 //     filename-portability check shared with `githive wiki save`
 //     (internal/core/wikifs), never event-schema validation.
@@ -41,6 +44,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
@@ -284,10 +288,10 @@ func validateMetaConfig(repo *git.Repository, ref string, head plumbing.Hash) []
 			Message: "config.json has no integer schema_version",
 		})
 	}
-	if sv > event.SchemaVersion {
+	if sv > initapp.SchemaVersion {
 		findings = append(findings, Finding{
 			Ref: ref, Feature: string(refspace.FeatureMeta), Code: "unsupported_schema_version",
-			Message: fmt.Sprintf("config.json schema_version %d is newer than supported %d", sv, event.SchemaVersion),
+			Message: fmt.Sprintf("config.json schema_version %d is newer than supported %d", sv, initapp.SchemaVersion),
 		})
 	}
 	return findings

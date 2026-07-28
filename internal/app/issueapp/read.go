@@ -130,11 +130,18 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 	return out, nil
 }
 
+// statusArchived is excluded from List by default
+// (docs/features/issue.md「archived は... 一覧の既定表示から外れる」)
+// unless the caller explicitly asks for it via ListFilter.Status.
+const statusArchived = "archived"
+
 func matchesFilter(meta Meta, filter ListFilter) bool {
 	if filter.Status != "" {
 		if s, _ := meta["status"].(string); s != filter.Status {
 			return false
 		}
+	} else if s, _ := meta["status"].(string); s == statusArchived {
+		return false
 	}
 	if filter.Label != "" {
 		if !containsString(meta["labels"], filter.Label) {

@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ymsaki/githive/internal/app/apperr"
+	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/logapp"
 	"github.com/ymsaki/githive/internal/app/syncapp"
@@ -23,12 +24,10 @@ import (
 // globalFlags holds the persistent flags every subcommand shares
 // (docs/10-cli-spec.md「グローバルフラグ」).
 type globalFlags struct {
-	repo    string
-	json    bool
-	noSync  bool
-	remote  string
-	quiet   bool
-	verbose bool
+	repo   string
+	json   bool
+	noSync bool
+	remote string
 }
 
 var flags globalFlags
@@ -44,8 +43,6 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().BoolVar(&flags.json, "json", false, "JSON output")
 	root.PersistentFlags().BoolVar(&flags.noSync, "no-sync", false, "do not sync after a write")
 	root.PersistentFlags().StringVar(&flags.remote, "remote", "origin", "sync remote name")
-	root.PersistentFlags().BoolVar(&flags.quiet, "quiet", false, "reduce output")
-	root.PersistentFlags().BoolVar(&flags.verbose, "verbose", false, "increase output")
 
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newSyncCmd())
@@ -132,6 +129,10 @@ var errNotARepo = errors.New("not a githive/git repository (no .git found; use -
 // (docs/10-cli-spec.md「終了コード」).
 func classifyError(err error) (int, cliout.ErrorInfo) {
 	var ambiguous *apperr.AmbiguousIDError
+	var schemaUnsupported *entitychain.SchemaUnsupportedError
+	if errors.As(err, &schemaUnsupported) {
+		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "schema_unsupported", Message: err.Error()}
+	}
 	if vfe, ok := asVerifyFailedError(err); ok {
 		return cliout.ExitVerifyFailed, cliout.ErrorInfo{
 			Code:    "verify_failed",
@@ -157,6 +158,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 	var wikiValidation *wikiapp.ValidationError
 	var wikiConflict *wikiapp.ConflictError
 	switch {
+	case errors.Is(err, errVerifyAllWithRef):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "usage_error", Message: err.Error()}
 	case errors.As(err, &ambiguous):
 		return cliout.ExitUsageError, cliout.ErrorInfo{
 			Code:    "ambiguous_id",
@@ -237,7 +240,9 @@ func syncIfEnabled(dir, ref string) []cliout.Warning {
 	if flags.noSync {
 		return nil
 	}
-	if _, err := syncapp.Sync(context.Background(), dir, flags.remote, []string{ref}, syncapp.DefaultRetries); err != nil {
+	ctx := context.Background()
+	retries := syncapp.RetriesFromConfig(ctx, dir)
+	if _, err := syncapp.Sync(ctx, dir, flags.remote, []string{ref}, retries); err != nil {
 		return []cliout.Warning{{Code: "sync_failed", Message: err.Error()}}
 	}
 	return nil
