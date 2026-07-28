@@ -153,6 +153,7 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 			Data:    map[string]any{"findings": findingsToAny(ffe.report.Findings), "checkpoints": checkpointsToAny(ffe.report.Checkpoints)},
 		}
 	}
+	var trustRootConflict *syncapp.TrustRootConflictError
 	var wikiValidation *wikiapp.ValidationError
 	var wikiConflict *wikiapp.ConflictError
 	switch {
@@ -171,6 +172,21 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		// misconfiguration, not a usage error (ADR-0014, `githive doctor`'s
 		// signing check reports the same condition).
 		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "signing_misconfigured", Message: err.Error()}
+	case errors.As(err, &trustRootConflict):
+		// Two competing users registries: a verification failure that needs a
+		// human decision, not a retryable sync race (docs/03「共通祖先が無い
+		// 場合」, docs/10「終了コード」4).
+		return cliout.ExitVerifyFailed, cliout.ErrorInfo{
+			Code:    "trust_root_conflict",
+			Message: err.Error(),
+			Data: map[string]any{
+				"ref":          trustRootConflict.Ref,
+				"local_roots":  toAnySlice(trustRootConflict.LocalRoots),
+				"remote_roots": toAnySlice(trustRootConflict.RemoteRoots),
+				"pin":          trustRootConflict.Pin,
+				"recovery":     trustRootConflict.Recovery(),
+			},
+		}
 	case errors.Is(err, usersapp.ErrInvalidName):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_name", Message: err.Error()}
 	case errors.Is(err, logapp.ErrInvalidSince):

@@ -30,17 +30,24 @@ func newSyncCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var warnings []cliout.Warning
+			for _, r := range results {
+				if r.Warning != "" {
+					warnings = append(warnings, cliout.Warning{Code: "trust_root_resolved", Message: r.Warning})
+				}
+			}
 			if flags.json {
 				items := make([]map[string]any, len(results))
 				for i, r := range results {
 					items[i] = map[string]any{"ref": r.Ref, "action": string(r.Action)}
 				}
-				cliout.PrintList(items, nil)
+				cliout.PrintList(items, warnings)
 				return nil
 			}
 			for _, r := range results {
 				fmt.Printf("%s\t%s\n", r.Action, r.Ref)
 			}
+			printWarnings(warnings)
 			return nil
 		},
 	}
