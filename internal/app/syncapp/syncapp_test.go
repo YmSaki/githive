@@ -2,11 +2,15 @@ package syncapp
 
 import (
 	"context"
+	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/core/gitx"
 )
 
 func requireGit(t *testing.T) {
@@ -125,6 +129,110 @@ func fmtLabels(labels []any) string {
 		s += l.(string) + ","
 	}
 	return s
+}
+
+// TestClassifyPushRejection pins classifyPushRejection's non-fast-forward
+// vs. permanent-rejection split (A4, docs/10-cli-spec.md「終了コード」): the
+// races a fetch->merge->push retry can resolve map to gitx.ErrNonFastForward,
+// every other rejection - including a git version's phrasing this function
+// does not recognize - maps to ErrPushRejected carrying the raw reason.
+func TestClassifyPushRejection(t *testing.T) {
+	cases := []struct {
+		name      string
+		reason    string
+		wantNonFF bool
+	}{
+		{"non-fast-forward", "[rejected] (non-fast-forward)", true},
+		{"fetch first", "[rejected] (fetch first)", true},
+		{"stale info", "[rejected] (stale info)", true},
+		{"pre-receive hook", "[remote rejected] (pre-receive hook declined)", false},
+		{"unrecognized reason falls back to permanent", "[remote rejected] (some future git message)", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := classifyPushRejection(c.reason)
+			if c.wantNonFF {
+				if !errors.Is(err, gitx.ErrNonFastForward) {
+					t.Errorf("classifyPushRejection(%q) = %v, want gitx.ErrNonFastForward", c.reason, err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrPushRejected) {
+				t.Errorf("classifyPushRejection(%q) = %v, want ErrPushRejected", c.reason, err)
+			}
+			if !strings.Contains(err.Error(), c.reason) {
+				t.Errorf("classifyPushRejection(%q).Error() = %q, want it to contain the raw git reason", c.reason, err.Error())
+			}
+		})
+	}
+}
+
+// installRejectingHook writes a pre-receive hook into the bare repo at
+// bareDir that rejects every push and records one line to a counter file per
+// invocation, so tests can assert exactly how many times the remote saw a
+// push attempt.
+func installRejectingHook(t *testing.T, bareDir string) {
+	t.Helper()
+	hooksDir := filepath.Join(bareDir, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	counter := filepath.Join(bareDir, "pre-receive-hits")
+	script := "#!/bin/sh\necho hit >> " + counter + "\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-receive"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// hookHitCount reads back how many times installRejectingHook's script ran.
+func hookHitCount(t *testing.T, bareDir string) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(bareDir, "pre-receive-hits"))
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	trimmed := strings.TrimRight(string(data), "\n")
+	if trimmed == "" {
+		return 0
+	}
+	return len(strings.Split(trimmed, "\n"))
+}
+
+// TestSyncPushRejectedByPreReceiveHookFailsOnce is A4's headline scenario: a
+// remote that permanently rejects every push (a pre-receive hook, standing
+// in for policy/permission rejections in general) must fail sync's very
+// first attempt with ErrPushRejected instead of retrying up to Retries times
+// like a real non-fast-forward race would.
+func TestSyncPushRejectedByPreReceiveHookFailsOnce(t *testing.T) {
+	requireGit(t)
+	origin := initBareOrigin(t)
+	installRejectingHook(t, origin)
+	dirA := cloneRepo(t, origin, "a@example.com")
+	ctx := context.Background()
+
+	svcA := issueapp.New(dirA)
+	id, err := svcA.NewIssue(ctx, "seed", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := "refs/projects/issue/" + id
+
+	_, err = Sync(ctx, dirA, "origin", []string{ref}, 5)
+	if err == nil {
+		t.Fatal("expected the pre-receive hook's rejection to surface as an error")
+	}
+	if !errors.Is(err, ErrPushRejected) {
+		t.Errorf("expected ErrPushRejected, got: %v", err)
+	}
+	if errors.Is(err, ErrRetriesExhausted) {
+		t.Errorf("a permanent rejection must not be reported as retries exhausted: %v", err)
+	}
+	if got := hookHitCount(t, origin); got != 1 {
+		t.Errorf("expected exactly 1 push attempt against a permanently-rejecting remote, got %d", got)
+	}
 }
 
 func TestSyncUpToDate(t *testing.T) {
