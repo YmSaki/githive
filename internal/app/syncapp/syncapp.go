@@ -36,12 +36,22 @@ const (
 	ActionFastForwardIn  Action = "fast-forward-local"
 	ActionFastForwardOut Action = "fast-forward-push"
 	ActionMerged         Action = "merged"
+	// ActionKeptLocalTrustRoot and ActionAdoptedRemoteTrustRoot are the two
+	// resolutions of a users/registry with two trust roots, decided by the
+	// githive.trust.root pin (docs/03-sync-and-concurrency.md
+	// 「共通祖先が無い場合」).
+	ActionKeptLocalTrustRoot     Action = "kept-local-trust-root"
+	ActionAdoptedRemoteTrustRoot Action = "adopted-remote-trust-root"
 )
 
-// Result is the per-ref outcome of a sync.
+// Result is the per-ref outcome of a sync. Warning carries a message the
+// caller should surface even though the sync itself succeeded (currently
+// only trust-root resolutions, which silently pick a winner between two
+// registries).
 type Result struct {
-	Ref    string
-	Action Action
+	Ref     string
+	Action  Action
+	Warning string
 }
 
 // ErrRetriesExhausted is returned (exit code 3 at the CLI layer,
@@ -188,7 +198,21 @@ func syncOne(ctx context.Context, dir, remote, ref string, retries int) (Result,
 			return Result{Ref: ref, Action: ActionFastForwardOut}, nil
 		}
 
-		// Diverged: event-union merge (docs/03-sync-and-concurrency.md
+		// Diverged. For users/registry only, a divergence with no common
+		// ancestor is not an ordinary conflict but two competing trust
+		// roots, which must never be merged automatically
+		// (docs/03-sync-and-concurrency.md「共通祖先が無い場合」).
+		if parsed.Feature == refspace.FeatureUsers {
+			res, handled, err := resolveTrustRoots(ctx, dir, r, ref, localOID, remoteOID)
+			if err != nil {
+				return Result{}, err
+			}
+			if handled {
+				return res, nil
+			}
+		}
+
+		// event-union merge (docs/03-sync-and-concurrency.md
 		// 「event-union マージ」), then CAS-advance local and push.
 		if err := mergeAndAdvance(ctx, dir, ref, parsed.Feature, localOID, remoteOID); err != nil {
 			return Result{}, err
