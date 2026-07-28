@@ -20,6 +20,7 @@ func newChatCmd() *cobra.Command {
 		newChatShowCmd(),
 		newChatPostCmd(),
 		newChatArchiveCmd(),
+		newChatEditMetaCmd(),
 	)
 	return cmd
 }
@@ -201,6 +202,40 @@ func newChatArchiveCmd() *cobra.Command {
 			return nil
 		},
 	}
+	return cmd
+}
+
+func newChatEditMetaCmd() *cobra.Command {
+	var title, status string
+	cmd := &cobra.Command{
+		Use:   "edit-meta <id>",
+		Short: "Edit a chat thread's title/status",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := repoDir()
+			if err != nil {
+				return err
+			}
+			svc := chatapp.New(dir)
+			ctx := context.Background()
+			id, err := resolveChatID(ctx, svc, args[0])
+			if err != nil {
+				return err
+			}
+			if err := svc.EditMeta(ctx, id, title, status); err != nil {
+				return err
+			}
+			warnings := syncIfEnabled(dir, chatRef(id))
+			if flags.json {
+				cliout.PrintSuccess(nil, warnings)
+				return nil
+			}
+			printWarnings(warnings)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&title, "title", "", "new title; omit to leave unchanged")
+	cmd.Flags().StringVar(&status, "status", "", "new status; omit to leave unchanged")
 	return cmd
 }
 

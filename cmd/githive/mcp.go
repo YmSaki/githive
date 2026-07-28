@@ -47,6 +47,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
+	"github.com/ymsaki/githive/internal/app/doctorapp"
+	"github.com/ymsaki/githive/internal/app/fsckapp"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/logapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
@@ -54,6 +56,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/app/verifyapp"
+	"github.com/ymsaki/githive/internal/app/wikiapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/identity"
@@ -174,6 +177,8 @@ func registerMcpTools(server *mcp.Server, dir string) {
 	registerUsersTools(server, dir)
 	registerVerifyAndWhoamiTools(server, dir)
 	registerSyncAndStatusTools(server, dir)
+	registerWikiTools(server, dir)
+	registerFsckAndDoctorTools(server, dir)
 }
 
 // ---- issue ----
@@ -402,6 +407,7 @@ type taskNewParams struct {
 	Owner    string `json:"owner,omitempty" jsonschema:"owner (username or email; defaults to actor)"`
 	Due      string `json:"due,omitempty" jsonschema:"due date"`
 	Priority string `json:"priority,omitempty" jsonschema:"priority"`
+	Issue    string `json:"issue,omitempty" jsonschema:"issue id or an unambiguous >=8 char prefix to link (rel=issue)"`
 }
 
 type taskListParams struct {
@@ -432,6 +438,13 @@ type taskReassignParams struct {
 	Owner string `json:"owner" jsonschema:"new owner (username or email)"`
 }
 
+type taskLinkParams struct {
+	ID        string `json:"id" jsonschema:"task id or an unambiguous >=8 char prefix"`
+	LinkedID  string `json:"linked_id" jsonschema:"the id of the entity to link to"`
+	Rel       string `json:"rel,omitempty" jsonschema:"link relation: task/issue/chat (default issue)"`
+	Unlinking bool   `json:"remove,omitempty" jsonschema:"remove the link instead of adding it"`
+}
+
 func registerTaskTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "task_new", Description: "Create a new task"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args taskNewParams) (*mcp.CallToolResult, map[string]any, error) {
@@ -439,9 +452,22 @@ func registerTaskTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			id, err := taskapp.New(dir).NewTask(ctx, args.Title, args.Body, owner, args.Due, args.Priority)
+			var resolvedIssueID string
+			if args.Issue != "" {
+				resolvedIssueID, err = issueapp.New(dir).ResolveID(ctx, args.Issue)
+				if err != nil {
+					return nil, nil, err
+				}
+			}
+			svc := taskapp.New(dir)
+			id, err := svc.NewTask(ctx, args.Title, args.Body, owner, args.Due, args.Priority)
 			if err != nil {
 				return nil, nil, err
+			}
+			if resolvedIssueID != "" {
+				if err := svc.Link(ctx, id, "issue", resolvedIssueID, false); err != nil {
+					return nil, nil, err
+				}
 			}
 			return nil, map[string]any{"id": id}, nil
 		})
@@ -546,6 +572,23 @@ func registerTaskTools(server *mcp.Server, dir string) {
 				warnStrings = notifyapp.NotifyAssigned(ctx, dir, "task", id, selfEmail, resolvedOwner)
 			}
 			return nil, withWarnings(nil, autoNotifyWarnings(warnStrings)), nil
+		})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "task_link", Description: "Link a task to another entity"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args taskLinkParams) (*mcp.CallToolResult, map[string]any, error) {
+			svc := taskapp.New(dir)
+			id, err := svc.ResolveID(ctx, args.ID)
+			if err != nil {
+				return nil, nil, err
+			}
+			rel := args.Rel
+			if rel == "" {
+				rel = "issue"
+			}
+			if err := svc.Link(ctx, id, rel, args.LinkedID, args.Unlinking); err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{}, nil
 		})
 }
 
@@ -664,10 +707,11 @@ type notifySourceParams struct {
 }
 
 type notifyPostParams struct {
-	To      []string            `json:"to" jsonschema:"target(s): user:<username-or-email>, group:<name>, or all"`
-	Title   string              `json:"title" jsonschema:"notification title (required)"`
-	Message string              `json:"message,omitempty" jsonschema:"notification body"`
-	Source  *notifySourceParams `json:"source,omitempty" jsonschema:"source entity this notification references"`
+	To       []string            `json:"to" jsonschema:"target(s): user:<username-or-email>, group:<name>, or all"`
+	Title    string              `json:"title" jsonschema:"notification title (required)"`
+	Message  string              `json:"message,omitempty" jsonschema:"notification body"`
+	Source   *notifySourceParams `json:"source,omitempty" jsonschema:"source entity this notification references"`
+	Priority string              `json:"priority,omitempty" jsonschema:"priority: low/normal/high"`
 }
 
 type notifyListParams struct {
@@ -684,6 +728,9 @@ type notifyAckParams struct {
 func registerNotifyTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "notify_post", Description: "Post a notification"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args notifyPostParams) (*mcp.CallToolResult, map[string]any, error) {
+			if err := validateNotifyPriority(args.Priority); err != nil {
+				return nil, nil, err
+			}
 			resolvedTo, err := resolveNotifyTargets(ctx, dir, args.To)
 			if err != nil {
 				return nil, nil, err
@@ -692,7 +739,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 			if args.Source != nil {
 				source = map[string]any{"kind": args.Source.Kind, "id": args.Source.ID}
 			}
-			id, err := notifyapp.New(dir).Post(ctx, resolvedTo, args.Title, args.Message, source, "")
+			id, err := notifyapp.New(dir).Post(ctx, resolvedTo, args.Title, args.Message, source, args.Priority)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -1024,6 +1071,101 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 				"unpushed_refs":  anyUnpushed,
 				"unread_notify":  len(unread),
 				"my_doing_tasks": doingItems,
+			}, nil
+		})
+}
+
+// ---- wiki ----
+//
+// wiki is read-only over MCP (issue #55): `githive wiki edit`/`save` drive an
+// interactive worktree + $EDITOR flow that has no meaning over an MCP stdio
+// transport (mirroring users_policy_set's rationale for replacing `users
+// policy edit`), so only show/log - the read side - get tools here.
+
+type wikiShowParams struct {
+	Path string `json:"path" jsonschema:"wiki page path, e.g. Home.md"`
+}
+
+type wikiLogParams struct {
+	Path string `json:"path,omitempty" jsonschema:"only history for this path; omit for the whole wiki"`
+}
+
+func registerWikiTools(server *mcp.Server, dir string) {
+	mcp.AddTool(server, &mcp.Tool{Name: "wiki_show", Description: "Show a wiki page (git show refs/projects/wiki/main:<path>)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args wikiShowParams) (*mcp.CallToolResult, map[string]any, error) {
+			content, err := wikiapp.New(dir).Show(ctx, args.Path)
+			if err != nil {
+				return nil, nil, err
+			}
+			// Calls the exact same helper the CLI's `githive wiki show
+			// --json` uses (cmd/githive/wiki.go's wikiShowJSON) so the two
+			// clients render identical output for both valid-UTF-8 pages
+			// (content) and non-UTF-8 ones (content_base64, issue #53) -
+			// not two independent implementations of the same split.
+			return nil, wikiShowJSON(args.Path, content), nil
+		})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "wiki_log", Description: "Show the wiki commit history (git log refs/projects/wiki/main)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args wikiLogParams) (*mcp.CallToolResult, map[string]any, error) {
+			entries, err := wikiapp.New(dir).Log(ctx, args.Path)
+			if err != nil {
+				return nil, nil, err
+			}
+			// Matches the CLI's `githive wiki log --json` data shape
+			// exactly (cliout.PrintList): {"items": [...], "total": n}.
+			// Not paginated like issue/task/chat/notify/log's *_list tools -
+			// wiki history has no "id" field to page on (entries are keyed
+			// by commit hash, newest first), and CLI parity is issue #55's
+			// explicit acceptance condition here.
+			return nil, cliout.ItemsMap(entries, len(entries)), nil
+		})
+}
+
+// ---- fsck / doctor ----
+
+type fsckParams struct {
+	Compact bool `json:"compact,omitempty" jsonschema:"append a checkpoint to entity chains past the 500-event / 90-day threshold"`
+}
+
+type doctorParams struct {
+	Remote string `json:"remote,omitempty" jsonschema:"remote name to check for clock skew against (default origin)"`
+}
+
+func registerFsckAndDoctorTools(server *mcp.Server, dir string) {
+	// Like `verify`'s tool (see this file's top-of-file comment), fsck's
+	// result always reports success (ok:true) at the MCP protocol level even
+	// when findings exist (ok:false in the data) - the CLI's exit-code-4 path
+	// has no MCP equivalent, so pass/fail is represented in the structured
+	// data instead.
+	mcp.AddTool(server, &mcp.Tool{Name: "fsck", Description: "Validate event schemas and (with compact) create checkpoints"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args fsckParams) (*mcp.CallToolResult, map[string]any, error) {
+			report, err := fsckapp.New(dir).Run(ctx, fsckapp.Options{Compact: args.Compact})
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{
+				"ok":          report.OK(),
+				"findings":    findingsToAny(report.Findings),
+				"checkpoints": checkpointsToAny(report.Checkpoints),
+			}, nil
+		})
+
+	// doctor is not init (docs/15-clients.md「MCP サーバー」: init is
+	// deliberately not an MCP tool). doctor is a read-only diagnosis, safe to
+	// automate; init is a one-time bootstrap step a human runs deliberately.
+	mcp.AddTool(server, &mcp.Tool{Name: "doctor", Description: "Diagnose the environment: git version, refspec, clock, identity, signing"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args doctorParams) (*mcp.CallToolResult, map[string]any, error) {
+			remote := args.Remote
+			if remote == "" {
+				remote = "origin"
+			}
+			report, err := doctorapp.New(dir).Diagnose(ctx, remote)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{
+				"ok":     !report.HasError(),
+				"checks": checksToAny(report.Checks),
 			}, nil
 		})
 }

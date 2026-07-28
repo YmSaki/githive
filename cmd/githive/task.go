@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/cliout"
@@ -21,6 +22,7 @@ func newTaskCmd() *cobra.Command {
 		newTaskStatusCmd(),
 		newTaskNoteCmd(),
 		newTaskReassignCmd(),
+		newTaskLinkCmd(),
 	)
 	return cmd
 }
@@ -32,7 +34,7 @@ func resolveTaskID(ctx context.Context, svc *taskapp.Service, arg string) (strin
 }
 
 func newTaskNewCmd() *cobra.Command {
-	var title, body, owner, due, priority string
+	var title, body, owner, due, priority, issueRef string
 	cmd := &cobra.Command{
 		Use:   "new",
 		Short: "Create a new task",
@@ -46,10 +48,26 @@ func newTaskNewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var resolvedIssueID string
+			if issueRef != "" {
+				resolvedIssueID, err = issueapp.New(dir).ResolveID(ctx, issueRef)
+				if err != nil {
+					return err
+				}
+			}
 			svc := taskapp.New(dir)
 			id, err := svc.NewTask(ctx, title, body, resolvedOwner, due, priority)
 			if err != nil {
 				return err
+			}
+			if resolvedIssueID != "" {
+				// Links to the linked issue (task.link rel=issue), the
+				// same way `githive task link` does
+				// (docs/features/task.md「イベント定義」「設計判断」: issue<->task
+				// links are each side's own independent link event).
+				if err := svc.Link(ctx, id, "issue", resolvedIssueID, false); err != nil {
+					return err
+				}
 			}
 			warnings := syncIfEnabled(dir, taskRef(id))
 			if flags.json {
@@ -66,6 +84,7 @@ func newTaskNewCmd() *cobra.Command {
 	cmd.Flags().StringVar(&owner, "owner", "", "owner (defaults to actor)")
 	cmd.Flags().StringVar(&due, "due", "", "due date")
 	cmd.Flags().StringVar(&priority, "priority", "", "priority")
+	cmd.Flags().StringVar(&issueRef, "issue", "", "issue id or an unambiguous >=8 char prefix to link (rel=issue)")
 	cmd.MarkFlagRequired("title")
 	return cmd
 }
@@ -289,6 +308,41 @@ func newTaskReassignCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&owner, "owner", "", "new owner (required)")
 	cmd.MarkFlagRequired("owner")
+	return cmd
+}
+
+func newTaskLinkCmd() *cobra.Command {
+	var rel string
+	var remove bool
+	cmd := &cobra.Command{
+		Use:   "link <id> <linked-id>",
+		Short: "Link this task to another entity",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := repoDir()
+			if err != nil {
+				return err
+			}
+			svc := taskapp.New(dir)
+			ctx := context.Background()
+			id, err := resolveTaskID(ctx, svc, args[0])
+			if err != nil {
+				return err
+			}
+			if err := svc.Link(ctx, id, rel, args[1], remove); err != nil {
+				return err
+			}
+			warnings := syncIfEnabled(dir, taskRef(id))
+			if flags.json {
+				cliout.PrintSuccess(nil, warnings)
+				return nil
+			}
+			printWarnings(warnings)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&rel, "rel", "issue", "link relation: task/issue/chat")
+	cmd.Flags().BoolVar(&remove, "remove", false, "remove the link instead of adding it")
 	return cmd
 }
 

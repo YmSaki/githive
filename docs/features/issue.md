@@ -76,7 +76,7 @@ githive issue status <id> <to>
 githive issue edit <id> [--title] [--body]
 githive issue label <id> [--add ...] [--remove ...]
 githive issue assign <id> [--add ...] [--remove ...]
-githive issue link <id> --task <task-id>
+githive issue link <id> <linked-id> [--rel task/issue/chat] [--remove]
 ```
 
 ## 素の git での読み方

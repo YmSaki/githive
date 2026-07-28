@@ -65,10 +65,10 @@ githive chat list [--status open] [--json]
 githive chat show <id> [--tail n] [--json]
 githive chat post <id> -m <body> [--reply-to event-id]
 githive chat archive <id>
+githive chat edit-meta <id> [--title t] [--status s]
 ```
 
-`githive chat show <id> --follow` は sync を定期実行して新着を表示する（ポーリング。リアルタイムではない）。
-ポーリング間隔の既定は 60 秒とする。hosted モードで間隔を詰めるとホスティングのレート制限・不正利用検知に当たるためで、forge モードでは `--interval` で短縮してよい。
+`githive chat show <id> --follow`（sync を定期実行して新着を表示するポーリング表示。リアルタイムではない）は**未実装**（P6 TUI と同時期に検討する）。
 
 ## 素の git での読み方
 

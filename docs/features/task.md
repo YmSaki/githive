@@ -80,6 +80,7 @@ githive task show <id> [--json]
 githive task status <id> <to> [-m note]
 githive task note <id> -m <note>
 githive task reassign <id> --owner <u>
+githive task link <id> <linked-id> [--rel task/issue/chat] [--remove]
 ```
 
 ## 素の git での読み方
