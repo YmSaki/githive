@@ -16,6 +16,17 @@ import (
 var binPath string
 
 func TestMain(m *testing.M) {
+	// Neutralise the operator's global/system git config for every test in
+	// this package. These tests assert on githive's own behaviour, and an
+	// inherited commit.gpgsign + gpg.ssh.program would route every commit
+	// through the developer's signing setup - slower, and dependent on a key
+	// the tests know nothing about. internal/app/issueapp and
+	// internal/app/doctorapp already isolate the same way. Tests that are
+	// about signing (sign_test.go) set the config they need on the test repo
+	// itself, which this does not affect.
+	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	os.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+
 	if _, err := exec.LookPath("git"); err != nil {
 		os.Exit(m.Run()) // tests below individually skip if git is missing
 	}
