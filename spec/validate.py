@@ -10,11 +10,11 @@ githive P0 の実行可能スペックを検証するスクリプト。
   (b) spec/vectors/canonical/*.json を spec/reference/canonical_json.py で
       再計算し、expected と完全一致することを確認する。
   (c) spec/vectors/fold-issue/*.json, spec/vectors/fold-task/*.json,
-      spec/vectors/fold-chat/*.json を spec/reference/fold_issue.py,
-      fold_task.py, fold_chat.py で再計算し、expected_meta /
-      expected_comments / expected_notes / expected_messages と一致する
-      ことを確認する。イベント順をシャッフルしても同一結果になることを
-      3 回試行で確認する。
+      spec/vectors/fold-chat/*.json, spec/vectors/fold-notify/*.json を
+      spec/reference/fold_issue.py, fold_task.py, fold_chat.py,
+      fold_notify.py で再計算し、それぞれの expected_* と一致することを
+      確認する。イベント順をシャッフルしても同一結果になることを 3 回
+      試行で確認する。
   (d) 結果を PASS/FAIL のサマリで stdout に出す。
 
 終了コード: 全 PASS なら 0、1 件でも FAIL があれば 1。
@@ -46,6 +46,7 @@ except ImportError:
 import canonical_json as cj
 import fold_chat
 import fold_issue
+import fold_notify
 import fold_task
 
 
@@ -130,12 +131,12 @@ def build_validators() -> tuple[Draft202012Validator, dict[str, Draft202012Valid
 # ---------------------------------------------------------------------------
 
 def iter_all_events() -> list[tuple[str, dict]]:
-    """vectors 配下の fold-issue / fold-task / fold-chat の events 配列から
-    (vector_file, event) のペアを列挙する。canonical/ordering ベクタは
-    イベント封筒を持たないため対象外。
+    """vectors 配下の fold-issue / fold-task / fold-chat / fold-notify の
+    events 配列から (vector_file, event) のペアを列挙する。
+    canonical/ordering ベクタはイベント封筒を持たないため対象外。
     """
     out = []
-    for sub in ("fold-issue", "fold-task", "fold-chat"):
+    for sub in ("fold-issue", "fold-task", "fold-chat", "fold-notify"):
         d = VECTORS_DIR / sub
         for path in sorted(d.glob("*.json")):
             with open(path, encoding="utf-8") as f:
@@ -205,7 +206,7 @@ def run_canonical_validation(results: Results) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (c) fold ベクタ（issue / task / chat）
+# (c) fold ベクタ（issue / task / chat / notify）
 # ---------------------------------------------------------------------------
 
 def run_fold_validation(results: Results) -> None:
@@ -213,26 +214,35 @@ def run_fold_validation(results: Results) -> None:
         results,
         VECTORS_DIR / "fold-issue",
         fold_issue.fold,
-        "expected_meta",
-        "expected_comments",
+        [("meta", "expected_meta"), ("comments", "expected_comments")],
     )
     _run_fold_dir(
         results,
         VECTORS_DIR / "fold-task",
         fold_task.fold,
-        "expected_meta",
-        "expected_notes",
+        [("meta", "expected_meta"), ("notes", "expected_notes")],
     )
     _run_fold_dir(
         results,
         VECTORS_DIR / "fold-chat",
         fold_chat.fold,
-        "expected_meta",
-        "expected_messages",
+        [("meta", "expected_meta"), ("messages", "expected_messages")],
+    )
+    _run_fold_dir(
+        results,
+        VECTORS_DIR / "fold-notify",
+        fold_notify.fold,
+        [("meta", "expected_meta"), ("posts", "expected_posts"), ("acks", "expected_acks")],
     )
 
 
-def _run_fold_dir(results: Results, dir_path: Path, fold_fn, meta_key: str, coll_key: str) -> None:
+def _run_fold_dir(results: Results, dir_path: Path, fold_fn, fields: list[tuple[str, str]]) -> None:
+    """1 ベクタディレクトリを検証する。fold_fn(events) は fields と同じ順序・
+    個数のタプルを返す（issue/task/chat は (meta, コレクション) の 2 要素、
+    notify は month 派生フィールドを含む posts に加えて Scratch 由来の acks
+    を持つため (meta, posts, acks) の 3 要素、という具合に feature ごとに
+    異なるため、fields で汎用化してある）。
+    """
     paths = sorted(dir_path.glob("*.json"))
     if not paths:
         results.fail(f"fold/no-vectors-found[{dir_path.name}]", "vectors が見つからない")
@@ -244,27 +254,28 @@ def _run_fold_dir(results: Results, dir_path: Path, fold_fn, meta_key: str, coll
             vector = json.load(f)
 
         events = vector["events"]
-        expected_meta = vector[meta_key]
-        expected_coll = vector[coll_key]
+        expected = [vector[key] for _, key in fields]
+
+        def mismatch_reason(got: tuple, label: str) -> str | None:
+            for (field_name, _), want, actual in zip(fields, expected, got):
+                if actual != want:
+                    return (
+                        f"{label}: {field_name} 不一致\n"
+                        f"      expected: {json.dumps(want, ensure_ascii=False)}\n"
+                        f"      actual:   {json.dumps(actual, ensure_ascii=False)}"
+                    )
+            return None
 
         # 元の順序での fold
         try:
-            meta, coll = fold_fn(events)
+            got = fold_fn(events)
         except Exception as e:  # noqa: BLE001
             results.fail(name + " (original order)", f"fold 中に例外: {e!r}")
             continue
 
-        if meta != expected_meta:
-            results.fail(
-                name + " (original order, meta)",
-                f"meta 不一致\n      expected: {json.dumps(expected_meta, ensure_ascii=False)}\n      actual:   {json.dumps(meta, ensure_ascii=False)}",
-            )
-            continue
-        if coll != expected_coll:
-            results.fail(
-                name + f" (original order, {coll_key})",
-                f"{coll_key} 不一致\n      expected: {json.dumps(expected_coll, ensure_ascii=False)}\n      actual:   {json.dumps(coll, ensure_ascii=False)}",
-            )
+        reason = mismatch_reason(got, "original order")
+        if reason is not None:
+            results.fail(name + " (original order)", reason)
             continue
 
         # シャッフルして 3 回試行し、同一結果になることを確認する。
@@ -275,18 +286,15 @@ def _run_fold_dir(results: Results, dir_path: Path, fold_fn, meta_key: str, coll
             shuffled = events[:]
             rng.shuffle(shuffled)
             try:
-                meta2, coll2 = fold_fn(shuffled)
+                got2 = fold_fn(shuffled)
             except Exception as e:  # noqa: BLE001
                 shuffle_ok = False
                 shuffle_reason = f"trial {trial}: fold 中に例外: {e!r}"
                 break
-            if meta2 != expected_meta or coll2 != expected_coll:
+            reason2 = mismatch_reason(got2, f"trial {trial}")
+            if reason2 is not None:
                 shuffle_ok = False
-                shuffle_reason = (
-                    f"trial {trial}: シャッフル後の結果が期待値と不一致\n"
-                    f"      meta:   {json.dumps(meta2, ensure_ascii=False)}\n"
-                    f"      {coll_key}: {json.dumps(coll2, ensure_ascii=False)}"
-                )
+                shuffle_reason = f"trial {trial}: シャッフル後の結果が期待値と不一致\n      {reason2}"
                 break
 
         if not shuffle_ok:

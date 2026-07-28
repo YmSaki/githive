@@ -1,0 +1,112 @@
+{
+  "name": "04-shuffled-input-composite",
+  "description": "2 件の notify.post（月をまたぐ）と複数 actor の notify.ack を組み合わせた複合シナリオ。events はあえて非時系列順で格納してある。ULID 順ソートにより同一の posts / acks が得られることを確認する。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "notify.ack",
+      "id": "00003kc79638eegvfv9w4dvhze",
+      "ts": "2026-08-02T09:08:00.000Z",
+      "actor": "b@example.com",
+      "entity": "00003kc79638eegvfv9w4dvhze",
+      "data": {
+        "ack_of": "00003kc7834kasx19pxmvwx0nw"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.post",
+      "id": "00003kc78af0h0znyjw2gzt4b3",
+      "ts": "2026-08-02T09:00:00.000Z",
+      "actor": "a@example.com",
+      "entity": "00003kc78af0h0znyjw2gzt4b3",
+      "data": {
+        "targets": [
+          "all"
+        ],
+        "title": "月次まとめ"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.ack",
+      "id": "00003kc78rrhvkjhq6qbkeckxj",
+      "ts": "2026-08-02T09:06:00.000Z",
+      "actor": "z@example.com",
+      "entity": "00003kc78rrhvkjhq6qbkeckxj",
+      "data": {
+        "ack_of": "00003kc7834kasx19pxmvwx0nw"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.post",
+      "id": "00003kc7834kasx19pxmvwx0nw",
+      "ts": "2026-07-15T10:00:00.000Z",
+      "actor": "a@example.com",
+      "entity": "00003kc7834kasx19pxmvwx0nw",
+      "data": {
+        "targets": [
+          "user:b@example.com",
+          "group:core"
+        ],
+        "title": "リリース待ち"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.ack",
+      "id": "00003kc78z3hbcwkga8zdmmncb",
+      "ts": "2026-08-02T09:07:00.000Z",
+      "actor": "b@example.com",
+      "entity": "00003kc78z3hbcwkga8zdmmncb",
+      "data": {
+        "ack_of": "00003kc78af0h0znyjw2gzt4b3"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.ack",
+      "id": "00003kc78hd5nrqejn3w1t6brb",
+      "ts": "2026-08-02T09:05:00.000Z",
+      "actor": "b@example.com",
+      "entity": "00003kc78hd5nrqejn3w1t6brb",
+      "data": {
+        "ack_of": "00003kc7834kasx19pxmvwx0nw"
+      }
+    }
+  ],
+  "expected_meta": {},
+  "expected_posts": {
+    "00003kc7834kasx19pxmvwx0nw": {
+      "id": "00003kc7834kasx19pxmvwx0nw",
+      "ts": "2026-07-15T10:00:00.000Z",
+      "actor": "a@example.com",
+      "targets": [
+        "user:b@example.com",
+        "group:core"
+      ],
+      "title": "リリース待ち",
+      "month": "2026-07"
+    },
+    "00003kc78af0h0znyjw2gzt4b3": {
+      "id": "00003kc78af0h0znyjw2gzt4b3",
+      "ts": "2026-08-02T09:00:00.000Z",
+      "actor": "a@example.com",
+      "targets": [
+        "all"
+      ],
+      "title": "月次まとめ",
+      "month": "2026-08"
+    }
+  },
+  "expected_acks": {
+    "00003kc7834kasx19pxmvwx0nw": [
+      "b@example.com",
+      "z@example.com"
+    ],
+    "00003kc78af0h0znyjw2gzt4b3": [
+      "b@example.com"
+    ]
+  }
+}
