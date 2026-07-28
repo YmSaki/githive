@@ -26,6 +26,9 @@ issue.schema.json、task.schema.json、notify.schema.json、users.schema.json、
 各スキーマは additionalProperties を true にしている。
 これは docs/02-data-model.md の「読み手は未知フィールドを無視し、書き換え時も保存する」という forward compatibility の規則に従うためである。
 
+meta.schema.json は `meta.init`（docs/02-data-model.md「meta.init イベント」）1 kind だけを定義する。
+`refs/projects/meta/config` は他の 5 feature と異なり fold（reducer）を持たない特殊な ref なので、下の fold 対応表・spec/reference/fold_*.py には含まれない。スキーマ検証のみ vectors/meta-events/ で行う。
+
 ## reference/ の内容
 
 canonical_json.py は docs/02-data-model.md の canonical JSON 規則を実装する。
@@ -52,10 +55,12 @@ notify/users はシングルトンの追記専用ログ・台帳であり create
 
 ## vectors/ の内容
 
-canonical/ は入力値と canonical エンコード結果のペアを持つ。
+canonical/ は入力値と canonical エンコード結果（インデント形式）のペアを持つ。
+canonical-compact/ は同じく入力値と圧縮形（encode_compact_line、docs/02-data-model.md「canonical JSON」の唯一の例外）エンコード結果のペアを持つ。既存の Go テスト（internal/core/event/compact_test.go）が検証済みの入出力を正としたケースに加え、ネスト・Unicode・float 表現・エスケープ・空オブジェクト/配列・トップレベル配列/スカラーのエッジケースを含む。
 ordering/ は ULID の辞書順ソートに関するケースを持つ。events_common.sort_events（の ID 抽出版）で再検証する。
 fold-issue/・fold-task/・fold-chat/・fold-notify/・fold-users/ は、イベント列と期待される fold 結果（上の対応表を参照）のペアを持つ。
 イベント順をシャッフルしても同じ結果になることを、これらのベクタで確認できる。
+meta-events/ は fold ベクタではない。実際に `githive init` を実行して得た `meta.init` イベント実例を events 配列 1 件だけ持ち、run_schema_validation の対象として envelope + meta.schema.json による検証のみを受ける（fold が無いため run_fold_validation の対象外）。
 
 ## validate.py の実行方法
 
@@ -67,15 +72,16 @@ pip install "jsonschema>=4.18" --break-system-packages
 python3 spec/validate.py
 ```
 
-実行すると、スキーマ検証・canonical 一致・fold 一致・ordering 一致の結果を PASS/FAIL で一覧表示する。
-schema 検証は spec/vectors/fold-issue/・fold-task/・fold-chat/・fold-notify/・fold-users/ の全イベントを対象にするため、5 schema（issue/task/chat/notify/users）すべてが実イベントで検証される。
+実行すると、スキーマ検証・canonical（インデント形式/圧縮形）一致・fold 一致・ordering 一致の結果を PASS/FAIL で一覧表示する。
+schema 検証は spec/vectors/fold-issue/・fold-task/・fold-chat/・fold-notify/・fold-users/・meta-events/ の全イベントを対象にするため、6 schema（issue/task/chat/notify/users/meta）すべてが実イベントで検証される。
 全件 PASS なら終了コード 0 を返す。
 1 件でも FAIL があれば終了コード 1 を返す。
 
 ## Go 実装への要求
 
 Go 実装は、このディレクトリのベクタを読み込んで同じ検証を行う golden テストを持つこと（internal/core/materialize/materialize_test.go）。
-canonical JSON のエンコード結果は、spec/vectors/canonical/*.json の expected と byte 単位で一致すること。
+canonical JSON のエンコード結果は、spec/vectors/canonical/*.json の expected と byte 単位で一致すること（internal/core/event/canonical_test.go の TestCanonicalVectors）。
+圧縮形（EncodeCompactLine）のエンコード結果は、spec/vectors/canonical-compact/*.json の expected と byte 単位で一致すること（internal/core/event/compact_vectors_test.go の TestCompactVectors）。
 fold の結果は、上の対応表のとおり spec/vectors/fold-<kind>/*.json の expected_* と構造として一致すること。
 JSON の構造比較では、キーの順序ではなく値の等価性で比較してよい。
 ただし canonical JSON エンコードの出力そのものは、キー順序を含めて byte 一致が必要である。

@@ -12,6 +12,10 @@ githive の canonical JSON エンコーダ（リファレンス実装）。
 - 文字コードは UTF-8、改行は LF。
 - 非 ASCII 文字はエスケープしない（ensure_ascii=False 相当）。
 
+唯一の例外として、notify の events/<yyyy-mm>.jsonl（1 行 1 レコード）は
+encode_compact_line() が実装する圧縮形（1 行、要素区切り ", "）を使う。
+キーソート・数値表現・エスケープの規則は encode() と共通。
+
 外部依存なし（標準ライブラリのみ）。
 
 将来 Go 実装（encoding/json ベースの独自 marshaler）が、
@@ -138,3 +142,68 @@ def _encode_array(arr, indent: int) -> str:
     close_pad = " " * indent
     lines = [f"{pad}{_encode_value(v, inner_indent)}" for v in arr]
     return "[\n" + ",\n".join(lines) + "\n" + close_pad + "]"
+
+
+# ---------------------------------------------------------------------------
+# 圧縮形（唯一の例外: notify の events/<yyyy-mm>.jsonl、1 行 1 レコード）
+# ---------------------------------------------------------------------------
+#
+# docs/02-data-model.md「canonical JSON」の唯一の例外として、notify の jsonl
+# だけは圧縮形（1 行 1 レコード）を使う。キーソート・数値表現・文字列エスケー
+# プの規則は上の encode()/_encode_value() と完全に共通で、差分はレイアウトの
+# みである: インデントも改行も持たず、オブジェクト/配列の要素区切りは
+# ", "（カンマ+スペース）、key: value の区切りは通常形と同じ ": "
+# （コロン+スペース）、末尾に改行を付けない。
+# internal/core/event/canonical.go の EncodeCompactLine / encodeValueCompact /
+# encodeObjectCompact / encodeArrayCompact の逐行移植。
+
+
+def encode_compact_line(obj: Any) -> str:
+    """obj を圧縮形 canonical JSON の 1 行文字列としてエンコードする。
+
+    encode() と同じキー順序・エスケープ・数値表現を使うが、インデントや
+    改行を持たない 1 行の表現になる。末尾に改行は付かない
+    （Go の EncodeCompactLine と同じ）。
+    """
+    return _encode_value_compact(obj)
+
+
+def _encode_value_compact(obj: Any) -> str:
+    if obj is None:
+        return "null"
+    if obj is True:
+        return "true"
+    if obj is False:
+        return "false"
+    if isinstance(obj, str):
+        return _encode_string(obj)
+    if isinstance(obj, int):
+        # bool は上で判定済みなのでここに来るのは真の int。
+        return str(obj)
+    if isinstance(obj, float):
+        return _encode_float(obj)
+    if isinstance(obj, dict):
+        return _encode_object_compact(obj)
+    if isinstance(obj, (list, tuple)):
+        return _encode_array_compact(obj)
+    raise CanonicalEncodeError(f"unsupported type: {type(obj)!r}")
+
+
+def _encode_object_compact(obj: dict) -> str:
+    if not obj:
+        return "{}"
+    keys = sorted(obj.keys(), key=_sort_key)
+    parts = []
+    for k in keys:
+        if not isinstance(k, str):
+            raise CanonicalEncodeError(f"object key must be str, got {type(k)!r}")
+        key_str = _encode_string(k)
+        val_str = _encode_value_compact(obj[k])
+        parts.append(f"{key_str}: {val_str}")
+    return "{" + ", ".join(parts) + "}"
+
+
+def _encode_array_compact(arr) -> str:
+    if not arr:
+        return "[]"
+    return "[" + ", ".join(_encode_value_compact(v) for v in arr) + "]"
