@@ -247,6 +247,33 @@ func (r *Runner) IsAncestor(ctx context.Context, ancestor, descendant string) (b
 	return false, fmt.Errorf("gitx: merge-base --is-ancestor: %w", err)
 }
 
+// ErrNoMergeBase means two commits share no common ancestor at all, i.e.
+// they are the tips of two unrelated histories. For users/registry that is
+// the "two trust roots" condition docs/03-sync-and-concurrency.md
+// 「共通祖先が無い場合」refuses to resolve automatically.
+var ErrNoMergeBase = errors.New("gitx: commits have no common ancestor")
+
+// MergeBase returns the best common ancestor of a and b
+// (`git merge-base a b`), or ErrNoMergeBase when there is none.
+func (r *Runner) MergeBase(ctx context.Context, a, b string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "merge-base", a, b)
+	cmd.Env = gitEnv()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		return strings.TrimSpace(stdout.String()), nil
+	}
+	// git exits 1 with no output when the histories are unrelated; any
+	// other exit code (or exit 1 with a message) is a real failure.
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && strings.TrimSpace(stderr.String()) == "" {
+		return "", ErrNoMergeBase
+	}
+	return "", fmt.Errorf("gitx: merge-base %s %s: %w: %s", a, b, err, strings.TrimSpace(stderr.String()))
+}
+
 // ConfigGet reads a git config value (`git config --get key`). It returns
 // ("", nil) if the key is unset, distinguishing "unset" from a real error.
 func (r *Runner) ConfigGet(ctx context.Context, key string) (string, error) {
