@@ -162,3 +162,106 @@ func assertTreeMatchesFullWalk(t *testing.T, dir, ref string, registry *material
 		}
 	}
 }
+
+// TestCompactSingletonStreams closes issue #58: the singleton-stream branch
+// of compaction (notify/users, featureWriter.perEntity == false) had no
+// end-to-end coverage, even though it is the branch where the checkpoint's
+// entity is the checkpoint's own event id rather than the chain's id
+// (ADR-0013「シングルトンストリーム」).
+func TestCompactSingletonStreams(t *testing.T) {
+	requireGit(t)
+	cases := []struct {
+		name     string
+		ref      string
+		registry *materialize.Registry
+		seed     func(t *testing.T, dir string)
+	}{
+		{
+			name:     "notify",
+			ref:      notifyapp.StreamRef,
+			registry: materialize.NotifyRegistry,
+			seed: func(t *testing.T, dir string) {
+				svc := notifyapp.New(dir)
+				ctx := context.Background()
+				id, err := svc.Post(ctx, []string{"user:a@example.com"}, "p1", "b1", nil, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := svc.Post(ctx, []string{"user:b@example.com"}, "p2", "b2", nil, ""); err != nil {
+					t.Fatal(err)
+				}
+				if err := svc.Ack(ctx, []string{id}); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name:     "users",
+			ref:      usersapp.RegistryRef,
+			registry: materialize.UsersRegistry,
+			seed: func(t *testing.T, dir string) {
+				svc := usersapp.New(dir)
+				ctx := context.Background()
+				if err := svc.AddUser(ctx, "alice", "Alice", "a@example.com", "human", []string{"admin"}); err != nil {
+					t.Fatal(err)
+				}
+				if err := svc.GroupSet(ctx, "reviewers", []string{"alice"}, "reviewers"); err != nil {
+					t.Fatal(err)
+				}
+				if err := svc.PolicySet(ctx, []any{map[string]any{"ref": "refs/projects/*", "allow": "write"}}, "deny"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := newTestRepo(t)
+			ctx := context.Background()
+			c.seed(t, dir)
+
+			before := foldStateSignature(t, fullWalkState(t, dir, c.ref, c.registry))
+
+			report, err := New(dir).Run(ctx, Options{Compact: true, MaxEvents: 2})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var cp *CheckpointInfo
+			for i := range report.Checkpoints {
+				if report.Checkpoints[i].Ref == c.ref {
+					cp = &report.Checkpoints[i]
+				}
+			}
+			if cp == nil {
+				t.Fatalf("expected a checkpoint on %s, got %+v", c.ref, report.Checkpoints)
+			}
+			// The singleton convention: entity is the checkpoint's own event
+			// id, since the stream has no chain-level entity (ADR-0013).
+			if cp.Entity != cp.EventID {
+				t.Errorf("entity = %q, want it to equal the checkpoint's own event id %q", cp.Entity, cp.EventID)
+			}
+			if cp.Feature != c.name {
+				t.Errorf("feature = %q, want %q", cp.Feature, c.name)
+			}
+
+			after := foldStateSignature(t, fullWalkState(t, dir, c.ref, c.registry))
+			if after != before {
+				t.Errorf("the checkpoint changed the fold result:\n--- before ---\n%s\n--- after ---\n%s", before, after)
+			}
+
+			// Re-running must not append a second checkpoint: there are no
+			// new events since the first one.
+			again, err := New(dir).Run(ctx, Options{Compact: true, MaxEvents: 2})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, c2 := range again.Checkpoints {
+				if c2.Ref == c.ref {
+					t.Errorf("a second checkpoint was appended with no new events: %+v", c2)
+				}
+			}
+		})
+	}
+}
