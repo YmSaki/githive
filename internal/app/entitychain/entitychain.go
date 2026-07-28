@@ -12,16 +12,19 @@ package entitychain
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/materialize"
+	"github.com/ymsaki/githive/internal/core/refspace"
 	"github.com/ymsaki/githive/internal/core/sign"
 )
 
@@ -30,6 +33,95 @@ import (
 var ErrRetriesExhausted = errors.New("entitychain: local ref update retries exhausted")
 
 const defaultRetries = 10
+
+// SchemaUnsupportedError is returned by Append when refs/projects/meta/config
+// declares a schema_version newer than this build supports
+// (docs/02-data-model.md「meta/config ref」「ツールは操作前に schema_version
+// を確認し、自分の対応バージョンより新しければ操作を拒否する」). The CLI maps
+// it to exit code 5 and error.code "schema_unsupported"
+// (docs/10-cli-spec.md「終了コード」).
+type SchemaUnsupportedError struct {
+	Found     int
+	Supported int
+}
+
+func (e *SchemaUnsupportedError) Error() string {
+	return fmt.Sprintf("entitychain: meta/config schema_version %d is newer than the %d this build supports", e.Found, e.Supported)
+}
+
+// checkSchemaSupported rejects a write when refs/projects/meta/config's
+// config.json declares a schema_version newer than initapp.SchemaVersion -
+// the config schema's own version counter, independent of the envelope
+// schema counter event.SchemaVersion (docs/01-architecture.md「Go モジュール
+// は...データスキーマはこの v と schema_version で、それぞれ独立に管理する」).
+//
+// A repository with no meta/config ref yet (pre-`githive init`, or a partial
+// clone that never fetched it) skips the check entirely, preserving prior
+// behavior for those repositories. Likewise, a meta/config tree this
+// function cannot make sense of (missing/malformed config.json, no integer
+// schema_version) is left for `githive fsck` to report; Append's job here is
+// only to block writes against a config it can positively identify as too
+// new, not to duplicate fsck's broader validation.
+func checkSchemaSupported(ctx context.Context, dir string) error {
+	r := gitx.New(dir)
+	oid, err := r.RevParse(ctx, refspace.MetaConfigRef)
+	if err != nil {
+		return err
+	}
+	if oid == "" {
+		return nil
+	}
+	repo, err := chain.OpenRepository(dir)
+	if err != nil {
+		return err
+	}
+	files, err := chain.ReadTree(repo, plumbing.NewHash(oid))
+	if err != nil {
+		return err
+	}
+	raw, ok := files["config.json"]
+	if !ok {
+		return nil
+	}
+	decoded, err := event.DecodeGeneric(raw)
+	if err != nil {
+		return nil
+	}
+	m, ok := decoded.(map[string]any)
+	if !ok {
+		return nil
+	}
+	sv, ok := schemaVersionAsInt(m["schema_version"])
+	if !ok {
+		return nil
+	}
+	if sv > initapp.SchemaVersion {
+		return &SchemaUnsupportedError{Found: sv, Supported: initapp.SchemaVersion}
+	}
+	return nil
+}
+
+// schemaVersionAsInt reads schema_version out of a map decoded by
+// event.DecodeGeneric, which yields json.Number for numbers (probed via its
+// Float64 method here without importing encoding/json).
+func schemaVersionAsInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	default:
+		type float64er interface{ Float64() (float64, error) }
+		if f, ok := v.(float64er); ok {
+			if got, err := f.Float64(); err == nil {
+				return int(got), true
+			}
+		}
+		return 0, false
+	}
+}
 
 // writeLocks serializes Append calls that target the same repository
 // directory, across all Writer instances and features. This is purely an
@@ -182,6 +274,10 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 	mu := lockFor(w.Dir)
 	mu.Lock()
 	defer mu.Unlock()
+
+	if err := checkSchemaSupported(ctx, w.Dir); err != nil {
+		return nil, err
+	}
 
 	r := gitx.New(w.Dir)
 	repo, err := chain.OpenRepository(w.Dir)

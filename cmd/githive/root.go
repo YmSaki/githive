@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ymsaki/githive/internal/app/apperr"
+	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/logapp"
 	"github.com/ymsaki/githive/internal/app/syncapp"
@@ -132,6 +133,10 @@ var errNotARepo = errors.New("not a githive/git repository (no .git found; use -
 // (docs/10-cli-spec.md「終了コード」).
 func classifyError(err error) (int, cliout.ErrorInfo) {
 	var ambiguous *apperr.AmbiguousIDError
+	var schemaUnsupported *entitychain.SchemaUnsupportedError
+	if errors.As(err, &schemaUnsupported) {
+		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "schema_unsupported", Message: err.Error()}
+	}
 	if vfe, ok := asVerifyFailedError(err); ok {
 		return cliout.ExitVerifyFailed, cliout.ErrorInfo{
 			Code:    "verify_failed",

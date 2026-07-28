@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,101 @@ func TestCLIVerifyAllFlag(t *testing.T) {
 	}
 	if failed.OK || failed.Error.Code != "usage_error" {
 		t.Errorf("unexpected failure envelope: %+v", failed)
+	}
+}
+
+// bumpMetaConfigSchemaVersion rewrites refs/projects/meta/config's tip so
+// its config.json declares the given schema_version, keeping everything
+// else about the tree shape intact. It uses plain git plumbing rather than
+// going through githive (whose write path is exactly what item 4 makes
+// reject a too-new schema_version).
+func bumpMetaConfigSchemaVersion(t *testing.T, dir string, version int) {
+	t.Helper()
+	const ref = "refs/projects/meta/config"
+
+	parentOut, err := exec.Command("git", "-C", dir, "rev-parse", ref).CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-parse %s: %v\n%s", ref, err, parentOut)
+	}
+	parent := strings.TrimSpace(string(parentOut))
+
+	configJSON := `{"schema_version":` + strconv.Itoa(version) + `,"project":"t","features":["issue","task","notify","users","chat","wiki"],"created_at":"2026-01-01T00:00:00.000Z"}`
+	hashCmd := exec.Command("git", "-C", dir, "hash-object", "-w", "--stdin")
+	hashCmd.Stdin = strings.NewReader(configJSON)
+	blobOut, err := hashCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("hash-object: %v\n%s", err, blobOut)
+	}
+	blob := strings.TrimSpace(string(blobOut))
+
+	mktreeCmd := exec.Command("git", "-C", dir, "mktree")
+	mktreeCmd.Stdin = strings.NewReader("100644 blob " + blob + "\tconfig.json\n")
+	treeOut, err := mktreeCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("mktree: %v\n%s", err, treeOut)
+	}
+	tree := strings.TrimSpace(string(treeOut))
+
+	commitOut, err := exec.Command("git", "-C", dir, "commit-tree", tree, "-p", parent, "-m", "test: bump schema_version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("commit-tree: %v\n%s", err, commitOut)
+	}
+	commit := strings.TrimSpace(string(commitOut))
+
+	if out, err := exec.Command("git", "-C", dir, "update-ref", ref, commit).CombinedOutput(); err != nil {
+		t.Fatalf("update-ref %s %s: %v\n%s", ref, commit, err, out)
+	}
+}
+
+// TestCLISchemaVersionRejectsWriteExit5 is item 4's headline scenario: a
+// repository whose meta/config declares a schema_version newer than this
+// build supports must reject writes with exit code 5 and error.code
+// "schema_unsupported" (docs/02-data-model.md「ツールは操作前に
+// schema_version を確認し、自分の対応バージョンより新しければ操作を拒否す
+// る」, docs/10-cli-spec.md「終了コード」5).
+func TestCLISchemaVersionRejectsWriteExit5(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+	if res := runCLI(t, dir, "init", "--no-sync", "--json"); res.code != 0 {
+		t.Fatalf("init failed: code=%d stderr=%s", res.code, res.stderr)
+	}
+
+	bumpMetaConfigSchemaVersion(t, dir, 999)
+
+	res := runCLI(t, dir, "issue", "new", "--title", "t", "--no-sync", "--json")
+	if res.code != 5 {
+		t.Fatalf("expected exit 5, got code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	}
+	var failed struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &failed); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, res.stdout)
+	}
+	if failed.OK || failed.Error.Code != "schema_unsupported" {
+		t.Errorf("unexpected failure envelope: %+v", failed)
+	}
+}
+
+// TestCLISchemaVersionSkippedWithoutMetaConfig verifies the "pre-init /
+// partial clone" carve-out (docs/13-roadmap.md A6 item 4「meta/config ref が
+// 無いリポジトリ（init 前/部分クローン）はチェックをスキップ（従来動作維
+// 持）」): a repo that never ran `githive init` (so refs/projects/meta/config
+// does not exist) must still be able to write.
+func TestCLISchemaVersionSkippedWithoutMetaConfig(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t) // no `githive init` here on purpose
+
+	res := runCLI(t, dir, "issue", "new", "--title", "t", "--no-sync", "--json")
+	if res.code != 0 {
+		t.Fatalf("expected exit 0 (schema check skipped, no meta/config), got code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
 	}
 }
 
