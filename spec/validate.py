@@ -9,10 +9,11 @@ githive P0 の実行可能スペックを検証するスクリプト。
       スキーマで検証する。
   (b) spec/vectors/canonical/*.json を spec/reference/canonical_json.py で
       再計算し、expected と完全一致することを確認する。
-  (c) spec/vectors/fold-issue/*.json, spec/vectors/fold-task/*.json を
-      spec/reference/fold_issue.py, fold_task.py で再計算し、
-      expected_meta / expected_comments / expected_notes と一致することを
-      確認する。イベント順をシャッフルしても同一結果になることを
+  (c) spec/vectors/fold-issue/*.json, spec/vectors/fold-task/*.json,
+      spec/vectors/fold-chat/*.json を spec/reference/fold_issue.py,
+      fold_task.py, fold_chat.py で再計算し、expected_meta /
+      expected_comments / expected_notes / expected_messages と一致する
+      ことを確認する。イベント順をシャッフルしても同一結果になることを
       3 回試行で確認する。
   (d) 結果を PASS/FAIL のサマリで stdout に出す。
 
@@ -43,6 +44,7 @@ except ImportError:
     sys.exit(1)
 
 import canonical_json as cj
+import fold_chat
 import fold_issue
 import fold_task
 
@@ -128,12 +130,12 @@ def build_validators() -> tuple[Draft202012Validator, dict[str, Draft202012Valid
 # ---------------------------------------------------------------------------
 
 def iter_all_events() -> list[tuple[str, dict]]:
-    """vectors 配下の fold-issue / fold-task の events 配列から
+    """vectors 配下の fold-issue / fold-task / fold-chat の events 配列から
     (vector_file, event) のペアを列挙する。canonical/ordering ベクタは
     イベント封筒を持たないため対象外。
     """
     out = []
-    for sub in ("fold-issue", "fold-task"):
+    for sub in ("fold-issue", "fold-task", "fold-chat"):
         d = VECTORS_DIR / sub
         for path in sorted(d.glob("*.json")):
             with open(path, encoding="utf-8") as f:
@@ -203,7 +205,7 @@ def run_canonical_validation(results: Results) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (c) fold ベクタ（issue / task）
+# (c) fold ベクタ（issue / task / chat）
 # ---------------------------------------------------------------------------
 
 def run_fold_validation(results: Results) -> None:
@@ -220,6 +222,13 @@ def run_fold_validation(results: Results) -> None:
         fold_task.fold,
         "expected_meta",
         "expected_notes",
+    )
+    _run_fold_dir(
+        results,
+        VECTORS_DIR / "fold-chat",
+        fold_chat.fold,
+        "expected_meta",
+        "expected_messages",
     )
 
 
