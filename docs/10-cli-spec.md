@@ -16,7 +16,6 @@
 | --repo <path> | 対象リポジトリ |
 | --no-sync | 書き込み後の自動 sync を行わない |
 | --remote <name> | 同期先 remote（既定 origin） |
-| --quiet / --verbose | 出力量の制御 |
 
 ## コマンド体系
 

@@ -172,6 +172,26 @@ func TestCLISchemaVersionSkippedWithoutMetaConfig(t *testing.T) {
 	}
 }
 
+// TestCLIQuietVerboseFlagsRemoved is item 5's check: --quiet and --verbose
+// were declared but never read anywhere, so they were removed (YAGNI,
+// docs/13-roadmap.md A6 item 5). Cobra rejects unknown flags with exit 1.
+func TestCLIQuietVerboseFlagsRemoved(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+
+	for _, flag := range []string{"--quiet", "--verbose"} {
+		res := runCLI(t, dir, "whoami", flag)
+		if res.code == 0 {
+			t.Errorf("%s should no longer be a recognized flag, but the command succeeded", flag)
+		}
+		if !strings.Contains(res.stderr, "unknown flag") {
+			t.Errorf("%s: expected an unknown-flag error, got stderr=%q", flag, res.stderr)
+		}
+	}
+}
+
 // TestCLIIssueListExcludesArchivedByDefault is item 1's CLI-level check: an
 // archived issue is dropped from `issue list`'s default output (both text
 // and --json), and only reappears when `--status archived` is given

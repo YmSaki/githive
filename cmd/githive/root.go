@@ -24,12 +24,10 @@ import (
 // globalFlags holds the persistent flags every subcommand shares
 // (docs/10-cli-spec.md「グローバルフラグ」).
 type globalFlags struct {
-	repo    string
-	json    bool
-	noSync  bool
-	remote  string
-	quiet   bool
-	verbose bool
+	repo   string
+	json   bool
+	noSync bool
+	remote string
 }
 
 var flags globalFlags
@@ -45,8 +43,6 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().BoolVar(&flags.json, "json", false, "JSON output")
 	root.PersistentFlags().BoolVar(&flags.noSync, "no-sync", false, "do not sync after a write")
 	root.PersistentFlags().StringVar(&flags.remote, "remote", "origin", "sync remote name")
-	root.PersistentFlags().BoolVar(&flags.quiet, "quiet", false, "reduce output")
-	root.PersistentFlags().BoolVar(&flags.verbose, "verbose", false, "increase output")
 
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newSyncCmd())
