@@ -188,6 +188,21 @@ front matter は人間の閲覧と grep のためであり、機械処理はイ�
 
 ツールは操作前に `schema_version` を確認し、自分の対応バージョンより新しければ操作を拒否する。
 
+### meta.init イベント
+
+`refs/projects/meta/config` は他の機能（issue/task/chat/notify/users）と違い、fold（`internal/core/materialize`）に対応する reducer を持たない。`config.json` は `githive init`（`internal/app/initapp`）が ref 未作成の場合に限り直接書き込む唯一のツリーであり、実体化は fold ではなく初期化コマンドの直接書き込みである。
+
+とはいえ書き込みは他機能と同じ形（1 イベント = 1 コミット、コミットメッセージにイベント JSON 封筒、`refs/projects/meta/config` を CAS で前進）で行い、`kind: "meta.init"` のイベントを残す。このイベントは fold に使われない監査記録である（未知 kind として fold からは無視される・そもそも meta 用の Registry 自体が存在しない）。
+
+- kind: `meta.init`
+- data（`internal/app/initapp/initapp.go` の `ensureMetaConfig` が実際に入れるフィールド。`config.json` の内容とバイト単位で同一）:
+  - `schema_version`（int）：config.json の schema_version。現行の書き手は常に 1（`initapp.SchemaVersion`）。
+  - `project`（string）：`githive init` に渡されたプロジェクト名。
+  - `features`（string の配列）：有効機能一覧。現行のデフォルト（`initapp.DefaultFeatures`）は `["issue", "task", "notify", "users", "chat", "wiki"]`。
+  - `created_at`（string）：init 実行時刻。RFC3339、UTC、ミリ秒精度（イベント封筒の `ts` と同値）。
+
+冪等性：`refs/projects/meta/config` が既に存在すれば `githive init` は何もしない。したがって `meta.init` イベントはチェーンに 1 個だけ、ルートコミットとしてのみ存在する（後続の meta.* イベント種別は現行実装には無い）。
+
 ## サイズと成長の制約
 
 - 1 イベントの JSON は 256 KiB を上限とする。超える本文は分割するか wiki へ誘導する。
