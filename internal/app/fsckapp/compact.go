@@ -22,14 +22,13 @@ import (
 )
 
 // featureWriter bundles the fold registry and tree renderer fsck needs to
-// append a checkpoint to one feature's chain. The renderers are each feature
-// app's own TreeFiles: the checkpoint commit's tree MUST be the feature's
-// canonical materialized layout (front matter, jsonl, etc.), not the generic
-// core/merge layout, or the head tree after a checkpoint would differ from
-// what a feature write produces and break byte-identical materialization
-// (docs/02-data-model.md「決定性の不変条件」). Because fold ignores checkpoint
-// kinds, TreeFiles(fold(events + checkpoint)) == TreeFiles(fold(events)), so
-// the tree is byte-identical to the pre-checkpoint head.
+// append a checkpoint to one feature's chain. The renderer MUST be the
+// feature's own TreeFiles (front matter, jsonl, etc.), or the head tree
+// after a checkpoint would differ from what a feature write produces and
+// break byte-identical materialization (docs/02-data-model.md「決定性の不変条
+// 件」). Because fold ignores checkpoint kinds,
+// TreeFiles(fold(events + checkpoint)) == TreeFiles(fold(events)), so the
+// tree is byte-identical to the pre-checkpoint head.
 type featureWriter struct {
 	registry  *materialize.Registry
 	treeFiles func(*materialize.State) (map[string][]byte, error)
