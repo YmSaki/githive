@@ -22,6 +22,7 @@ import (
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/materialize"
+	"github.com/ymsaki/githive/internal/core/sign"
 )
 
 // ErrRetriesExhausted means a local CAS write kept losing to concurrent
@@ -109,6 +110,14 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 	if err != nil {
 		return nil, err
 	}
+	// Resolved once per Append rather than per attempt: the signing config
+	// cannot change mid-loop, and a literal user.signingkey costs a temp
+	// file (ADR-0014).
+	signer, cleanupSigner, err := sign.ResolveSigner(ctx, w.Dir)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupSigner()
 	ref := w.RefFor(id)
 
 	for attempt := 0; attempt < defaultRetries; attempt++ {
@@ -132,7 +141,7 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 		if oid != gitx.ZeroOID {
 			parent = plumbing.NewHash(oid)
 		}
-		newHash, err := chain.AppendEvent(repo, parent, env, summary, files, sig)
+		newHash, err := chain.AppendEvent(repo, parent, env, summary, files, sig, chain.WithSigner(signer))
 		if err != nil {
 			return nil, err
 		}

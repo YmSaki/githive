@@ -21,6 +21,7 @@ import (
 	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/merge"
 	"github.com/ymsaki/githive/internal/core/refspace"
+	"github.com/ymsaki/githive/internal/core/sign"
 )
 
 // DefaultRetries matches githive.sync.retries' default (docs/10-cli-spec.md).
@@ -238,7 +239,12 @@ func mergeAndAdvance(ctx context.Context, dir, ref string, feature refspace.Feat
 	if err != nil {
 		return err
 	}
-	mergeHash, err := chain.AppendMerge(repo, [2]plumbing.Hash{localHash, remoteHash}, files, sig)
+	signer, cleanupSigner, err := sign.ResolveSigner(ctx, dir)
+	if err != nil {
+		return err
+	}
+	defer cleanupSigner()
+	mergeHash, err := chain.AppendMerge(repo, [2]plumbing.Hash{localHash, remoteHash}, files, sig, chain.WithSigner(signer))
 	if err != nil {
 		return err
 	}
