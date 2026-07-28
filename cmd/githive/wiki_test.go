@@ -220,12 +220,8 @@ func TestCLIWikiEditRefusesWhileInProgress(t *testing.T) {
 	if _, statErr := os.Stat(firstEnv.Data.Worktree); statErr != nil {
 		t.Fatalf("first worktree should still exist: %v", statErr)
 	}
-	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
-	if err != nil {
-		t.Fatalf("worktree list: %v", err)
-	}
-	if !strings.Contains(string(out), firstEnv.Data.Worktree) {
-		t.Fatalf("first worktree should still be registered:\n%s", out)
+	if !worktreeIsRegistered(t, dir, firstEnv.Data.Worktree) {
+		t.Fatal("first worktree should still be registered")
 	}
 }
 
@@ -297,4 +293,40 @@ func TestCLIWikiShowBinaryJSON(t *testing.T) {
 	if string(decoded) != string(raw) {
 		t.Errorf("round-trip lost bytes:\n got %v\nwant %v", decoded, raw)
 	}
+}
+
+// worktreeKey reduces a worktree path to the part that is spelled the same
+// way by git and by Go. git prints the fully expanded path with forward
+// slashes, while os.MkdirTemp on Windows can hand back an 8.3 short name
+// ("RUNNER~1") with backslashes, so comparing full paths as substrings fails
+// there. The last two segments (githive-wiki-<random>/worktree) are unique
+// per test and unaffected by either difference.
+func worktreeKey(p string) string {
+	slashed := strings.TrimRight(filepath.ToSlash(p), "/")
+	parts := strings.Split(slashed, "/")
+	if len(parts) > 2 {
+		parts = parts[len(parts)-2:]
+	}
+	return strings.ToLower(strings.Join(parts, "/"))
+}
+
+// worktreeIsRegistered reports whether git still lists wt among dir's
+// worktrees.
+func worktreeIsRegistered(t *testing.T, dir, wt string) bool {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("worktree list: %v", err)
+	}
+	want := worktreeKey(wt)
+	for _, line := range strings.Split(string(out), "\n") {
+		path, ok := strings.CutPrefix(strings.TrimSpace(line), "worktree ")
+		if !ok {
+			continue
+		}
+		if worktreeKey(path) == want {
+			return true
+		}
+	}
+	return false
 }

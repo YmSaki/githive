@@ -417,12 +417,8 @@ func TestEditRefusesWhileWorktreeExists(t *testing.T) {
 	if _, statErr := os.Stat(wtA); statErr != nil {
 		t.Fatalf("first worktree should still exist: %v", statErr)
 	}
-	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
-	if err != nil {
-		t.Fatalf("worktree list: %v", err)
-	}
-	if !strings.Contains(string(out), filepath.ToSlash(wtA)) && !strings.Contains(string(out), wtA) {
-		t.Fatalf("first worktree should still be registered:\n%s", out)
+	if !worktreeIsRegistered(t, dir, wtA) {
+		t.Fatal("first worktree should still be registered")
 	}
 	cfg, err := r.ConfigGet(ctx, worktreeConfigKey)
 	if err != nil {
@@ -538,12 +534,8 @@ func assertNoWorktree(t *testing.T, dir, wt string) {
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
 		t.Fatalf("worktree not cleaned: %v", err)
 	}
-	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
-	if err != nil {
-		t.Fatalf("worktree list: %v", err)
-	}
-	if strings.Contains(string(out), filepath.ToSlash(wt)) || strings.Contains(string(out), wt) {
-		t.Fatalf("leaked worktree registration:\n%s", out)
+	if worktreeIsRegistered(t, dir, wt) {
+		t.Fatal("leaked worktree registration")
 	}
 }
 
@@ -562,4 +554,40 @@ func TestHasConflictMarker(t *testing.T) {
 	if hasConflictMarker([]byte(resolved)) {
 		t.Error("resolved content with an incidental '=======' must be clean")
 	}
+}
+
+// worktreeKey reduces a worktree path to the part that is spelled the same
+// way by git and by Go. git prints the fully expanded path with forward
+// slashes, while os.MkdirTemp on Windows can hand back an 8.3 short name
+// ("RUNNER~1") with backslashes, so comparing full paths as substrings fails
+// there. The last two segments (githive-wiki-<random>/worktree) are unique
+// per test and unaffected by either difference.
+func worktreeKey(p string) string {
+	slashed := strings.TrimRight(filepath.ToSlash(p), "/")
+	parts := strings.Split(slashed, "/")
+	if len(parts) > 2 {
+		parts = parts[len(parts)-2:]
+	}
+	return strings.ToLower(strings.Join(parts, "/"))
+}
+
+// worktreeIsRegistered reports whether git still lists wt among dir's
+// worktrees.
+func worktreeIsRegistered(t *testing.T, dir, wt string) bool {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("worktree list: %v", err)
+	}
+	want := worktreeKey(wt)
+	for _, line := range strings.Split(string(out), "\n") {
+		path, ok := strings.CutPrefix(strings.TrimSpace(line), "worktree ")
+		if !ok {
+			continue
+		}
+		if worktreeKey(path) == want {
+			return true
+		}
+	}
+	return false
 }
