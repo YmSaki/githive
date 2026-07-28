@@ -72,6 +72,18 @@ MCP サーバーは現状 `cmd/githive/mcp.go` に実装されており、独立
 - クライアント層は `app` のサービスだけを呼ぶ。`core` を直接呼ばない。
   VSCode 拡張のみ例外的にプロセス境界（CLI `--json`）越しに `app` を利用する。
 
+クライアント層から `core` を直接呼んでよいのは、**状態を持たない薄い変換・解決**に限る。現行の許容リストは次のとおりで、これ以外を増やすときはこの一覧に追記する。
+
+| 許容 | 理由 |
+|------|------|
+| `identity.Resolve` / `identity.ErrNotConfigured` | git config から identity を引くだけの純粋な解決。app ごとに薄いラッパを増やす方が害が大きい |
+| `event.Encode` / `event.DecodeGeneric` / `event.SchemaVersion` | canonical JSON は 1 実装に集約する規則（[02](02-data-model.md)）そのもの。別経路を作ってはならない |
+| `refspace` の定数と `Parse` / `RemoteTrackingRef` / `LocalRefFromTracking` | ref 名の文字列代数であり I/O を持たない |
+| `core` 各パッケージのセンチネルエラー値 | 終了コードへの対応付け（`classifyError`）に必要。エラー値の参照は振る舞いを持ち込まない |
+
+逆に、**git I/O（`gitx`）・コミットチェーン操作（`chain`）・fold（`materialize`）・マージ（`merge`）はクライアント層から直接呼ばない**。これらはアプリケーションロジックであり、`app` のサービス越しに使う。TUI や外部ツールから再利用できなくなるためである。
+
+
 ## データフロー
 
 ### 読み取り（高速路と互換路）
