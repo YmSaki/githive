@@ -3,6 +3,7 @@ package gitx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,6 +115,109 @@ func TestForEachRefAndRevParse(t *testing.T) {
 	}
 	if missing != "" {
 		t.Errorf("expected empty string for missing ref, got %q", missing)
+	}
+}
+
+// TestIsRefUpdateRetryable pins the classification isRefUpdateRetryable does
+// on real git update-ref failure text (docs/10-cli-spec.md「終了コード」):
+// CAS races (current value mismatch, lock contention) are retryable; every
+// other failure is a permanent one entitychain must not loop on.
+func TestIsRefUpdateRetryable(t *testing.T) {
+	cases := []struct {
+		name   string
+		output string
+		want   bool
+	}{
+		{
+			"cas mismatch, existing ref",
+			"fatal: update_ref failed for ref 'refs/projects/issue/xyz': cannot lock ref 'refs/projects/issue/xyz': is at 5bb...15a5 but expected 111...111",
+			true,
+		},
+		{
+			"cas mismatch, old value given but ref does not exist",
+			"fatal: update_ref failed for ref 'refs/projects/issue/xyz': cannot lock ref 'refs/projects/issue/xyz': unable to resolve reference 'refs/projects/issue/xyz'",
+			true,
+		},
+		{
+			"lock contention",
+			"fatal: update_ref failed for ref 'refs/projects/issue/xyz': cannot lock ref 'refs/projects/issue/xyz': Unable to create '.../xyz.lock': File exists.",
+			true,
+		},
+		{
+			"bad ref name",
+			"fatal: update_ref failed for ref 'refs/projects/issue/bad ref name': refusing to update ref with bad name 'refs/projects/issue/bad ref name'",
+			false,
+		},
+		{
+			"unrecognized failure text",
+			"fatal: some future git version's brand new error message",
+			false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isRefUpdateRetryable(c.output); got != c.want {
+				t.Errorf("isRefUpdateRetryable(%q) = %v, want %v", c.output, got, c.want)
+			}
+		})
+	}
+}
+
+// TestUpdateRefBadRefNameIsNotCASMismatch guards the fix for A4: a
+// permanently-failing update-ref (here, a ref name git refuses outright)
+// must not come back as ErrRefCASMismatch, or entitychain
+// (internal/app/entitychain) would retry it defaultRetries times for no
+// reason instead of failing once.
+func TestUpdateRefBadRefNameIsNotCASMismatch(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	initRepo(t, dir)
+	r := New(dir)
+	ctx := context.Background()
+
+	oid := commitEmpty(t, dir, "root")
+	err := r.UpdateRef(ctx, "refs/projects/issue/bad ref name", oid, ZeroOID)
+	if err == nil {
+		t.Fatal("expected an error for a malformed ref name")
+	}
+	if errors.Is(err, ErrRefCASMismatch) {
+		t.Errorf("bad ref name must not be classified as ErrRefCASMismatch, got: %v", err)
+	}
+}
+
+// TestDeleteRefBadOldOIDIsCASMismatch is the CAS-mismatch counterpart:
+// DeleteRef with a stale expected value must still classify as
+// ErrRefCASMismatch so callers keep retrying it.
+func TestDeleteRefBadOldOIDIsCASMismatch(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	initRepo(t, dir)
+	r := New(dir)
+	ctx := context.Background()
+
+	oid := commitEmpty(t, dir, "root")
+	if err := r.UpdateRef(ctx, "refs/projects/issue/xyz", oid, ZeroOID); err != nil {
+		t.Fatal(err)
+	}
+	wrongOld := "1111111111111111111111111111111111111111"
+	err := r.DeleteRef(ctx, "refs/projects/issue/xyz", wrongOld)
+	if err == nil {
+		t.Fatal("expected an error deleting with a stale old value")
+	}
+	if !errors.Is(err, ErrRefCASMismatch) {
+		t.Errorf("expected ErrRefCASMismatch, got: %v", err)
+	}
+}
+
+// TestGitEnvForcesLCAllC checks gitEnv's ordering guarantee: its own
+// LC_ALL=C entry must appear before whatever the process environment
+// contributes, since env lookup returns the first match - a caller-inherited
+// LC_ALL must not silently win and reintroduce locale-dependent git output
+// that isRefUpdateRetryable / syncapp's classifyPushRejection depend on.
+func TestGitEnvForcesLCAllC(t *testing.T) {
+	env := gitEnv()
+	if len(env) == 0 || env[0] != "LC_ALL=C" {
+		t.Fatalf("gitEnv()[0] = %q, want \"LC_ALL=C\" (must come first so it wins over any inherited LC_ALL)", env[0])
 	}
 }
 
