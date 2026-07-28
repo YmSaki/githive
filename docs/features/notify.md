@@ -45,6 +45,8 @@ tree:
 - **source**：通知の発生元エンティティ。CLI はここからジャンプできる。
 - **priority**：`low` / `normal` / `high`。表示順制御のみで意味論は持たない。
 
+fold は `events/<yyyy-mm>.jsonl` の各レコードに、上記の data フィールドに加えて `id`・`ts`・`actor`（イベント自身の値）と `month`（`ts` から抽出した `YYYY-MM`。月次ファイルへの振り分けに使う fold 由来のフィールドで、イベント data には含まれない）を付与する。
+
 ## 自動通知
 
 issue や task の操作が通知を「自動生成」する仕組みは、コア層には置かない。

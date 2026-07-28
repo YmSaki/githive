@@ -21,13 +21,14 @@
 ## コマンド体系
 
 ```
-githive init                     # fetch refspec 追加、meta/config 作成（無ければ）、初回 fetch
+githive init [--project name]    # fetch refspec 追加、meta/config 作成（無ければ）、初回 fetch
+                                 # --project 省略時はリポジトリのディレクトリ名
 githive sync [--kind issue,...]  # fetch -> merge -> push（[03] のアルゴリズム）
 githive status                   # 未 push の ref、未読 notify、自分の doing task の要約
 
 githive issue   new|list|show|comment|status|edit|label|assign|link
 githive task    new|list|show|status|note|reassign
-githive notify  post|list|ack
+githive notify  post|list|ack     # list は [--unread] [--all] を取る（[features/notify.md](features/notify.md)）
 githive chat    new|list|show|post|archive
 githive users   add|list|key|group|policy
 githive wiki    edit|save|show|log
@@ -69,7 +70,7 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 ```
 
 - `data` の形は「コマンド名 + スキーマバージョン」で安定させ、破壊的変更をしない。
-- 一覧系は `{ "items": [...], "total": n }` で統一する。
+- 一覧系は `{ "items": [...], "total": n }` で統一する。例外は `githive users list` で、users/groups/policy という 3 種類の異なる一覧を同時に返す都合上 `{ "users": [...], "groups": [...], "policy": {...} }` の形をとる（[features/users.md](features/users.md)）。
 - ID は常に完全形（26 文字）で出力する。短縮は入力時のみ受け付ける。
 
 ## 終了コード

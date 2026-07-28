@@ -32,7 +32,7 @@ tree:
 }
 ```
 
-`participants` は投稿実績のある actor の集合で、fold が自動集計する。
+`participants` は投稿実績のある actor の集合で、fold が自動集計する。作成者（`created_by`）は投稿の有無に関わらず常に含まれる。
 
 ### messages/<event-id>.md
 

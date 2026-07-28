@@ -123,14 +123,19 @@ revoke された鍵による「revoke 時刻より後の」署名は無効と判
 ## CLI
 
 ```
-githive users add <name> [--display d] [--email e] [--agent] [--role r]
+githive users add <name> [--display d] [--email e] [--kind k] [--agent] [--role r]
+                          [--project p] [--key-dir d]   # --agent 時のみ有効
 githive users key add <name> --pub <key or file>
 githive users key revoke <name> --pub <key>
 githive users group set <name> --member a --member b
+githive users group remove <name>
 githive users list [--json]
 githive users policy edit          # $EDITOR で rules を編集し policy_set を発行
 githive whoami                     # 自分のユーザー特定結果と鍵の状態を表示
 ```
+
+- `--kind`：`human` または `agent`（`--agent` を使わず直接指定する場合）。
+- `--agent`：Agent 用の identity・鍵ペアを一括生成する（「Agent のセットアップ」参照）。`--project` は鋳造する email のプロジェクト名部分（省略時は meta/config から読む）、`--key-dir` は鍵ペアの出力先（省略時は `~/.ssh`）を指定する。
 
 ## 素の git での読み方
 
