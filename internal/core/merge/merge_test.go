@@ -1,29 +1,17 @@
 package merge
 
 import (
-	"encoding/json"
 	"fmt"
 	"math/rand"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/oklog/ulid/v2"
 
-	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/materialize"
 )
-
-func requireGit(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git binary not available")
-	}
-}
 
 func newULID(seq int) string {
 	entropy := ulid.Monotonic(rand.New(rand.NewSource(int64(seq))), 0)
@@ -136,95 +124,31 @@ func TestMergeConvergesAcrossSplits(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// git-integration test: two real diverged chains, merged via Chains, produce
-// identical tree content regardless of which side is "ours".
-// ---------------------------------------------------------------------------
-
-func initBareDir(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	cmd := exec.Command("git", "init", "--quiet", dir)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v\n%s", err, out)
-	}
-	return dir
-}
-
-func TestChainsMergeConverges(t *testing.T) {
-	requireGit(t)
-	dir := initBareDir(t)
-	repo, err := chain.OpenRepository(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sig := chain.Signature{Name: "Tester", Email: "a@example.com", When: time.Now()}
+// TestMergeConvergesFromSharedAncestor mirrors what two real diverged commit
+// chains look like once walked back to their root (chain.WalkChain returns
+// each side's full history, so a shared ancestor appears in both sets):
+// side A is root+evA, side B is root+evB. UnionEvents/Fold must dedupe the
+// shared root and converge to the same state regardless of merge order, with
+// both branches' labels surviving - the property that used to be exercised
+// via the git-backed Chains/TreeFiles helpers.
+func TestMergeConvergesFromSharedAncestor(t *testing.T) {
 	entity := "01j8x0a2b3c4d5e6f7g8h9j0ke"
-
 	root := issueCreateEvent(entity, 0)
-	rootFiles, err := TreeFiles(materialize.IssueRegistry.Fold([]*event.Envelope{root}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rootHash, err := chain.AppendEvent(repo, chain.ZeroHash, root, "issue.create: seed", rootFiles, sig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Side A adds label "l1", side B adds label "l2", both branching from root.
 	evA := issueLabelEvent(entity, 1, "l1")
-	filesA, err := TreeFiles(materialize.IssueRegistry.Fold([]*event.Envelope{root, evA}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	headA, err := chain.AppendEvent(repo, rootHash, evA, "issue.label: +l1", filesA, sig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	evB := issueLabelEvent(entity, 2, "l2")
-	filesB, err := TreeFiles(materialize.IssueRegistry.Fold([]*event.Envelope{root, evB}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	headB, err := chain.AppendEvent(repo, rootHash, evB, "issue.label: +l2", filesB, sig)
-	if err != nil {
-		t.Fatal(err)
+
+	sideA := []*event.Envelope{root, evA}
+	sideB := []*event.Envelope{root, evB}
+
+	stateAB := Fold(materialize.IssueRegistry, sideA, sideB)
+	stateBA := Fold(materialize.IssueRegistry, sideB, sideA)
+
+	gotAB, gotBA := metaSignature(t, stateAB), metaSignature(t, stateBA)
+	if gotAB != gotBA {
+		t.Errorf("merge tree differs by parent order:\nA,B: %s\nB,A: %s", gotAB, gotBA)
 	}
 
-	mergeAB, err := Chains(repo, materialize.IssueRegistry, [2]plumbing.Hash{headA, headB}, sig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mergeBA, err := Chains(repo, materialize.IssueRegistry, [2]plumbing.Hash{headB, headA}, sig)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	commitAB, err := object.GetCommit(repo.Storer, mergeAB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	commitBA, err := object.GetCommit(repo.Storer, mergeBA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if commitAB.TreeHash != commitBA.TreeHash {
-		t.Errorf("merge tree differs by parent order: AB=%s BA=%s", commitAB.TreeHash, commitBA.TreeHash)
-	}
-	if commitAB.Message != "merge: event-union" {
-		t.Errorf("unexpected merge commit message: %q", commitAB.Message)
-	}
-
-	filesMerged, err := chain.ReadTree(repo, mergeAB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var meta map[string]any
-	if err := json.Unmarshal(filesMerged["meta.json"], &meta); err != nil {
-		t.Fatal(err)
-	}
-	labels, _ := meta["labels"].([]any)
+	labels, _ := stateAB.Meta["labels"].([]any)
 	if len(labels) != 2 {
 		t.Errorf("expected both labels to survive the merge, got %v", labels)
 	}
