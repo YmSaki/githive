@@ -32,3 +32,13 @@
 - **TypeScript/Node**：ランタイム配布が必要で、git サーバー実装に不向き。VSCode 拡張のみ TypeScript を使う。
 - **全部 system git（go-git なし）**：plumbing 呼び出しの子プロセス数が読み取り性能を悪化させる。
 - **全部 go-git**：認証互換の問題が利用者体験を直撃する。
+
+## 追記：`internal/core/gitx` が実際に担う範囲
+
+決定 3 は「ネットワーク操作と署名検証を system git に委ねる」と書いたが、実装が進むにつれ `internal/core/gitx.Runner` は次も system git 経由で担うようになった（`internal/core/gitx/gitx.go:409-416` の自己申告コメント参照）。
+
+- **wiki 用 worktree 操作**（`WorktreeAdd`/`WorktreeRemove`、worktree 上の add/commit/diff/merge、`MergeWikiRemote`）。wiki は event sourcing を使わない唯一の機能で、通常の git ブランチと 3-way マージで運用するため、worktree のチェックアウトやマージはファイルシステム/plumbing 操作そのものであり、go-git よりも system git の挙動に素直に従う。
+- **ローカルオブジェクトの生成**（`emptyRootCommit`、`CommitAll`、`StageAll`）。go-git ではなく system git の commit 機構をそのまま使う。
+- **読み出し**（`Show`、`Log`、`RevParse`、`IsAncestor`、`ForEachRef`）。ネットワークを伴わない読み取りだが、go-git の実装コストより system git の呼び出しの方が単純だった箇所に system git を使っている。
+
+したがって決定 3 は「ネットワーク操作と署名検証」に限定されず、実際には「go-git は決定的な実体化（materialize/merge が読み書きするコミット・ツリー生成）に、system git はそれ以外（通信、wiki の worktree・plumbing、各種読み出し）に使う」という運用に近い。この使い分けは [ADR-0002] の理由（認証互換性、実装コスト）とも整合するため、決定自体の変更ではなく実態の追記として記録する。

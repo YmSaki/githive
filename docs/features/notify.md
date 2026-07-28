@@ -27,7 +27,7 @@ tree:
 |------|------|-----------|
 | notify.post | targets[], title, body?, source?, priority? | 当月の jsonl に追記 |
 | notify.ack | ack_of（notify.post の event-id） | acks.json の該当エントリに actor を追加 |
-| notify.checkpoint | state, count, hash | 読み出し起点 |
+| notify.checkpoint | state（meta/collections/scratch）, event_count, head | 読み出し起点（[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
 ### notify.post の data
 
@@ -44,6 +44,8 @@ tree:
 - **targets**：`user:<email>`、`group:<name>`、`all` の配列。user の識別子は identity（[ADR-0009](../adr/0009-identity-user-email.md)）で、CLI 入力では username も受け付けて書き込み時に解決する。グループ展開は読み手が users 台帳を参照して行う。
 - **source**：通知の発生元エンティティ。CLI はここからジャンプできる。
 - **priority**：`low` / `normal` / `high`。表示順制御のみで意味論は持たない。
+
+fold は `events/<yyyy-mm>.jsonl` の各レコードに、上記の data フィールドに加えて `id`・`ts`・`actor`（イベント自身の値）と `month`（`ts` から抽出した `YYYY-MM`。月次ファイルへの振り分けに使う fold 由来のフィールドで、イベント data には含まれない）を付与する。
 
 ## 自動通知
 

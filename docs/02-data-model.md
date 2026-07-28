@@ -91,7 +91,7 @@ wiki だけは通常の git ブランチと同じ運用（自由なツリー編�
 - **kind**：`<機能>.<動詞>` 形式のイベント種別。正規表現 `^[a-z]+\.[a-z_]+$` に従う。各機能仕様で定義する。
 - **id**：イベント ID。ULID。リポジトリ全体で一意。
 - **ts**：発生時刻。RFC 3339、UTC、ミリ秒精度。ULID 内の時刻と同値を書く。
-- **actor**：書き手の identity。git の `user.email` の値をそのまま記録する（[ADR-0009](adr/0009-identity-user-email.md)）。形式検査は緩くする（空白と制御文字を含まない、`@` を含む、320 byte 以下）。未設定ならエラー（終了コード 5）。fold は actor を不透明な文字列として扱い、username・表示名への解決（users 台帳の emails[] との突合）は表示時にのみ行う。実体化が registry という別 ref の状態に依存すると決定性が壊れるためである。
+- **actor**：書き手の identity。git の `user.email` の値をそのまま記録する（[ADR-0009](adr/0009-identity-user-email.md)）。形式検査は緩くする（空白を含まない、`@` を含む、320 byte 以下）。320 の単位は byte（Go 実装 `len(e.Actor)` が正）。`spec/schemas/envelope.schema.json` の `maxLength: 320` は JSON Schema の仕様上コードポイント数によるコードポイント近似であり、マルチバイト文字を含む actor では両者の判定がずれうる。「制御文字を含まない」は現状の検査（`\s` = 空白類のみを拒否）には含まれておらず、将来の強化課題とする。未設定ならエラー（終了コード 5）。fold は actor を不透明な文字列として扱い、username・表示名への解決（users 台帳の emails[] との突合）は表示時にのみ行う。実体化が registry という別 ref の状態に依存すると決定性が壊れるためである。
 - **entity**：対象エンティティの ID。ref 名から自明でも冗長に持つ（ログ単体で自己完結させるため）。
 - **data**：kind ごとのペイロード。各機能仕様で定義する。
 

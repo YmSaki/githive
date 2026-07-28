@@ -77,7 +77,7 @@ P0 --> P1 --> P2 --> P5 --> P3 --> P4
 2. `app/issueapp` と CLI サブコマンド（new/list/show/comment/status/edit/label/assign/link）。
 3. `app/syncapp`：[03](03-sync-and-concurrency.md) のアルゴリズム、再試行、`githive sync`。
 4. `githive init`（refspec、meta/config）。
-5. 結合テスト：ローカル 2 clone + bare origin で同時更新 -> 収束。GitHub 実機での手動確認手順書。
+5. 結合テスト：ローカル 2 clone + bare origin で同時更新 -> 収束。GitHub 実機での手動確認手順書（GitHub/GitLab/Gitea 実機確認は現時点で未実施。手順書自体もまだ無い）。
 
 ### P2：task / chat / notify
 
@@ -98,13 +98,25 @@ P0 --> P1 --> P2 --> P5 --> P3 --> P4
 各フェーズ開始時に、このドキュメントと対象設計書（12、15）から同粒度の作業分解を起こす。
 P8 以降は forge の詳細設計（12a: CI 仕様、12b: Web UI 仕様）を先行して書く。
 
+### P4 着手中：設計書に記載があるが未実装の項目
+
+docs 内の調査で判明した「設計書には書かれているが、まだコードが無い」項目を棚卸しする。
+P4（運用コマンド）の残タスク候補として扱い、forge 依存分は P8 に送る。
+
+- 時計異常防御の enforcement 化（イベント作成時の警告、sync/マージでの受け入れ警告）：[03-sync-and-concurrency.md](03-sync-and-concurrency.md)「時計異常への防御」。現状 `githive doctor` の `clock_skew` チェックが事後診断するのみ。forge 側の push 拒否は P8。
+- shallow / partial clone の検出と自動 deepen：[03-sync-and-concurrency.md](03-sync-and-concurrency.md)「shallow / partial clone との関係」。
+- 秘密らしきパターンの投稿前警告：[11-security.md](11-security.md)「秘匿情報」。
+- マージで負けた変更を verify/CLI 表示で気付けるようにする：[ADR-0004](adr/0004-merge-by-event-union.md)「帰結」。
+
+policy.json のルール評価（[00-vision.md](00-vision.md)「動作モード」の「権限制御：助言的」）は forge の pre-receive 強制（P8）と対をなす機能であり、P8 側の設計時にあわせて着手する。
+
 ## 手戻りリスクと先回りの手当て
 
 | リスク | 手当て |
 |--------|--------|
 | 決定性の破れ（実装差でツリーが分岐） | P0 からプロパティテスト。canonical JSON を 1 実装に集約し、encoding/json の直接使用を lint で禁止 |
 | 封筒スキーマの変更 | v フィールドと未知フィールド保存を最初から実装。スキーマは golden ファイルで凍結 |
-| GitHub 側の refs 制約の見落とし | P1 の完了条件に GitHub 実機確認を含める。GitLab / Gitea も P2 終了時に確認 |
+| GitHub 側の refs 制約の見落とし | P1 の完了条件に GitHub 実機確認を含める。GitLab / Gitea も P2 終了時に確認（P1・P2 とも実装とローカル結合テストは完了しているが、GitHub/GitLab/Gitea 実機での確認は 2026-07-28 時点で未実施） |
 | Windows のパス・改行問題 | CI を 3 OS で P0 から回す。LF 固定、autocrlf 無効化を gitx が強制 |
 | 機能間の共通化の失敗（早すぎる抽象化） | P2 の方針どおり「2 例目まで複製、3 例目で抽出」 |
 | forge とクライアントの検証ロジック乖離 | 検証は core に置き、pre-receive はそれを呼ぶだけにする（P8 の構造要件） |

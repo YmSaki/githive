@@ -80,23 +80,23 @@
     },
     "notify.checkpoint": {
       "type": "object",
-      "description": "読み出し起点。fold はこの kind を常に無視する。",
+      "description": "読み出し起点。fold はこの kind を常に無視する。ADR-0013 参照。",
       "properties": {
         "state": {
           "type": "object"
         },
-        "count": {
+        "event_count": {
           "type": "integer",
           "minimum": 0
         },
-        "hash": {
+        "head": {
           "type": "string"
         }
       },
       "required": [
         "state",
-        "count",
-        "hash"
+        "event_count",
+        "head"
       ],
       "additionalProperties": true
     }
