@@ -31,6 +31,17 @@ const ZeroOID = "0000000000000000000000000000000000000000"
 var (
 	ErrNonFastForward = errors.New("gitx: non-fast-forward")
 	ErrRefCASMismatch = errors.New("gitx: ref update rejected (old value mismatch)")
+
+	// ErrNotFound means Show's ref or path does not exist, as distinct from
+	// any other git failure (corrupt object database, not a git repository,
+	// permission denied, ...). `git show <ref>:<path>` reports both cases as
+	// a plain exit status 128 fatal error with no distinguishing exit code,
+	// so the only signal available is git's (LC_ALL=C, via gitEnv)
+	// diagnostic text; see isShowNotFound for the exact patterns matched.
+	// Callers such as wikiapp.Show use errors.Is against this to decide
+	// whether to present a not-found result or propagate an unexpected git
+	// error unmasked.
+	ErrNotFound = errors.New("gitx: ref or path not found")
 )
 
 // Version is a parsed `git version` result.
@@ -178,10 +189,41 @@ func (r *Runner) RevParse(ctx context.Context, ref string) (string, error) {
 
 // Show returns the bytes of path at ref, equivalent to
 // `git show <ref>:<path>` (docs/features/wiki.md「素の git での読み書き」).
-// It errors if ref or path does not exist; read-only callers (wikiapp) map
-// that to a not-found result.
+// When ref or path does not exist, the returned error wraps ErrNotFound so
+// read-only callers (wikiapp) can map that specific case to a not-found
+// result. Any other git failure (corrupt object database, not a git
+// repository, permission denied, ...) is returned as-is, without
+// ErrNotFound, so callers do not mistake an unexpected git error for a
+// legitimate "page does not exist".
 func (r *Runner) Show(ctx context.Context, ref, path string) ([]byte, error) {
-	return r.run(ctx, "show", ref+":"+path)
+	out, err := r.run(ctx, "show", ref+":"+path)
+	if err != nil {
+		if isShowNotFound(err.Error()) {
+			return nil, fmt.Errorf("%w: %v", ErrNotFound, err)
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
+// isShowNotFound reports whether the combined diagnostic text of a failed
+// `git show <ref>:<path>` describes a missing ref or a missing path, as
+// opposed to any other git failure. Verified (see gitx_test.go) against
+// git's actual (LC_ALL=C) wording:
+//   - "invalid object name" - ref itself does not resolve to any object.
+//   - "does not exist in" - ref resolves, but path is not present in it.
+//   - "exists on disk, but not in" - path exists in the worktree/index but
+//     was never committed to ref (same "not found in ref" outcome for our
+//     purposes).
+//
+// Every other message (not a git repository, corrupt loose object, disk
+// full, permission denied, ...) deliberately does not match: per
+// docs/10-cli-spec.md an unrecognized failure must be treated as a real
+// error rather than silently folded into "not found".
+func isShowNotFound(output string) bool {
+	return strings.Contains(output, "invalid object name") ||
+		strings.Contains(output, "does not exist in") ||
+		strings.Contains(output, "exists on disk, but not in")
 }
 
 // LogEntry is one row of `git log` output.

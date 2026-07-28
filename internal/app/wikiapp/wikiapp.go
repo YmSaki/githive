@@ -19,7 +19,11 @@ import (
 )
 
 // ErrNotFound is returned by Show when the path — or the wiki ref itself —
-// does not exist. cmd/githive maps it to the not_found exit code.
+// does not exist. cmd/githive maps it to the not_found exit code. It is
+// deliberately NOT returned for other gitx.Show failures (repository
+// corruption, git execution errors, ...); those propagate unwrapped so a
+// --json caller does not see a misleading "not_found" for an unrelated
+// failure.
 var ErrNotFound = errors.New("wikiapp: path not found in wiki")
 
 // Service provides read and write access to the wiki for the repository at
@@ -40,11 +44,17 @@ func New(dir string) *Service {
 
 // Show returns the raw bytes of path in the wiki tree, equivalent to
 // `git show refs/projects/wiki/main:<path>`. A missing ref or path yields
-// ErrNotFound (the underlying git error is preserved in the message).
+// ErrNotFound (the underlying git error is preserved in the message). Any
+// other gitx.Show failure — repository corruption, a git execution error,
+// and so on — is returned as-is (not wrapped in ErrNotFound) so it is not
+// mistaken for a legitimate "page does not exist".
 func (s *Service) Show(ctx context.Context, path string) ([]byte, error) {
 	b, err := gitx.New(s.Dir).Show(ctx, refspace.WikiMainRef, path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %v", ErrNotFound, path, err)
+		if errors.Is(err, gitx.ErrNotFound) {
+			return nil, fmt.Errorf("%w: %s: %v", ErrNotFound, path, err)
+		}
+		return nil, err
 	}
 	return b, nil
 }

@@ -408,11 +408,53 @@ func TestShow(t *testing.T) {
 		t.Errorf("Show content = %q", got)
 	}
 
-	if _, err := r.Show(ctx, "refs/projects/wiki/main", "Missing.md"); err == nil {
-		t.Error("expected error showing a missing path")
+	if _, err := r.Show(ctx, "refs/projects/wiki/main", "Missing.md"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Show missing path: want ErrNotFound, got %v", err)
 	}
-	if _, err := r.Show(ctx, "refs/projects/wiki/does-not-exist", "Home.md"); err == nil {
-		t.Error("expected error showing under a missing ref")
+	if _, err := r.Show(ctx, "refs/projects/wiki/does-not-exist", "Home.md"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Show under missing ref: want ErrNotFound, got %v", err)
+	}
+}
+
+// TestShowOtherGitErrorIsNotErrNotFound verifies that a git failure unrelated
+// to a missing ref/path (here: r.Dir is not a git repository at all) is NOT
+// classified as ErrNotFound — it must propagate so callers do not mistake an
+// unexpected git error (repo corruption, permission trouble, ...) for a
+// legitimate "does not exist".
+func TestShowOtherGitErrorIsNotErrNotFound(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir() // deliberately never `git init`-ed
+	r := New(dir)
+	ctx := context.Background()
+
+	_, err := r.Show(ctx, "refs/projects/wiki/main", "Home.md")
+	if err == nil {
+		t.Fatal("expected an error showing in a non-git directory")
+	}
+	if errors.Is(err, ErrNotFound) {
+		t.Errorf("Show outside a git repo: want a plain error, got ErrNotFound: %v", err)
+	}
+}
+
+// TestIsShowNotFound pins the exact git diagnostic substrings the classifier
+// keys off, independent of any live git invocation.
+func TestIsShowNotFound(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{"missing ref", "fatal: invalid object name 'refs/projects/wiki/does-not-exist'.", true},
+		{"missing path", "fatal: path 'Missing.md' does not exist in 'refs/projects/wiki/main'", true},
+		{"uncommitted path", "fatal: path 'b.txt' exists on disk, but not in 'HEAD'", true},
+		{"not a repo", "fatal: not a git repository (or any of the parent directories): .git", false},
+		{"corrupt object", "fatal: loose object ce013625030ba8dba906f756967f9e9ca394464a (stored in .git/objects/ce/013625030ba8dba906f756967f9e9ca394464a) is corrupt", false},
+		{"empty", "", false},
+	}
+	for _, c := range cases {
+		if got := isShowNotFound(c.text); got != c.want {
+			t.Errorf("%s: isShowNotFound(%q) = %v, want %v", c.name, c.text, got, c.want)
+		}
 	}
 }
 
