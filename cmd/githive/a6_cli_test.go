@@ -38,6 +38,44 @@ func TestCLISyncRetriesConfigDoesNotBreakWrites(t *testing.T) {
 	}
 }
 
+// TestCLIVerifyAllFlag is item 3's CLI-level check: `verify --all` is
+// accepted as an explicit alias for the default "verify every ref" behavior
+// (docs/10-cli-spec.md「コマンド体系」), and combining it with --ref is a
+// usage error (exit code 2).
+func TestCLIVerifyAllFlag(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	// No entities are created here on purpose: verifying a real signed
+	// commit needs an ssh-keygen + registered signer fixture (see
+	// sign_test.go), which is orthogonal to what this test checks (that
+	// --all is accepted and mutually exclusive with --ref). An empty repo
+	// has zero refs to verify, so `verify --all` trivially succeeds.
+	dir := newCLITestRepo(t)
+
+	res := runCLI(t, dir, "verify", "--all", "--json")
+	if res.code != 0 {
+		t.Fatalf("verify --all should exit 0 on an empty repo, got code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	}
+
+	res = runCLI(t, dir, "verify", "--all", "--ref", "refs/projects/issue/does-not-matter", "--json")
+	if res.code != 2 {
+		t.Fatalf("verify --all --ref should exit 2 (usage error), got code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	}
+	var failed struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &failed); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, res.stdout)
+	}
+	if failed.OK || failed.Error.Code != "usage_error" {
+		t.Errorf("unexpected failure envelope: %+v", failed)
+	}
+}
+
 // TestCLIIssueListExcludesArchivedByDefault is item 1's CLI-level check: an
 // archived issue is dropped from `issue list`'s default output (both text
 // and --json), and only reappears when `--status archived` is given

@@ -156,6 +156,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 	var wikiValidation *wikiapp.ValidationError
 	var wikiConflict *wikiapp.ConflictError
 	switch {
+	case errors.Is(err, errVerifyAllWithRef):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "usage_error", Message: err.Error()}
 	case errors.As(err, &ambiguous):
 		return cliout.ExitUsageError, cliout.ErrorInfo{
 			Code:    "ambiguous_id",
