@@ -16,6 +16,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/wikiapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/identity"
+	"github.com/ymsaki/githive/internal/core/sign"
 )
 
 // globalFlags holds the persistent flags every subcommand shares
@@ -164,6 +165,11 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "not_a_repo", Message: err.Error()}
 	case errors.Is(err, identity.ErrNotConfigured), errors.Is(err, issueapp.ErrIdentityNotConfigured):
 		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "identity_not_configured", Message: err.Error()}
+	case errors.Is(err, sign.ErrUnsupportedFormat), errors.Is(err, sign.ErrSigningKeyMissing):
+		// Signing was asked for but cannot be performed: environment
+		// misconfiguration, not a usage error (ADR-0014, `githive doctor`'s
+		// signing check reports the same condition).
+		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "signing_misconfigured", Message: err.Error()}
 	case errors.Is(err, usersapp.ErrInvalidName):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_name", Message: err.Error()}
 	case errors.Is(err, logapp.ErrInvalidSince):
