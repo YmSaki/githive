@@ -9,8 +9,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-git/go-git/v5/plumbing"
+
+	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/app/notifyapp"
+	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
+	"github.com/ymsaki/githive/internal/core/idgen"
+	"github.com/ymsaki/githive/internal/core/materialize"
 )
 
 func requireGit(t *testing.T) {
@@ -44,6 +51,80 @@ func cloneRepo(t *testing.T, origin, email string) string {
 		}
 	}
 	return dir
+}
+
+// appendNotifyShardEvent appends a notify.post event directly onto shardRef
+// (a refs/projects/notify/<yyyy-mm> monthly shard, D8), bypassing
+// notifyapp.Service, which stays hard-coded to the stream ref
+// (notifyapp.go「シャード読み手の集約は移行時に実装」). It uses
+// entitychain.Writer directly, the same primitive notifyapp.Service uses
+// internally, to build a chain that exercises syncapp's feature-generic
+// fetch/merge/push path ahead of the reader-side migration.
+func appendNotifyShardEvent(t *testing.T, dir, shardRef, title string) {
+	t.Helper()
+	w := &entitychain.Writer{
+		Dir:       dir,
+		RefFor:    func(string) plumbing.ReferenceName { return plumbing.ReferenceName(shardRef) },
+		Registry:  materialize.NotifyRegistry,
+		TreeFiles: notifyapp.TreeFiles,
+	}
+	_, err := w.Append(context.Background(), "", func() (*event.Envelope, string) {
+		eid, ts := idgen.NewWithTimestamp()
+		return &event.Envelope{
+			V: event.SchemaVersion, Kind: "notify.post", ID: eid, TS: ts,
+			Entity: eid,
+			Data:   map[string]any{"targets": []any{"all"}, "title": title},
+			Extra:  map[string]any{},
+		}, "notify.post: " + title
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSyncRoundTripsNotifyMonthlyShard is D8's sync goal: a hand-built
+// refs/projects/notify/2026-07 chain must sync exactly like an ordinary
+// notify chain - refspace.Parse now resolves it to Feature notify, which is
+// all syncOne needs to route it through the normal fetch/merge/push path
+// (syncapp.go never special-cases singleton vs. shard refs; it only
+// switches on Feature).
+func TestSyncRoundTripsNotifyMonthlyShard(t *testing.T) {
+	requireGit(t)
+	origin := initBareOrigin(t)
+	dirA := cloneRepo(t, origin, "a@example.com")
+	dirB := cloneRepo(t, origin, "b@example.com")
+	ctx := context.Background()
+	shardRef := "refs/projects/notify/2026-07"
+
+	appendNotifyShardEvent(t, dirA, shardRef, "shard notice")
+
+	resA, err := Sync(ctx, dirA, "origin", []string{shardRef}, 5)
+	if err != nil {
+		t.Fatalf("A sync: %v", err)
+	}
+	if resA[0].Action != ActionFastForwardOut {
+		t.Errorf("expected A's push of a new shard ref to be a fast-forward, got %s", resA[0].Action)
+	}
+
+	resB, err := Sync(ctx, dirB, "origin", []string{shardRef}, 5)
+	if err != nil {
+		t.Fatalf("B sync: %v", err)
+	}
+	if resB[0].Action != ActionFastForwardIn {
+		t.Errorf("expected B to fast-forward in the shard ref, got %s", resB[0].Action)
+	}
+
+	oidA, err := gitx.New(dirA).RevParse(ctx, shardRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oidB, err := gitx.New(dirB).RevParse(ctx, shardRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oidA == "" || oidA != oidB {
+		t.Errorf("expected A and B to converge on the shard ref, got A=%q B=%q", oidA, oidB)
+	}
 }
 
 // TestSyncConvergesConcurrentUpdates mirrors docs/14-testing.md 標準シナリオ1

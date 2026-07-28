@@ -21,6 +21,15 @@ var ErrRetriesExhausted = entitychain.ErrRetriesExhausted
 
 // StreamRef is the notify feature's single ref
 // (docs/02-data-model.md「ref 名前空間」).
+//
+// Monthly shard refs (refs/projects/notify/<yyyy-mm>) are now recognized by
+// refspace.Parse and are processed by sync/fsck/verify as ordinary notify
+// chains, ahead of the actual sharding migration (D8,
+// docs/features/notify.md「シャーディング（将来）」). This Service is
+// intentionally still hard-coded to StreamRef, though: reading and writing
+// across stream + shards - i.e. the reader-side aggregation and the
+// meta/config-driven write-target switch - is deferred to that migration,
+// not implemented here.
 const StreamRef = "refs/projects/notify/stream"
 
 // Post is one folded notification.
