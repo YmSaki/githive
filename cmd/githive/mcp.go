@@ -1009,11 +1009,12 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			if remote == "" {
 				remote = "origin"
 			}
-			refs, err := refsToSync(ctx, dir, remote, args.Kinds)
+			refs, err := syncapp.DiscoverRefs(ctx, dir, remote, args.Kinds)
 			if err != nil {
 				return nil, nil, err
 			}
-			results, err := syncapp.Sync(ctx, dir, remote, refs, syncapp.DefaultRetries)
+			// DiscoverRefs just fetched the namespace; Sync must not repeat it.
+			results, err := syncapp.Sync(ctx, dir, remote, refs, syncapp.RetriesFromConfig(ctx, dir), syncapp.SkipInitialFetch())
 			if err != nil {
 				return nil, nil, err
 			}
