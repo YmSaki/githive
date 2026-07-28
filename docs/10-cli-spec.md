@@ -81,7 +81,7 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 | 1 | 一般エラー。push が非 fast-forward 以外の理由で拒否された場合（pre-receive フック拒否、権限エラーなど）を含み、その場合は `error.code: "push_rejected"`、`retryable: false`（再試行しても成功しない。非 fast-forward の競合は 3 を参照） |
 | 2 | 使い方の誤り（引数、未知フラグ） |
 | 3 | 同期の競合再試行が尽きた（ローカルは保存済み、再実行可能） |
-| 4 | 検証失敗（署名不正、スキーマ違反の検出） |
+| 4 | 検証失敗（署名不正、スキーマ違反の検出）。`githive sync` が users 台帳に無関係な 2 つの信頼の根を見つけ、`githive.trust.root` の pin で決着できない場合を含み、その場合は `error.code: "trust_root_conflict"`、`error.data` に両側のルート OID と復旧手順（`recovery`）を入れる（[03](03-sync-and-concurrency.md)「共通祖先が無い場合」） |
 | 5 | 環境不備（git が古い、リポジトリでない、schema_version 非対応） |
 
 ## ID の入力解決
