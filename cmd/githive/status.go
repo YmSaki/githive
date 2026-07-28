@@ -75,12 +75,12 @@ func newStatusCmd() *cobra.Command {
 	}
 }
 
-// unpushedRefs compares each local ref among syncapp.SupportedFeatures
-// (issue/task/chat/notify/users) against its last-known remote tracking ref
+// unpushedRefs compares each local ref among syncapp.SupportedFeatures -
+// which now covers every feature including meta/config and wiki/main
+// (ADR-0017) - against its last-known remote tracking ref
 // (refs/githive-remote/*) without fetching, so this stays a fast,
 // network-free local summary (docs/01-architecture.md「読み取り（高速路と
-// 互換路）」). meta/config and wiki/main are not sync'd yet
-// (docs/13-roadmap.md P4) so they are excluded here too.
+// 互換路）」).
 func unpushedRefs(ctx context.Context, dir string) ([]string, error) {
 	r := gitx.New(dir)
 	entries, err := r.ForEachRef(ctx, "refs/projects/")
