@@ -57,7 +57,11 @@ func chatRefState(t *testing.T, dir, id string) string {
 		t.Fatal(err)
 	}
 	state := materialize.ChatRegistry.Fold(events)
-	sig, err := event.EncodeString(stateToMap(state))
+	stateMap, err := materialize.StateToMap(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := event.EncodeString(stateMap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,23 +316,21 @@ func TestCheckpointFoldTransparency(t *testing.T) {
 	}
 	stateWithout := materialize.ChatRegistry.Fold(base)
 
+	cpData, err := checkpointData(stateWithout, countNonCheckpoint(base), "deadbeef", maxEventID(base))
+	if err != nil {
+		t.Fatal(err)
+	}
 	cp := &event.Envelope{
 		V: 1, Kind: "chat.checkpoint", ID: "01j8xq4d3nbz9k7w2m5e8h1t62", TS: "2026-07-01T00:00:02.000Z",
 		Actor: "a@example.com", Entity: "01j8xq4d3nbz9k7w2m5e8h1t60",
-		Data:  checkpointData(stateWithout, countNonCheckpoint(base), "deadbeef"),
+		Data:  cpData,
 		Extra: map[string]any{},
 	}
 	withCP := append(append([]*event.Envelope(nil), base...), cp)
 	stateWith := materialize.ChatRegistry.Fold(withCP)
 
-	sigWithout, err := event.EncodeString(stateToMap(stateWithout))
-	if err != nil {
-		t.Fatal(err)
-	}
-	sigWith, err := event.EncodeString(stateToMap(stateWith))
-	if err != nil {
-		t.Fatal(err)
-	}
+	sigWithout := foldStateSignature(t, stateWithout)
+	sigWith := foldStateSignature(t, stateWith)
 	if sigWithout != sigWith {
 		t.Errorf("checkpoint changed fold result:\nwithout=%s\nwith   =%s", sigWithout, sigWith)
 	}
@@ -379,4 +381,19 @@ func TestShouldCompactThresholds(t *testing.T) {
 	if reason, due := shouldCompact(cpOnly, 1, time.Nanosecond, now); due {
 		t.Errorf("checkpoint with no following events: want not due, got (%q,%v)", reason, due)
 	}
+}
+
+// foldStateSignature renders a fold state (including Scratch) as canonical
+// JSON, for comparing two folds byte for byte.
+func foldStateSignature(t *testing.T, s *materialize.State) string {
+	t.Helper()
+	m, err := materialize.StateToMap(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := event.EncodeString(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sig
 }
