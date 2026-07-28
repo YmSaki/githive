@@ -11,7 +11,7 @@ func (s *Service) mutate(ctx context.Context, id, kind, summary string, data map
 	_, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
-			V: 1, Kind: kind, ID: eid, TS: ts,
+			V: event.SchemaVersion, Kind: kind, ID: eid, TS: ts,
 			Entity: id, Data: data, Extra: map[string]any{},
 		}, summary
 	})
@@ -29,7 +29,7 @@ func (s *Service) Status(ctx context.Context, id, to, note string) (ok bool, err
 	state, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
-			V: 1, Kind: "task.status", ID: eid, TS: ts,
+			V: event.SchemaVersion, Kind: "task.status", ID: eid, TS: ts,
 			Entity: id, Data: data, Extra: map[string]any{},
 		}, "task.status: -> " + to
 	})

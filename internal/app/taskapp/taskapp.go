@@ -93,7 +93,7 @@ func (s *Service) NewTask(ctx context.Context, title, body, owner, due, priority
 	_, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
-			V: 1, Kind: "task.create", ID: eid, TS: ts,
+			V: event.SchemaVersion, Kind: "task.create", ID: eid, TS: ts,
 			Entity: id, Data: data, Extra: map[string]any{},
 		}, "task.create: " + title
 	})

@@ -91,7 +91,7 @@ func (s *Service) maybeCheckpoint(ctx context.Context, repo *git.Repository, ref
 		}
 		kind := string(parsed.Feature) + ".checkpoint"
 		return &event.Envelope{
-			V:      1,
+			V:      event.SchemaVersion,
 			Kind:   kind,
 			ID:     eid,
 			TS:     ts,

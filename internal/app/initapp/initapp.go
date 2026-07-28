@@ -106,7 +106,7 @@ func ensureMetaConfig(ctx context.Context, dir, project string) (bool, error) {
 		"created_at":     ts,
 	}
 	env := &event.Envelope{
-		V: 1, Kind: "meta.init", ID: eventID, TS: ts,
+		V: event.SchemaVersion, Kind: "meta.init", ID: eventID, TS: ts,
 		Actor: sig.Email, Entity: entityID, Data: data, Extra: map[string]any{},
 	}
 

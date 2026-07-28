@@ -84,7 +84,7 @@ func (s *Service) NewThread(ctx context.Context, title, body string) (string, er
 	_, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
-			V: 1, Kind: "chat.create", ID: eid, TS: ts,
+			V: event.SchemaVersion, Kind: "chat.create", ID: eid, TS: ts,
 			Entity: id, Data: data, Extra: map[string]any{},
 		}, "chat.create: " + title
 	})
@@ -98,7 +98,7 @@ func (s *Service) mutate(ctx context.Context, id, kind, summary string, data map
 	_, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
-			V: 1, Kind: kind, ID: eid, TS: ts,
+			V: event.SchemaVersion, Kind: kind, ID: eid, TS: ts,
 			Entity: id, Data: data, Extra: map[string]any{},
 		}, summary
 	})

@@ -68,7 +68,7 @@ func (s *Service) mutate(ctx context.Context, kind, summary string, data map[str
 	_, err := s.writer.Append(ctx, "", func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
-			V: 1, Kind: kind, ID: eid, TS: ts,
+			V: event.SchemaVersion, Kind: kind, ID: eid, TS: ts,
 			Entity: eid, Data: data, Extra: map[string]any{},
 		}, summary
 	})

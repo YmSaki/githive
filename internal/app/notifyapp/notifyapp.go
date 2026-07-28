@@ -73,7 +73,7 @@ func (s *Service) Post(ctx context.Context, targets []string, title, body string
 		eid, ts := idgen.NewWithTimestamp()
 		newID = eid
 		return &event.Envelope{
-			V: 1, Kind: "notify.post", ID: eid, TS: ts,
+			V: event.SchemaVersion, Kind: "notify.post", ID: eid, TS: ts,
 			Entity: eid, Data: data, Extra: map[string]any{},
 		}, "notify.post: " + title
 	})
@@ -91,7 +91,7 @@ func (s *Service) Ack(ctx context.Context, ackOf []string) error {
 		_, err := s.writer.Append(ctx, "", func() (*event.Envelope, string) {
 			eid, ts := idgen.NewWithTimestamp()
 			return &event.Envelope{
-				V: 1, Kind: "notify.ack", ID: eid, TS: ts,
+				V: event.SchemaVersion, Kind: "notify.ack", ID: eid, TS: ts,
 				Entity: eid, Data: map[string]any{"ack_of": targetID}, Extra: map[string]any{},
 			}, "notify.ack: " + targetID
 		})

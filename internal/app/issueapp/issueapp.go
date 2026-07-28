@@ -96,7 +96,7 @@ func (s *Service) NewIssue(ctx context.Context, title, body string, labels, assi
 	_, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
-			V: 1, Kind: "issue.create", ID: eid, TS: ts,
+			V: event.SchemaVersion, Kind: "issue.create", ID: eid, TS: ts,
 			Entity: id, Data: data, Extra: map[string]any{},
 		}, "issue.create: " + title
 	})
