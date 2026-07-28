@@ -41,8 +41,8 @@ func TestEnvelopeVectorsValidate(t *testing.T) {
 					t.Errorf("%s: event[%d]: %v", entry.Name(), i, err)
 					continue
 				}
-				if env.V != SchemaVersion {
-					t.Errorf("%s: event[%d]: unexpected v=%d", entry.Name(), i, env.V)
+				if env.V < MinSchemaVersion || env.V > SchemaVersion {
+					t.Errorf("%s: event[%d]: v=%d outside the accepted range %d-%d", entry.Name(), i, env.V, MinSchemaVersion, SchemaVersion)
 				}
 			}
 		}
@@ -66,7 +66,8 @@ func TestValidateRejectsBadEnvelopes(t *testing.T) {
 		name   string
 		mutate func(*Envelope)
 	}{
-		{"bad version", func(e *Envelope) { e.V = 2 }},
+		{"future version", func(e *Envelope) { e.V = SchemaVersion + 1 }},
+		{"zero version", func(e *Envelope) { e.V = 0 }},
 		{"bad kind", func(e *Envelope) { e.Kind = "IssueCreate" }},
 		{"bad id", func(e *Envelope) { e.ID = "not-a-ulid" }},
 		{"bad ts", func(e *Envelope) { e.TS = "2026-07-04" }},

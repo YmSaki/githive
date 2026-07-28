@@ -6,8 +6,8 @@
   "type": "object",
   "properties": {
     "v": {
-      "description": "封筒スキーマのバージョン。現在は 1 のみ。",
-      "const": 1
+      "description": "封筒スキーマのバージョン。書き手は常に最新（現在は 2）を書き、読み手は既知の古いバージョンも受理する。未知（より新しい）バージョンは拒否する（docs/01-architecture.md「バージョニングと互換性」、ADR-0015）。",
+      "enum": [1, 2]
     },
     "kind": {
       "description": "<機能>.<動詞> 形式のイベント種別。",
