@@ -32,3 +32,34 @@ func TestMcpChatEditMeta(t *testing.T) {
 		t.Fatalf("chat_show after edit_meta: unexpected meta %+v", meta)
 	}
 }
+
+// TestMcpNotifyPostPriority covers item 3's MCP half: notify_post now takes
+// a priority field, validated the same way the CLI's --priority is.
+func TestMcpNotifyPostPriority(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+	session := newMcpTestSession(t, dir)
+
+	posted := callMcpTool(t, session, "notify_post", map[string]any{
+		"to": []any{"all"}, "title": "hi", "priority": "low",
+	})
+	if posted["id"] == "" || posted["id"] == nil {
+		t.Fatalf("notify_post: no id in %+v", posted)
+	}
+
+	all := callMcpTool(t, session, "notify_list", map[string]any{})
+	items, _ := all["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 notification, got %+v", all)
+	}
+	post, _ := items[0].(map[string]any)
+	if post["priority"] != "low" {
+		t.Fatalf("expected priority=low, got %+v", post)
+	}
+
+	callMcpToolExpectError(t, session, "notify_post", map[string]any{
+		"to": []any{"all"}, "title": "bad", "priority": "urgent",
+	})
+}

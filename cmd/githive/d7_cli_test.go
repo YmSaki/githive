@@ -74,3 +74,57 @@ func TestCLIChatEditMeta(t *testing.T) {
 		t.Errorf("edit-meta with no flags should leave title/status unchanged, got %+v", shown.Data.Meta)
 	}
 }
+
+// TestCLINotifyPostPriority covers item 3: notify post now exposes
+// --priority, validated against low/normal/high, with an invalid value
+// exiting 2 (usage error, docs/10-cli-spec.md「終了コード」).
+func TestCLINotifyPostPriority(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+
+	res := runCLI(t, dir, "notify", "post", "--to", "all", "--title", "hi", "--priority", "high", "--no-sync", "--json")
+	if res.code != 0 {
+		t.Fatalf("notify post --priority high failed: code=%d stderr=%s", res.code, res.stderr)
+	}
+
+	res = runCLI(t, dir, "notify", "list", "--all", "--no-sync", "--json")
+	if res.code != 0 {
+		t.Fatalf("notify list failed: code=%d stderr=%s", res.code, res.stderr)
+	}
+	var listed struct {
+		Data struct {
+			Items []map[string]any `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &listed); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, res.stdout)
+	}
+	if len(listed.Data.Items) != 1 || listed.Data.Items[0]["priority"] != "high" {
+		t.Fatalf("expected exactly 1 notification with priority=high, got %+v", listed.Data.Items)
+	}
+
+	res = runCLI(t, dir, "notify", "post", "--to", "all", "--title", "bad", "--priority", "urgent", "--no-sync", "--json")
+	if res.code != 2 {
+		t.Fatalf("expected exit code 2 for an invalid --priority, got code=%d stdout=%s", res.code, res.stdout)
+	}
+	var failed struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &failed); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, res.stdout)
+	}
+	if failed.OK || failed.Error.Code != "invalid_priority" {
+		t.Errorf("unexpected failure envelope for invalid priority: %+v", failed)
+	}
+
+	// Omitting --priority entirely must still work (priority stays unset).
+	res = runCLI(t, dir, "notify", "post", "--to", "all", "--title", "no prio", "--no-sync", "--json")
+	if res.code != 0 {
+		t.Fatalf("notify post without --priority should still succeed: code=%d stderr=%s", res.code, res.stderr)
+	}
+}

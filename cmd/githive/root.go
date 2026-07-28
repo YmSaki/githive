@@ -192,6 +192,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		}
 	case errors.Is(err, usersapp.ErrInvalidName):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_name", Message: err.Error()}
+	case errors.Is(err, errInvalidNotifyPriority):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_priority", Message: err.Error()}
 	case errors.Is(err, logapp.ErrInvalidSince):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_since", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrNotFound), errors.Is(err, usersapp.ErrUserNotFound), errors.Is(err, usersapp.ErrGroupNotFound), errors.Is(err, wikiapp.ErrNotFound):

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,25 @@ import (
 	"github.com/ymsaki/githive/internal/core/identity"
 )
 
+// errInvalidNotifyPriority is returned when --priority (CLI) or priority
+// (MCP notify_post) is set to anything other than low/normal/high/empty
+// (docs/features/notify.md「notify.post の data」「priority」). Shared by the
+// CLI and the MCP server (mcp.go) via validateNotifyPriority so both reject
+// the same invalid values; root.go's classifyError maps it to exit code 2
+// (usage error, docs/10-cli-spec.md「終了コード」).
+var errInvalidNotifyPriority = errors.New("--priority must be one of low, normal, high")
+
+// validateNotifyPriority rejects any priority other than the three
+// documented values; empty means "not set" and is always valid.
+func validateNotifyPriority(priority string) error {
+	switch priority {
+	case "", "low", "normal", "high":
+		return nil
+	default:
+		return fmt.Errorf("%w: got %q", errInvalidNotifyPriority, priority)
+	}
+}
+
 func newNotifyCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "notify", Short: "Post and read notifications"}
 	cmd.AddCommand(newNotifyPostCmd(), newNotifyListCmd(), newNotifyAckCmd())
@@ -20,13 +40,16 @@ func newNotifyCmd() *cobra.Command {
 
 func newNotifyPostCmd() *cobra.Command {
 	var to []string
-	var title, message, source string
+	var title, message, source, priority string
 	cmd := &cobra.Command{
 		Use:   "post",
 		Short: "Post a notification",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := repoDir()
 			if err != nil {
+				return err
+			}
+			if err := validateNotifyPriority(priority); err != nil {
 				return err
 			}
 			var sourceMap map[string]any
@@ -43,7 +66,7 @@ func newNotifyPostCmd() *cobra.Command {
 				return err
 			}
 			svc := notifyapp.New(dir)
-			id, err := svc.Post(ctx, resolvedTo, title, message, sourceMap, "")
+			id, err := svc.Post(ctx, resolvedTo, title, message, sourceMap, priority)
 			if err != nil {
 				return err
 			}
@@ -61,6 +84,7 @@ func newNotifyPostCmd() *cobra.Command {
 	cmd.Flags().StringVar(&title, "title", "", "notification title (required)")
 	cmd.Flags().StringVarP(&message, "message", "m", "", "notification body")
 	cmd.Flags().StringVar(&source, "source", "", "source entity as kind:id (e.g. task:01j8...)")
+	cmd.Flags().StringVar(&priority, "priority", "", "priority: low/normal/high")
 	cmd.MarkFlagRequired("to")
 	cmd.MarkFlagRequired("title")
 	return cmd

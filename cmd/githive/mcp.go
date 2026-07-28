@@ -664,10 +664,11 @@ type notifySourceParams struct {
 }
 
 type notifyPostParams struct {
-	To      []string            `json:"to" jsonschema:"target(s): user:<username-or-email>, group:<name>, or all"`
-	Title   string              `json:"title" jsonschema:"notification title (required)"`
-	Message string              `json:"message,omitempty" jsonschema:"notification body"`
-	Source  *notifySourceParams `json:"source,omitempty" jsonschema:"source entity this notification references"`
+	To       []string            `json:"to" jsonschema:"target(s): user:<username-or-email>, group:<name>, or all"`
+	Title    string              `json:"title" jsonschema:"notification title (required)"`
+	Message  string              `json:"message,omitempty" jsonschema:"notification body"`
+	Source   *notifySourceParams `json:"source,omitempty" jsonschema:"source entity this notification references"`
+	Priority string              `json:"priority,omitempty" jsonschema:"priority: low/normal/high"`
 }
 
 type notifyListParams struct {
@@ -684,6 +685,9 @@ type notifyAckParams struct {
 func registerNotifyTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "notify_post", Description: "Post a notification"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args notifyPostParams) (*mcp.CallToolResult, map[string]any, error) {
+			if err := validateNotifyPriority(args.Priority); err != nil {
+				return nil, nil, err
+			}
 			resolvedTo, err := resolveNotifyTargets(ctx, dir, args.To)
 			if err != nil {
 				return nil, nil, err
@@ -692,7 +696,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 			if args.Source != nil {
 				source = map[string]any{"kind": args.Source.Kind, "id": args.Source.ID}
 			}
-			id, err := notifyapp.New(dir).Post(ctx, resolvedTo, args.Title, args.Message, source, "")
+			id, err := notifyapp.New(dir).Post(ctx, resolvedTo, args.Title, args.Message, source, args.Priority)
 			if err != nil {
 				return nil, nil, err
 			}
