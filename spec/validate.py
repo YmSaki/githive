@@ -121,6 +121,7 @@ def build_validators() -> tuple[Draft202012Validator, dict[str, Draft202012Valid
         "notify": "notify.schema.json",
         "users": "users.schema.json",
         "chat": "chat.schema.json",
+        "meta": "meta.schema.json",
     }
     kind_validators: dict[str, Draft202012Validator] = {}
     for feature, filename in feature_files.items():
@@ -142,11 +143,15 @@ def build_validators() -> tuple[Draft202012Validator, dict[str, Draft202012Valid
 
 def iter_all_events() -> list[tuple[str, dict]]:
     """vectors 配下の fold-issue / fold-task / fold-chat / fold-notify /
-    fold-users の events 配列から (vector_file, event) のペアを列挙する。
-    canonical/ordering ベクタはイベント封筒を持たないため対象外。
+    fold-users / meta-events の events 配列から (vector_file, event) のペアを
+    列挙する。canonical/ordering ベクタはイベント封筒を持たないため対象外。
+    meta-events/ は他の fold-* と違い fold 検証（run_fold_validation）の対象
+    にはならない（meta/config には reducer が無いため、docs/02-data-model.md
+    「meta.init イベント」）。ここでのみ、envelope + meta.schema.json による
+    スキーマ検証の対象として拾われる。
     """
     out = []
-    for sub in ("fold-issue", "fold-task", "fold-chat", "fold-notify", "fold-users"):
+    for sub in ("fold-issue", "fold-task", "fold-chat", "fold-notify", "fold-users", "meta-events"):
         d = VECTORS_DIR / sub
         for path in sorted(d.glob("*.json")):
             with open(path, encoding="utf-8") as f:

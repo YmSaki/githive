@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://githive.dev/spec/schemas/meta.schema.json",
+  "title": "meta.* イベントの data スキーマ群",
+  "description": "docs/02-data-model.md「meta/config ref」「meta.init イベント」に従う。refs/projects/meta/config は他機能と異なり fold（reducer）を持たない。githive init（internal/app/initapp）が ref 未作成のときに限り 1 回だけ meta.init イベントを発行し、config.json を直接書く。data は config.json の内容とバイト単位で同一。",
+  "$defs": {
+    "meta.init": {
+      "type": "object",
+      "description": "refs/projects/meta/config の初期化。チェーンの最初（かつ現行実装では唯一）のイベント。fold には使われない監査記録であり、config.json はこの data をそのまま canonical JSON で書いたもの。",
+      "properties": {
+        "schema_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "config.json の schema_version。イベント封筒の v とは別物（docs/02-data-model.md「meta/config ref」）。現行の書き手は常に 1（internal/app/initapp.SchemaVersion）。"
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "githive init に渡されたプロジェクト名。"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "有効機能一覧。現行のデフォルト（internal/app/initapp.DefaultFeatures）は [\"issue\", \"task\", \"notify\", \"users\", \"chat\", \"wiki\"]。"
+        },
+        "created_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$",
+          "description": "init 実行時刻。RFC3339、UTC、ミリ秒精度（イベント封筒の ts と同値）。"
+        }
+      },
+      "required": [
+        "schema_version",
+        "project",
+        "features",
+        "created_at"
+      ],
+      "additionalProperties": true
+    }
+  }
+}
