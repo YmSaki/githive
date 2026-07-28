@@ -110,6 +110,16 @@ wiki だけは通常の git ブランチと同じ運用（自由なツリー編�
 
 コミットメッセージ内のイベント JSON も同じ正規形で書く。
 
+**唯一の例外**：notify の `events/<yyyy-mm>.jsonl`（[features/notify.md](features/notify.md)「ref とツリー」、1 行 1 レコード）だけは圧縮形を使う（`event.EncodeCompactLine` / `spec/reference/canonical_json.py` の `encode_compact_line`）。grep 等で 1 レコード 1 行を保証するにはインデント形式が使えないための例外であり、キーソート・数値の最短表現・文字列エスケープの規則は上記と完全に共通で、レイアウトだけが異なる。
+
+- インデント・改行を持たず、1 値（1 レコード）を 1 行で表す。
+- オブジェクトの `key: value` 区切りはインデント形式と同じ `": "`（コロン+スペース）。
+- オブジェクト/配列の要素区切りは `,\n` ではなく `", "`（カンマ+スペース）。
+- 空オブジェクト/空配列はインデント形式と同じ `{}`/`[]`。
+- `EncodeCompactLine` 自体は末尾に改行を付けない。jsonl の 1 行としての改行は呼び出し側（notify の `events/<month>.jsonl` 生成、`internal/app/notifyapp/tree.go`）がレコードごとに付与する。
+
+この圧縮形は決定性のために既にツリーの byte を決めており、今から変更すると互換性が壊れるため、以後もこの形式を維持する。
+
 ## ID：ULID
 
 エンティティ ID とイベント ID には **ULID** を使う（[ADR-0005](adr/0005-ulid-entity-ids.md)）。
