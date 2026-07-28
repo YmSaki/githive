@@ -9,7 +9,7 @@ githive は 4 層構成である（[docs/01-architecture.md](../../docs/01-archi
 ```
 クライアント層  cmd/githive, internal/tui, internal/mcpserv, clients/vscode
 アプリケーション層  internal/app/*（issueapp, taskapp, notifyapp, chatapp, usersapp, wikiapp, syncapp）
-コア層  internal/core/*（event, chain, materialize, merge, refspace, sign, registry, gitx, identity, idgen）
+コア層  internal/core/*（event, chain, materialize, merge, refspace, sign, wikifs, gitx, identity, idgen）
 git 層  go-git（ローカル）+ system git（通信、internal/core/gitx 経由）
 ```
 
