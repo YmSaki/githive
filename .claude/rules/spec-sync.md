@@ -13,16 +13,10 @@ paths: ["internal/core/materialize/**", "spec/**"]
 1. `spec/reference/fold_<kind>.py` — 既存の `spec/reference/fold_issue.py` / `fold_task.py` に倣った Python リファレンス実装。`events_common.sort_events` で ID 順ソートしてから畳み込み、checkpoint kind は常に無視する。
 2. `spec/vectors/fold-<kind>/*.json` — ゴールデンベクタ。命名規則は `01-basic-*.json` のように連番 + 説明的な名前。シャッフル不変性を確認するケース（`03-shuffled-input-same-result.json` 相当）を必ず含める。
 3. `spec/validate.py` への配線 — `iter_all_events()` の対象ディレクトリ一覧、`run_fold_validation()` の `_run_fold_dir` 呼び出しに新 kind を追加する。
-4. `internal/core/materialize` の Go golden テスト — `materialize_test.go` の `runFoldVectorDir` ヘルパー（単一コレクションの feature ならそのまま呼べる）または個別テストで `spec/vectors/fold-<kind>/` を読み込み、Go の Registry.Fold 結果と突き合わせる。
+4. `internal/core/materialize` の Go golden テスト — `materialize_test.go` の `runFoldVectorDir` ヘルパー（単一コレクションの feature ならそのまま呼べる。issue/task/chat/notify はこれで足りる）または個別テストで `spec/vectors/fold-<kind>/` を読み込み、Go の Registry.Fold 結果と突き合わせる。単一の meta を持たず複数コレクションを持つ feature（users の `users`/`groups`/`policy` 等、[[determinism]] 参照）は `runFoldVectorDir` を素朴に流用できないため、専用の比較テストを書く（`TestFoldUsersVectors` を参照）。
 
 新 kind 追加の定型手順は `/add-fold-vector` スキルに手順化してある。
 
-## 既知の負債：chat / notify / users の spec ベクタが欠落している
-
-現状、`internal/core/materialize/chat.go`・`notify.go`・`users.go` には reducer と Go テスト（`chat_test.go`、`notify_test.go`、`users_test.go`）が存在するが、対応する `spec/reference/fold_chat.py`・`fold_notify.py`・`fold_users.py`、`spec/vectors/fold-chat/`・`fold-notify/`・`fold-users/`、および `spec/validate.py` への配線が **存在しない**。
-
-`spec/validate.py` は現在 `fold-issue` と `fold-task` しか走査しないため（`spec/validate.py` の `iter_all_events()` / `run_fold_validation()`）、chat/notify/users の fold 規則は言語中立スペックとして未検証のまま Go 実装だけが正になっている。CLAUDE.md の不変条件（決定的実体化）は Go テストでは守られているが、「spec/ が言語中立の実行可能スペックである」という前提を満たしていない。この 3 kind に手を入れる、または手が空いたタイミングで `/add-fold-vector` を使って埋めること。
-
-なお users は `users`/`groups` の 2 コレクションを持つため、`runFoldVectorDir` を素朴に流用できない（[[determinism]] 参照）。両コレクションを比較する専用の golden テストが必要になる。
+現状 issue・task・chat・notify・users の 5 feature すべてに `spec/reference/fold_<kind>.py`・`spec/vectors/fold-<kind>/`・`spec/validate.py` への配線・Go golden テストが揃っている。`internal/core/materialize` に新しい reducer を追加するときも、同一コミット群で上記 4 点を揃えること。
 
 参照：[docs/02-data-model.md](../../docs/02-data-model.md)、[spec/README.md](../../spec/README.md)。
