@@ -16,7 +16,10 @@ githive P0 の実行可能スペックを検証するスクリプト。
       再計算し、それぞれの expected_* と一致することを確認する。
       イベント順をシャッフルしても同一結果になることを 3 回試行で
       確認する。
-  (d) 結果を PASS/FAIL のサマリで stdout に出す。
+  (d) spec/vectors/ordering/*.json を spec/reference/events_common.py の
+      sort_events（の ID 抽出版）で再計算し、expected_sorted と
+      一致することを確認する。
+  (e) 結果を PASS/FAIL のサマリで stdout に出す。
 
 終了コード: 全 PASS なら 0、1 件でも FAIL があれば 1。
 
@@ -50,6 +53,7 @@ import fold_issue
 import fold_notify
 import fold_task
 import fold_users
+from events_common import sort_events
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +317,47 @@ def _run_fold_dir(results: Results, dir_path: Path, fold_fn, fields: list[tuple[
 
 
 # ---------------------------------------------------------------------------
+# (d) ordering ベクタ
+# ---------------------------------------------------------------------------
+
+def run_ordering_validation(results: Results) -> None:
+    """spec/vectors/ordering/*.json を events_common.sort_events で
+    再計算する。sort_events は封筒（dict の "id" キー）を前提にしているため、
+    生の ULID 文字列を {"id": s} に包んでソートし、ソート後に取り出す
+    （spec/README.md「vectors/ の内容」、ADR なしの単純な ULID 辞書順
+    ソートの検証）。
+    """
+    d = VECTORS_DIR / "ordering"
+    paths = sorted(d.glob("*.json"))
+    if not paths:
+        results.fail("ordering/no-vectors-found", "ordering vectors が見つからない")
+        return
+
+    for path in paths:
+        name = f"ordering[{path.name}]"
+        with open(path, encoding="utf-8") as f:
+            vector = json.load(f)
+
+        input_ids = vector["input"]
+        expected_sorted = vector["expected_sorted"]
+
+        wrapped = [{"id": s} for s in input_ids]
+        try:
+            actual = [e["id"] for e in sort_events(wrapped)]
+        except Exception as e:  # noqa: BLE001
+            results.fail(name, f"sort_events 中に例外: {e!r}")
+            continue
+
+        if actual != expected_sorted:
+            results.fail(
+                name,
+                f"不一致\n      expected: {expected_sorted!r}\n      actual:   {actual!r}",
+            )
+            continue
+        results.ok(name)
+
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
@@ -321,6 +366,7 @@ def main() -> int:
     run_schema_validation(results)
     run_canonical_validation(results)
     run_fold_validation(results)
+    run_ordering_validation(results)
     return results.print_summary()
 
 
