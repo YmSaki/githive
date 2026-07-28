@@ -9,6 +9,10 @@ githive P0 の実行可能スペックを検証するスクリプト。
       スキーマで検証する。
   (b) spec/vectors/canonical/*.json を spec/reference/canonical_json.py で
       再計算し、expected と完全一致することを確認する。
+  (b2) spec/vectors/canonical-compact/*.json を
+      spec/reference/canonical_json.py の encode_compact_line で再計算し、
+      expected と完全一致することを確認する（docs/02-data-model.md
+      「canonical JSON」の唯一の例外: notify jsonl の圧縮形）。
   (c) spec/vectors/fold-issue/*.json, spec/vectors/fold-task/*.json,
       spec/vectors/fold-chat/*.json, spec/vectors/fold-notify/*.json,
       spec/vectors/fold-users/*.json を spec/reference/fold_issue.py,
@@ -212,6 +216,36 @@ def run_canonical_validation(results: Results) -> None:
 
 
 # ---------------------------------------------------------------------------
+# (b2) canonical-compact ベクタ（圧縮形、notify jsonl 用の唯一の例外）
+# ---------------------------------------------------------------------------
+
+def run_canonical_compact_validation(results: Results) -> None:
+    d = VECTORS_DIR / "canonical-compact"
+    paths = sorted(d.glob("*.json"))
+    if not paths:
+        results.fail("canonical-compact/no-vectors-found", "canonical-compact vectors が見つからない")
+        return
+
+    for path in paths:
+        name = f"canonical-compact[{path.name}]"
+        with open(path, encoding="utf-8") as f:
+            vector = json.load(f)
+        try:
+            actual = cj.encode_compact_line(vector["input"])
+        except Exception as e:  # noqa: BLE001
+            results.fail(name, f"encode 中に例外: {e!r}")
+            continue
+        expected = vector["expected"]
+        if actual != expected:
+            results.fail(
+                name,
+                f"不一致\n      expected: {expected!r}\n      actual:   {actual!r}",
+            )
+            continue
+        results.ok(name)
+
+
+# ---------------------------------------------------------------------------
 # (c) fold ベクタ（issue / task / chat / notify / users）
 # ---------------------------------------------------------------------------
 
@@ -365,6 +399,7 @@ def main() -> int:
     results = Results()
     run_schema_validation(results)
     run_canonical_validation(results)
+    run_canonical_compact_validation(results)
     run_fold_validation(results)
     run_ordering_validation(results)
     return results.print_summary()

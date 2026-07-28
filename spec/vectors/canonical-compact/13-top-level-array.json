@@ -1,0 +1,4 @@
+{
+  "input": [1, "two", {"k": "v"}, [], null, true, false],
+  "expected": "[1, \"two\", {\"k\": \"v\"}, [], null, true, false]"
+}

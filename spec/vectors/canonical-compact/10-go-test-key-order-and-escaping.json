@@ -1,0 +1,13 @@
+{
+  "input": {
+    "zebra": "z",
+    "apple": "a",
+    "nested": {
+      "b": 2,
+      "a": 1
+    },
+    "list": ["x", "y"],
+    "quote": "say \"hi\"\nnewline"
+  },
+  "expected": "{\"apple\": \"a\", \"list\": [\"x\", \"y\"], \"nested\": {\"a\": 1, \"b\": 2}, \"quote\": \"say \\\"hi\\\"\\nnewline\", \"zebra\": \"z\"}"
+}

@@ -1,0 +1,21 @@
+{
+  "input": {
+    "a": {
+      "nested": true,
+      "n": null,
+      "list": [
+        1,
+        2,
+        {
+          "deep": "value"
+        }
+      ]
+    },
+    "z": [
+      1,
+      2,
+      3
+    ]
+  },
+  "expected": "{\"a\": {\"list\": [1, 2, {\"deep\": \"value\"}], \"n\": null, \"nested\": true}, \"z\": [1, 2, 3]}"
+}
