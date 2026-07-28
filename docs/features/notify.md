@@ -68,6 +68,13 @@ push 競合が問題になる規模では、書き込み先を `refs/projects/no
 - 書き手は meta/config の `notify_sharding: "monthly"` を見て書き込み先を選ぶ。
 - イベント形式は変わらないため、移行はデータ変換なしで行える。
 
+**現状（D8）**：`refspace.Parse`・`syncapp`・`fsckapp`・`verifyapp` はシャード ref
+（`refs/projects/notify/<yyyy-mm>`）に対応済みで、event-union マージ・署名検証・
+checkpoint は per-feature 共通機構のためパーサが通れば通常の notify チェーンと
+して扱われる。**未実装なのは読み手の集約（`notifyapp` は `notify/stream` 固定の
+まま）とローテーション（`notify_sharding` 設定に応じた書き込み先の切り替え）で
+あり、これは実際のシャーディング移行時に実装する。**
+
 ## CLI
 
 ```
