@@ -19,6 +19,11 @@ tree:（自由な markdown ツリー。例）
   _assets/            # 小さな画像等。バイナリは 1 MiB 上限（超えるものは LFS 対応まで不可）
 ```
 
+`_assets/` 配下のバイナリを `githive wiki show --json` で読むときは、`content` ではなく `content_base64` が返る。
+canonical JSON は UTF-8 であり（[02](../02-data-model.md)「canonical JSON」）、不正なバイト列は U+FFFD に置換されてしまうため、有効な UTF-8 でない内容は base64 で返し `content` を省略する。
+`content` が存在すれば必ず元のバイト列そのものであり、壊れた内容が `content` から読めることはない。
+生バイトが欲しい場合は `--json` を付けずに `githive wiki show <path>` を使う（標準出力にそのまま書き出す）。
+
 `Home.md` を入口ページの規約とする。
 
 ## 他機能との違い：イベントソーシングを使わない

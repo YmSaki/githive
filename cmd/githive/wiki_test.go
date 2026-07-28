@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -225,5 +226,75 @@ func TestCLIWikiEditRefusesWhileInProgress(t *testing.T) {
 	}
 	if !strings.Contains(string(out), firstEnv.Data.Worktree) {
 		t.Fatalf("first worktree should still be registered:\n%s", out)
+	}
+}
+
+// TestWikiShowJSONBinaryUsesBase64 covers issue #53 at the level the bug
+// lived: valid UTF-8 keeps the `content` key, and anything else moves to
+// `content_base64` with `content` absent, so a client can never read
+// U+FFFD-mangled bytes out of `content`.
+func TestWikiShowJSONBinaryUsesBase64(t *testing.T) {
+	t.Run("valid utf8", func(t *testing.T) {
+		out := wikiShowJSON("guide.md", []byte("日本語 text\n"))
+		if got := out["content"]; got != "日本語 text\n" {
+			t.Errorf("content = %q", got)
+		}
+		if _, ok := out["content_base64"]; ok {
+			t.Error("content_base64 should be absent for valid UTF-8")
+		}
+	})
+
+	t.Run("invalid utf8", func(t *testing.T) {
+		raw := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0xff, 0xfe}
+		out := wikiShowJSON("_assets/logo.png", raw)
+		if _, ok := out["content"]; ok {
+			t.Error("content should be omitted for non-UTF-8 bytes")
+		}
+		encoded, ok := out["content_base64"].(string)
+		if !ok {
+			t.Fatalf("content_base64 missing or not a string: %#v", out["content_base64"])
+		}
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(decoded) != string(raw) {
+			t.Errorf("round-trip lost bytes: %v -> %v", raw, decoded)
+		}
+	})
+}
+
+// TestCLIWikiShowBinaryJSON is the same guarantee end to end, through a real
+// wiki page holding bytes that are not valid UTF-8.
+func TestCLIWikiShowBinaryJSON(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+	raw := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe}
+	seedWiki(t, dir, "_assets/logo.png", string(raw), "add binary asset")
+
+	res := runCLI(t, dir, "wiki", "show", "_assets/logo.png", "--json")
+	if res.code != 0 {
+		t.Fatalf("wiki show failed: code=%d stderr=%s", res.code, res.stderr)
+	}
+	var shown struct {
+		Data struct {
+			Content       *string `json:"content"`
+			ContentBase64 string  `json:"content_base64"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &shown); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, res.stdout)
+	}
+	if shown.Data.Content != nil {
+		t.Errorf("content should be absent, got %q", *shown.Data.Content)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(shown.Data.ContentBase64)
+	if err != nil {
+		t.Fatalf("content_base64 is not valid base64: %v", err)
+	}
+	if string(decoded) != string(raw) {
+		t.Errorf("round-trip lost bytes:\n got %v\nwant %v", decoded, raw)
 	}
 }
