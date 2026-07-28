@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -164,5 +165,65 @@ func TestCLIWikiLogEmpty(t *testing.T) {
 	}
 	if env.Data.Total != 0 {
 		t.Errorf("expected empty log for no-wiki repo, got %s", res.stdout)
+	}
+}
+
+// TestCLIWikiEditRefusesWhileInProgress is the CLI-level regression test for
+// issue #57: `wiki edit` run twice without an intervening `wiki save` must
+// not silently leak the first worktree — the second invocation errors with
+// the wiki_worktree_exists code (exit 1) and names the first worktree.
+func TestCLIWikiEditRefusesWhileInProgress(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+
+	first := runCLI(t, dir, "wiki", "edit", "--json")
+	if first.code != 0 {
+		t.Fatalf("first wiki edit failed: code=%d stderr=%s", first.code, first.stderr)
+	}
+	var firstEnv struct {
+		Data struct {
+			Worktree string `json:"worktree"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(first.stdout), &firstEnv); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, first.stdout)
+	}
+	if firstEnv.Data.Worktree == "" {
+		t.Fatalf("expected a worktree path, got %s", first.stdout)
+	}
+
+	second := runCLI(t, dir, "wiki", "edit", "--json")
+	if second.code != 1 {
+		t.Fatalf("expected exit 1 (wiki_worktree_exists), got %d (stdout=%s stderr=%s)", second.code, second.stdout, second.stderr)
+	}
+	var errEnv struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(second.stdout), &errEnv); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, second.stdout)
+	}
+	if errEnv.OK || errEnv.Error.Code != "wiki_worktree_exists" {
+		t.Errorf("expected ok:false wiki_worktree_exists, got %s", second.stdout)
+	}
+	if !strings.Contains(errEnv.Error.Message, firstEnv.Data.Worktree) {
+		t.Errorf("expected error message to name the existing worktree %q, got %q", firstEnv.Data.Worktree, errEnv.Error.Message)
+	}
+
+	// The first worktree is untouched: still on disk and still registered.
+	if _, statErr := os.Stat(firstEnv.Data.Worktree); statErr != nil {
+		t.Fatalf("first worktree should still exist: %v", statErr)
+	}
+	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("worktree list: %v", err)
+	}
+	if !strings.Contains(string(out), firstEnv.Data.Worktree) {
+		t.Fatalf("first worktree should still be registered:\n%s", out)
 	}
 }

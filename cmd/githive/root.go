@@ -211,6 +211,11 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_conflict", Message: err.Error(), Retryable: true, Data: map[string]any{"paths": toAnySlice(wikiConflict.Paths)}}
 	case errors.Is(err, wikiapp.ErrPushRaceExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_push_race", Message: err.Error(), Retryable: true}
+	case errors.Is(err, wikiapp.ErrWorktreeExists):
+		// A prior `wiki edit` is still outstanding (issue #57): the fix is to
+		// `wiki save` or explicitly discard it, not to retry, so
+		// Retryable defaults to false.
+		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "wiki_worktree_exists", Message: err.Error()}
 	default:
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "error", Message: err.Error()}
 	}

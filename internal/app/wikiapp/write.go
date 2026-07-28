@@ -68,6 +68,13 @@ var (
 	// ErrNothingToSave means the worktree has no changes to commit. Maps to
 	// exit 1.
 	ErrNothingToSave = errors.New("wikiapp: no changes to save")
+
+	// ErrWorktreeExists means Edit found a wiki edit worktree already
+	// recorded in worktreeConfigKey and still present on disk. Edit refuses
+	// to create a second worktree and silently orphan the first (issue #57):
+	// the human must run `githive wiki save` on the existing edit, or
+	// explicitly discard it, before starting a new one. Maps to exit 1.
+	ErrWorktreeExists = errors.New("wikiapp: a wiki edit is already in progress")
 )
 
 // SaveResult is the outcome of a successful Save.
@@ -82,6 +89,15 @@ type SaveResult struct {
 // the wiki is a plain git tree, this never constructs an event, fold, or
 // entitychain and never enters internal/core/materialize.
 //
+// If worktreeConfigKey already records a worktree from a previous Edit that
+// was never Saved, and that worktree still exists on disk, Edit refuses with
+// *ErrWorktreeExists rather than creating a second worktree and silently
+// orphaning the first (issue #57): the human must `wiki save` or explicitly
+// discard the existing one first. If the recorded worktree no longer exists
+// (removed by hand outside githive), that stale record cannot be honored
+// anyway, so Edit treats it as absent and proceeds — refusing here would
+// deadlock every future `wiki edit`.
+//
 // The keep flag documents intent; it does not change worktree lifetime. `wiki
 // edit` and `wiki save` are separate processes, so the worktree always persists
 // between them and Save removes it on success. With --keep the human keeps the
@@ -90,6 +106,26 @@ type SaveResult struct {
 // so a future inline-editor integration can auto-remove a non-kept worktree.
 func (s *Service) Edit(ctx context.Context, keep bool) (string, error) {
 	r := gitx.New(s.Dir)
+
+	existing, err := r.ConfigGet(ctx, worktreeConfigKey)
+	if err != nil {
+		return "", err
+	}
+	if existing != "" {
+		stillThere, err := worktreeDirExists(existing)
+		if err != nil {
+			return "", err
+		}
+		if stillThere {
+			return "", fmt.Errorf("%w: %s (run `githive wiki save` first, or discard it with `git -C %s worktree remove --force %s` and `git -C %s config --unset %s`)",
+				ErrWorktreeExists, existing, s.Dir, existing, s.Dir, worktreeConfigKey)
+		}
+		// existing was removed by hand (e.g. `rm -rf`, or a manual `git
+		// worktree remove`) without going through `wiki save`; the recorded
+		// path is stale, so fall through and record a fresh worktree instead
+		// of deadlocking every future Edit on a path that no longer exists.
+	}
+
 	dir, err := r.WorktreeAdd(ctx, refspace.WikiMainRef)
 	if err != nil {
 		return "", err
@@ -99,6 +135,23 @@ func (s *Service) Edit(ctx context.Context, keep bool) (string, error) {
 		return "", err
 	}
 	return dir, nil
+}
+
+// worktreeDirExists reports whether dir — a worktree path previously recorded
+// in worktreeConfigKey — still exists on disk. Only a literal "does not
+// exist" is treated as gone; any other stat failure (permission denied, ...)
+// is surfaced as a real error rather than guessed at, consistent with how
+// gitx treats unrecognized failures as permanent rather than silently
+// papering over them.
+func worktreeDirExists(dir string) (bool, error) {
+	_, err := os.Stat(dir)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 // Save validates the recorded edit worktree, commits it, reconciles with the

@@ -46,6 +46,15 @@ githive wiki log [<path>]
 `githive wiki edit --keep` で worktree を残し、通常の git 操作（`git -C <worktree> ...`）で作業してもよい。
 競合したら `githive wiki save` が通常の git コンフリクトマーカーを提示し、解決後の再実行で完了する。
 
+`githive wiki edit` は編集中の worktree を1つだけ記録する（`githive.wiki.worktree` という git config キー）。
+前回の `wiki edit` を `wiki save` せずに再度 `wiki edit` を実行すると、記録済みの worktree がまだディスク上に存在する限り
+`ErrWorktreeExists`（`--json` では `error.code: "wiki_worktree_exists"`、終了コード 1）で拒否され、新しい worktree は作られない。
+前回の worktree を放置したまま2つ目を作って古い方を参照不能にする（worktree 登録とディスクの両方がリークする）ことを避けるためである。
+先に `githive wiki save` を実行するか、明示的に破棄する（`git -C <repo> worktree remove --force <worktree>` の後
+`git -C <repo> config --unset githive.wiki.worktree`）こと。
+なお、記録済みの worktree が（`wiki save` を経由せず）人手で既に削除されている場合は、この検出は行われず新規の
+worktree 作成に進む（そうしないと二度と `wiki edit` できなくなるため）。
+
 ## 素の git での読み書き
 
 ```

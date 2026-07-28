@@ -385,6 +385,110 @@ func TestSaveWithoutEdit(t *testing.T) {
 	}
 }
 
+// TestEditRefusesWhileWorktreeExists reproduces issue #57: re-running `wiki
+// edit` without an intervening `wiki save` must not silently orphan the first
+// worktree. The second Edit must fail with *ErrWorktreeExists naming the
+// existing worktree, and the first worktree must remain exactly as it was
+// (present on disk, still a registered git worktree, config still pointing at
+// it) rather than being replaced.
+func TestEditRefusesWhileWorktreeExists(t *testing.T) {
+	requireGit(t)
+	origin := initBare(t)
+	dir := newClone(t, origin)
+	s := New(dir)
+	r := gitx.New(dir)
+	ctx := context.Background()
+
+	wtA, err := s.Edit(ctx, false)
+	if err != nil {
+		t.Fatalf("first Edit: %v", err)
+	}
+
+	_, err = s.Edit(ctx, false)
+	if !errors.Is(err, ErrWorktreeExists) {
+		t.Fatalf("second Edit: want ErrWorktreeExists, got %v", err)
+	}
+	if !strings.Contains(err.Error(), wtA) {
+		t.Errorf("ErrWorktreeExists message should name the existing worktree %q: %v", wtA, err)
+	}
+
+	// The first worktree was not touched: still on disk, still registered,
+	// and the config still names it (no leak, no silent overwrite).
+	if _, statErr := os.Stat(wtA); statErr != nil {
+		t.Fatalf("first worktree should still exist: %v", statErr)
+	}
+	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("worktree list: %v", err)
+	}
+	if !strings.Contains(string(out), filepath.ToSlash(wtA)) && !strings.Contains(string(out), wtA) {
+		t.Fatalf("first worktree should still be registered:\n%s", out)
+	}
+	cfg, err := r.ConfigGet(ctx, worktreeConfigKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != wtA {
+		t.Fatalf("worktree config should still point at the first worktree: got %q, want %q", cfg, wtA)
+	}
+
+	// Saving the outstanding edit clears the way for a subsequent Edit.
+	writeWiki(t, wtA, "Home.md", "# home\n")
+	if _, err := s.Save(ctx, "add Home", "origin", false); err != nil {
+		t.Fatalf("Save after refused re-edit: %v", err)
+	}
+	wtB, err := s.Edit(ctx, false)
+	if err != nil {
+		t.Fatalf("Edit after Save should succeed: %v", err)
+	}
+	assertNoWorktree(t, dir, wtA)
+	if wtB == wtA {
+		t.Fatalf("expected a fresh worktree path, got the same %q", wtB)
+	}
+}
+
+// TestEditRecoversFromManuallyRemovedWorktree covers the documented escape
+// hatch: if the worktree recorded in githive.wiki.worktree was removed by
+// hand (outside `wiki save`), Edit must not deadlock forever refusing to
+// create a new one — it should treat the stale record as absent and proceed.
+func TestEditRecoversFromManuallyRemovedWorktree(t *testing.T) {
+	requireGit(t)
+	origin := initBare(t)
+	dir := newClone(t, origin)
+	s := New(dir)
+	r := gitx.New(dir)
+	ctx := context.Background()
+
+	wtA, err := s.Edit(ctx, false)
+	if err != nil {
+		t.Fatalf("first Edit: %v", err)
+	}
+
+	// Simulate the human discarding the worktree directly with plain git,
+	// bypassing `wiki save` entirely (the config still names it afterward).
+	if out, err := exec.Command("git", "-C", dir, "worktree", "remove", "--force", wtA).CombinedOutput(); err != nil {
+		t.Fatalf("git worktree remove: %v\n%s", err, out)
+	}
+	if cfg, _ := r.ConfigGet(ctx, worktreeConfigKey); cfg != wtA {
+		t.Fatalf("expected stale config to still name the removed worktree, got %q", cfg)
+	}
+
+	wtB, err := s.Edit(ctx, false)
+	if err != nil {
+		t.Fatalf("Edit should recover from a stale/removed worktree record, got: %v", err)
+	}
+	if wtB == wtA {
+		t.Fatalf("expected a fresh worktree path, got the removed one %q", wtB)
+	}
+	cfg, err := r.ConfigGet(ctx, worktreeConfigKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != wtB {
+		t.Fatalf("config should now point at the fresh worktree: got %q, want %q", cfg, wtB)
+	}
+}
+
 // TestWikiappNoEventSourcingImports proves structurally that the wiki write
 // path never enters internal/core/materialize (or the event-union / entitychain
 // machinery): wiki is the one feature that is not event-sourced.
