@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/identity"
@@ -178,18 +179,7 @@ func newTaskStatusCmd() *cobra.Command {
 			if !ok {
 				warnings = append(warnings, cliout.Warning{Code: "invalid_transition", Message: fmt.Sprintf("transition to %q was rejected", args[1])})
 			} else if args[1] == "done" {
-				// Notify the task's creator (docs/features/notify.md「自動通知」).
-				if show, showErr := svc.Show(ctx, id); showErr == nil {
-					createdBy, _ := show.Meta["created_by"].(string)
-					sig, sigErr := identity.Resolve(ctx, dir)
-					if createdBy != "" && (sigErr != nil || createdBy != sig.Email) {
-						for _, w := range autoNotify(ctx, dir, "user:"+createdBy,
-							fmt.Sprintf("task %s が done になりました", shortID(id)),
-							map[string]any{"kind": "task", "id": id}) {
-							warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})
-						}
-					}
-				}
+				warnings = append(warnings, notifyWarnings(notifyTaskDone(ctx, dir, svc, id))...)
 			}
 			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
 			if flags.json {
@@ -285,11 +275,8 @@ func newTaskReassignCmd() *cobra.Command {
 			if resolvedOwner != selfEmail && resolvedOwner != previousOwner {
 				// Don't notify yourself, and don't re-notify the owner
 				// this task already had (docs/features/notify.md「自動通知」).
-				for _, w := range autoNotify(ctx, dir, "user:"+resolvedOwner,
-					fmt.Sprintf("task %s の担当になりました", shortID(id)),
-					map[string]any{"kind": "task", "id": id}) {
-					warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})
-				}
+				warnings = append(warnings, notifyWarnings(
+					notifyapp.NotifyAssigned(ctx, dir, "task", id, selfEmail, resolvedOwner))...)
 			}
 			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
 			if flags.json {
@@ -303,4 +290,19 @@ func newTaskReassignCmd() *cobra.Command {
 	cmd.Flags().StringVar(&owner, "owner", "", "new owner (required)")
 	cmd.MarkFlagRequired("owner")
 	return cmd
+}
+
+// notifyTaskDone posts the "task is done" notification to whoever created it
+// (docs/features/notify.md「自動通知」). Shared by the CLI and the MCP server.
+func notifyTaskDone(ctx context.Context, dir string, svc *taskapp.Service, id string) []string {
+	show, err := svc.Show(ctx, id)
+	if err != nil {
+		return nil
+	}
+	createdBy, _ := show.Meta["created_by"].(string)
+	selfEmail := ""
+	if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
+		selfEmail = sig.Email
+	}
+	return notifyapp.NotifyDone(ctx, dir, "task", id, selfEmail, createdBy)
 }

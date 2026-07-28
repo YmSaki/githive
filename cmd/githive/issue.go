@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/identity"
 )
@@ -183,31 +184,9 @@ func newIssueCommentCmd() *cobra.Command {
 			if err := svc.Comment(ctx, id, message, replyTo, supersedes); err != nil {
 				return err
 			}
-			var warnStrings []string
-			if replyTo != "" {
-				// Notify the author being replied to, unless they are
-				// replying to themselves (docs/features/notify.md「自動通知」).
-				if show, showErr := svc.Show(ctx, id); showErr == nil {
-					selfEmail := ""
-					if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
-						selfEmail = sig.Email
-					}
-					for _, c := range show.Comments {
-						if c["id"] == replyTo {
-							if author, ok := c["author"].(string); ok && author != "" && author != selfEmail {
-								warnStrings = append(warnStrings, autoNotify(ctx, dir, "user:"+author,
-									fmt.Sprintf("issue %s にコメントが返信されました", shortID(id)),
-									map[string]any{"kind": "issue", "id": id})...)
-							}
-							break
-						}
-					}
-				}
-			}
+			warnStrings := notifyReplyTarget(ctx, dir, svc, id, replyTo)
 			warnings := syncIfEnabled(dir, issueRef(id))
-			for _, w := range warnStrings {
-				warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})
-			}
+			warnings = append(warnings, notifyWarnings(warnStrings)...)
 			if flags.json {
 				cliout.PrintSuccess(nil, warnings)
 				return nil
@@ -368,14 +347,11 @@ func newIssueAssignCmd() *cobra.Command {
 				selfEmail = sig.Email
 			}
 			for _, assignee := range resolvedAdd {
-				if assignee == selfEmail || alreadyAssigned[assignee] {
-					continue // don't notify yourself, or re-notify an existing assignee
+				if alreadyAssigned[assignee] {
+					continue // do not re-notify an existing assignee
 				}
-				for _, w := range autoNotify(ctx, dir, "user:"+assignee,
-					fmt.Sprintf("issue %s の担当になりました", shortID(id)),
-					map[string]any{"kind": "issue", "id": id}) {
-					warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})
-				}
+				warnings = append(warnings, notifyWarnings(
+					notifyapp.NotifyAssigned(ctx, dir, "issue", id, selfEmail, assignee))...)
 			}
 			warnings = append(warnings, syncIfEnabled(dir, issueRef(id))...)
 			if flags.json {
@@ -487,4 +463,30 @@ func asStringSliceAny(v any) []string {
 		}
 	}
 	return out
+}
+
+// notifyReplyTarget posts the reply notification for a comment on id, if the
+// comment being replied to exists and is not the actor's own
+// (docs/features/notify.md「自動通知」). Shared by the CLI and the MCP server
+// so both produce the same notification.
+func notifyReplyTarget(ctx context.Context, dir string, svc *issueapp.Service, id, replyTo string) []string {
+	if replyTo == "" {
+		return nil
+	}
+	show, err := svc.Show(ctx, id)
+	if err != nil {
+		return nil
+	}
+	selfEmail := ""
+	if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
+		selfEmail = sig.Email
+	}
+	for _, c := range show.Comments {
+		if c["id"] != replyTo {
+			continue
+		}
+		author, _ := c["author"].(string)
+		return notifyapp.NotifyReplied(ctx, dir, "issue", id, selfEmail, author)
+	}
+	return nil
 }

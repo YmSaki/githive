@@ -290,25 +290,7 @@ func registerIssueTools(server *mcp.Server, dir string) {
 			if err := svc.Comment(ctx, id, args.Message, args.ReplyTo, args.Supersedes); err != nil {
 				return nil, nil, err
 			}
-			var warnStrings []string
-			if args.ReplyTo != "" {
-				if show, showErr := svc.Show(ctx, id); showErr == nil {
-					selfEmail := ""
-					if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
-						selfEmail = sig.Email
-					}
-					for _, c := range show.Comments {
-						if c["id"] == args.ReplyTo {
-							if author, ok := c["author"].(string); ok && author != "" && author != selfEmail {
-								warnStrings = append(warnStrings, autoNotify(ctx, dir, "user:"+author,
-									fmt.Sprintf("issue %s にコメントが返信されました", shortID(id)),
-									map[string]any{"kind": "issue", "id": id})...)
-							}
-							break
-						}
-					}
-				}
-			}
+			warnStrings := notifyReplyTarget(ctx, dir, svc, id, args.ReplyTo)
 			return nil, withWarnings(nil, autoNotifyWarnings(warnStrings)), nil
 		})
 
@@ -386,12 +368,10 @@ func registerIssueTools(server *mcp.Server, dir string) {
 			}
 			var warnStrings []string
 			for _, assignee := range resolvedAdd {
-				if assignee == selfEmail || alreadyAssigned[assignee] {
+				if alreadyAssigned[assignee] {
 					continue
 				}
-				warnStrings = append(warnStrings, autoNotify(ctx, dir, "user:"+assignee,
-					fmt.Sprintf("issue %s の担当になりました", shortID(id)),
-					map[string]any{"kind": "issue", "id": id})...)
+				warnStrings = append(warnStrings, notifyapp.NotifyAssigned(ctx, dir, "issue", id, selfEmail, assignee)...)
 			}
 			return nil, withWarnings(nil, autoNotifyWarnings(warnStrings)), nil
 		})
@@ -517,16 +497,7 @@ func registerTaskTools(server *mcp.Server, dir string) {
 			}
 			var warnStrings []string
 			if ok && args.To == "done" {
-				// Notify the task's creator (docs/features/notify.md「自動通知」).
-				if show, showErr := svc.Show(ctx, id); showErr == nil {
-					createdBy, _ := show.Meta["created_by"].(string)
-					sig, sigErr := identity.Resolve(ctx, dir)
-					if createdBy != "" && (sigErr != nil || createdBy != sig.Email) {
-						warnStrings = append(warnStrings, autoNotify(ctx, dir, "user:"+createdBy,
-							fmt.Sprintf("task %s が done になりました", shortID(id)),
-							map[string]any{"kind": "task", "id": id})...)
-					}
-				}
+				warnStrings = notifyTaskDone(ctx, dir, svc, id)
 			}
 			return nil, withWarnings(map[string]any{"applied": ok}, autoNotifyWarnings(warnStrings)), nil
 		})
@@ -571,10 +542,8 @@ func registerTaskTools(server *mcp.Server, dir string) {
 				selfEmail = sig.Email
 			}
 			var warnStrings []string
-			if resolvedOwner != selfEmail && resolvedOwner != previousOwner {
-				warnStrings = append(warnStrings, autoNotify(ctx, dir, "user:"+resolvedOwner,
-					fmt.Sprintf("task %s の担当になりました", shortID(id)),
-					map[string]any{"kind": "task", "id": id})...)
+			if resolvedOwner != previousOwner {
+				warnStrings = notifyapp.NotifyAssigned(ctx, dir, "task", id, selfEmail, resolvedOwner)
 			}
 			return nil, withWarnings(nil, autoNotifyWarnings(warnStrings)), nil
 		})
@@ -657,7 +626,7 @@ func registerChatTools(server *mcp.Server, dir string) {
 			if err := svc.Post(ctx, id, args.Body, args.ReplyTo, args.Supersedes); err != nil {
 				return nil, nil, err
 			}
-			return nil, map[string]any{}, nil
+			return nil, withWarnings(nil, autoNotifyWarnings(notifyChatMentions(ctx, dir, id, args.Body))), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "chat_archive", Description: "Archive a chat thread"},
