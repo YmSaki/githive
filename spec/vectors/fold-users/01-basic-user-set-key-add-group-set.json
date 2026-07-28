@@ -1,0 +1,86 @@
+{
+  "name": "01-basic-user-set-key-add-group-set",
+  "description": "users.user_set（新規ユーザー、fields を初期値に上書き）→ users.key_add → users.group_set の基本系。users/groups の2コレクションを確認する。policy は一度も policy_set されていないので None。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "users.user_set",
+      "id": "00005d2vedf1xteqa1f6tne4rf",
+      "ts": "2026-07-04T00:00:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vedf1xteqa1f6tne4rf",
+      "data": {
+        "username": "yuumiya",
+        "fields": {
+          "display": "ゆうみや",
+          "kind": "human",
+          "emails": [
+            "staroprog1103@gmail.com"
+          ],
+          "roles": [
+            "admin"
+          ],
+          "status": "active"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.key_add",
+      "id": "00005d2vemqxqpsd1avntnrnqp",
+      "ts": "2026-07-04T00:01:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vemqxqpsd1avntnrnqp",
+      "data": {
+        "username": "yuumiya",
+        "pub": "ssh-ed25519 AAAAC3Nz yuumiya@main"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.group_set",
+      "id": "00005d2vevcth9sfm6w9tmzjem",
+      "ts": "2026-07-04T00:02:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vevcth9sfm6w9tmzjem",
+      "data": {
+        "name": "core",
+        "members": [
+          "yuumiya"
+        ],
+        "description": "コア開発"
+      }
+    }
+  ],
+  "expected_users": {
+    "yuumiya": {
+      "username": "yuumiya",
+      "kind": "human",
+      "status": "active",
+      "emails": [
+        "staroprog1103@gmail.com"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "display": "ゆうみや",
+      "keys": [
+        {
+          "pub": "ssh-ed25519 AAAAC3Nz yuumiya@main",
+          "added_at": "2026-07-04T00:01:00.000Z",
+          "revoked_at": null
+        }
+      ]
+    }
+  },
+  "expected_groups": {
+    "core": {
+      "name": "core",
+      "members": [
+        "yuumiya"
+      ],
+      "description": "コア開発"
+    }
+  },
+  "expected_policy": null
+}

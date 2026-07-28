@@ -10,11 +10,12 @@ githive P0 の実行可能スペックを検証するスクリプト。
   (b) spec/vectors/canonical/*.json を spec/reference/canonical_json.py で
       再計算し、expected と完全一致することを確認する。
   (c) spec/vectors/fold-issue/*.json, spec/vectors/fold-task/*.json,
-      spec/vectors/fold-chat/*.json, spec/vectors/fold-notify/*.json を
-      spec/reference/fold_issue.py, fold_task.py, fold_chat.py,
-      fold_notify.py で再計算し、それぞれの expected_* と一致することを
-      確認する。イベント順をシャッフルしても同一結果になることを 3 回
-      試行で確認する。
+      spec/vectors/fold-chat/*.json, spec/vectors/fold-notify/*.json,
+      spec/vectors/fold-users/*.json を spec/reference/fold_issue.py,
+      fold_task.py, fold_chat.py, fold_notify.py, fold_users.py で
+      再計算し、それぞれの expected_* と一致することを確認する。
+      イベント順をシャッフルしても同一結果になることを 3 回試行で
+      確認する。
   (d) 結果を PASS/FAIL のサマリで stdout に出す。
 
 終了コード: 全 PASS なら 0、1 件でも FAIL があれば 1。
@@ -48,6 +49,7 @@ import fold_chat
 import fold_issue
 import fold_notify
 import fold_task
+import fold_users
 
 
 # ---------------------------------------------------------------------------
@@ -131,12 +133,12 @@ def build_validators() -> tuple[Draft202012Validator, dict[str, Draft202012Valid
 # ---------------------------------------------------------------------------
 
 def iter_all_events() -> list[tuple[str, dict]]:
-    """vectors 配下の fold-issue / fold-task / fold-chat / fold-notify の
-    events 配列から (vector_file, event) のペアを列挙する。
+    """vectors 配下の fold-issue / fold-task / fold-chat / fold-notify /
+    fold-users の events 配列から (vector_file, event) のペアを列挙する。
     canonical/ordering ベクタはイベント封筒を持たないため対象外。
     """
     out = []
-    for sub in ("fold-issue", "fold-task", "fold-chat", "fold-notify"):
+    for sub in ("fold-issue", "fold-task", "fold-chat", "fold-notify", "fold-users"):
         d = VECTORS_DIR / sub
         for path in sorted(d.glob("*.json")):
             with open(path, encoding="utf-8") as f:
@@ -206,7 +208,7 @@ def run_canonical_validation(results: Results) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (c) fold ベクタ（issue / task / chat / notify）
+# (c) fold ベクタ（issue / task / chat / notify / users）
 # ---------------------------------------------------------------------------
 
 def run_fold_validation(results: Results) -> None:
@@ -233,6 +235,12 @@ def run_fold_validation(results: Results) -> None:
         VECTORS_DIR / "fold-notify",
         fold_notify.fold,
         [("meta", "expected_meta"), ("posts", "expected_posts"), ("acks", "expected_acks")],
+    )
+    _run_fold_dir(
+        results,
+        VECTORS_DIR / "fold-users",
+        fold_users.fold,
+        [("users", "expected_users"), ("groups", "expected_groups"), ("policy", "expected_policy")],
     )
 
 
