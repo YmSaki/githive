@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -165,4 +167,166 @@ func TestCLIWikiLogEmpty(t *testing.T) {
 	if env.Data.Total != 0 {
 		t.Errorf("expected empty log for no-wiki repo, got %s", res.stdout)
 	}
+}
+
+// TestCLIWikiEditRefusesWhileInProgress is the CLI-level regression test for
+// issue #57: `wiki edit` run twice without an intervening `wiki save` must
+// not silently leak the first worktree — the second invocation errors with
+// the wiki_worktree_exists code (exit 1) and names the first worktree.
+func TestCLIWikiEditRefusesWhileInProgress(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+
+	first := runCLI(t, dir, "wiki", "edit", "--json")
+	if first.code != 0 {
+		t.Fatalf("first wiki edit failed: code=%d stderr=%s", first.code, first.stderr)
+	}
+	var firstEnv struct {
+		Data struct {
+			Worktree string `json:"worktree"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(first.stdout), &firstEnv); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, first.stdout)
+	}
+	if firstEnv.Data.Worktree == "" {
+		t.Fatalf("expected a worktree path, got %s", first.stdout)
+	}
+
+	second := runCLI(t, dir, "wiki", "edit", "--json")
+	if second.code != 1 {
+		t.Fatalf("expected exit 1 (wiki_worktree_exists), got %d (stdout=%s stderr=%s)", second.code, second.stdout, second.stderr)
+	}
+	var errEnv struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(second.stdout), &errEnv); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, second.stdout)
+	}
+	if errEnv.OK || errEnv.Error.Code != "wiki_worktree_exists" {
+		t.Errorf("expected ok:false wiki_worktree_exists, got %s", second.stdout)
+	}
+	if !strings.Contains(errEnv.Error.Message, firstEnv.Data.Worktree) {
+		t.Errorf("expected error message to name the existing worktree %q, got %q", firstEnv.Data.Worktree, errEnv.Error.Message)
+	}
+
+	// The first worktree is untouched: still on disk and still registered.
+	if _, statErr := os.Stat(firstEnv.Data.Worktree); statErr != nil {
+		t.Fatalf("first worktree should still exist: %v", statErr)
+	}
+	if !worktreeIsRegistered(t, dir, firstEnv.Data.Worktree) {
+		t.Fatal("first worktree should still be registered")
+	}
+}
+
+// TestWikiShowJSONBinaryUsesBase64 covers issue #53 at the level the bug
+// lived: valid UTF-8 keeps the `content` key, and anything else moves to
+// `content_base64` with `content` absent, so a client can never read
+// U+FFFD-mangled bytes out of `content`.
+func TestWikiShowJSONBinaryUsesBase64(t *testing.T) {
+	t.Run("valid utf8", func(t *testing.T) {
+		out := wikiShowJSON("guide.md", []byte("日本語 text\n"))
+		if got := out["content"]; got != "日本語 text\n" {
+			t.Errorf("content = %q", got)
+		}
+		if _, ok := out["content_base64"]; ok {
+			t.Error("content_base64 should be absent for valid UTF-8")
+		}
+	})
+
+	t.Run("invalid utf8", func(t *testing.T) {
+		raw := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0xff, 0xfe}
+		out := wikiShowJSON("_assets/logo.png", raw)
+		if _, ok := out["content"]; ok {
+			t.Error("content should be omitted for non-UTF-8 bytes")
+		}
+		encoded, ok := out["content_base64"].(string)
+		if !ok {
+			t.Fatalf("content_base64 missing or not a string: %#v", out["content_base64"])
+		}
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(decoded) != string(raw) {
+			t.Errorf("round-trip lost bytes: %v -> %v", raw, decoded)
+		}
+	})
+}
+
+// TestCLIWikiShowBinaryJSON is the same guarantee end to end, through a real
+// wiki page holding bytes that are not valid UTF-8.
+func TestCLIWikiShowBinaryJSON(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+	raw := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe}
+	seedWiki(t, dir, "_assets/logo.png", string(raw), "add binary asset")
+
+	res := runCLI(t, dir, "wiki", "show", "_assets/logo.png", "--json")
+	if res.code != 0 {
+		t.Fatalf("wiki show failed: code=%d stderr=%s", res.code, res.stderr)
+	}
+	var shown struct {
+		Data struct {
+			Content       *string `json:"content"`
+			ContentBase64 string  `json:"content_base64"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(res.stdout), &shown); err != nil {
+		t.Fatalf("bad json: %v\n%s", err, res.stdout)
+	}
+	if shown.Data.Content != nil {
+		t.Errorf("content should be absent, got %q", *shown.Data.Content)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(shown.Data.ContentBase64)
+	if err != nil {
+		t.Fatalf("content_base64 is not valid base64: %v", err)
+	}
+	if string(decoded) != string(raw) {
+		t.Errorf("round-trip lost bytes:\n got %v\nwant %v", decoded, raw)
+	}
+}
+
+// worktreeKey reduces a worktree path to the part that is spelled the same
+// way by git and by Go. git prints the fully expanded path with forward
+// slashes, while os.MkdirTemp on Windows can hand back an 8.3 short name
+// ("RUNNER~1") with backslashes, so comparing full paths as substrings fails
+// there. The last two segments (githive-wiki-<random>/worktree) are unique
+// per test and unaffected by either difference.
+func worktreeKey(p string) string {
+	slashed := strings.TrimRight(filepath.ToSlash(p), "/")
+	parts := strings.Split(slashed, "/")
+	if len(parts) > 2 {
+		parts = parts[len(parts)-2:]
+	}
+	return strings.ToLower(strings.Join(parts, "/"))
+}
+
+// worktreeIsRegistered reports whether git still lists wt among dir's
+// worktrees.
+func worktreeIsRegistered(t *testing.T, dir, wt string) bool {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("worktree list: %v", err)
+	}
+	want := worktreeKey(wt)
+	for _, line := range strings.Split(string(out), "\n") {
+		path, ok := strings.CutPrefix(strings.TrimSpace(line), "worktree ")
+		if !ok {
+			continue
+		}
+		if worktreeKey(path) == want {
+			return true
+		}
+	}
+	return false
 }

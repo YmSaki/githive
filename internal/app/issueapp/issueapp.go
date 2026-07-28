@@ -3,7 +3,6 @@ package issueapp
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
@@ -24,17 +23,6 @@ var ErrNotFound = errors.New("issueapp: issue not found")
 // ErrRetriesExhausted means a local CAS write kept losing to concurrent
 // writers (docs/03-sync-and-concurrency.md「クラッシュ安全性とローカル競合」).
 var ErrRetriesExhausted = entitychain.ErrRetriesExhausted
-
-// AmbiguousIDError is returned when a short ID prefix matches more than one
-// issue (docs/10-cli-spec.md「ID の入力解決」).
-type AmbiguousIDError struct {
-	Prefix     string
-	Candidates []string
-}
-
-func (e *AmbiguousIDError) Error() string {
-	return fmt.Sprintf("issueapp: ambiguous id prefix %q matches %d issues", e.Prefix, len(e.Candidates))
-}
 
 // Meta is a convenience alias for the fold's meta.json-shaped map.
 type Meta = map[string]any
@@ -96,7 +84,7 @@ func (s *Service) NewIssue(ctx context.Context, title, body string, labels, assi
 	_, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
-			V: 1, Kind: "issue.create", ID: eid, TS: ts,
+			V: event.SchemaVersion, Kind: "issue.create", ID: eid, TS: ts,
 			Entity: id, Data: data, Extra: map[string]any{},
 		}, "issue.create: " + title
 	})

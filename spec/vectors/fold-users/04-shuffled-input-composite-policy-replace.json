@@ -1,0 +1,131 @@
+{
+  "name": "04-shuffled-input-composite-policy-replace",
+  "description": "user_set（既定値からの初期化 + 後続の部分 LWW）、key_add、group_set、そして users.policy_set の全置換（2回目が rules/default を丸ごと置き換え、1回目のルールは残らない）を組み合わせた複合シナリオ。events はあえて非時系列順で格納してある。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "users.user_set",
+      "id": "00005d2vp2j4r2x70yzk1r3kh5",
+      "ts": "2026-07-07T00:05:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vp2j4r2x70yzk1r3kh5",
+      "data": {
+        "username": "yuumiya",
+        "fields": {
+          "status": "suspended"
+        }
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.policy_set",
+      "id": "00005d2vnm7sgbjmf5pdx2ed6v",
+      "ts": "2026-07-07T00:03:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vnm7sgbjmf5pdx2ed6v",
+      "data": {
+        "rules": [
+          {
+            "refs": "refs/projects/**",
+            "allow": [
+              "role:member"
+            ],
+            "actions": [
+              "push"
+            ]
+          }
+        ],
+        "default": "deny"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.group_set",
+      "id": "00005d2vnd3e5f6qj5kxebdj8s",
+      "ts": "2026-07-07T00:02:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vnd3e5f6qj5kxebdj8s",
+      "data": {
+        "name": "core",
+        "members": [
+          "yuumiya"
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.user_set",
+      "id": "00005d2vmzjq164wzkxr5d01m2",
+      "ts": "2026-07-07T00:00:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vmzjq164wzkxr5d01m2",
+      "data": {
+        "username": "yuumiya",
+        "fields": {
+          "emails": [
+            "a@example.com"
+          ],
+          "roles": [
+            "admin"
+          ]
+        }
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.policy_set",
+      "id": "00005d2vnv018eattczpppb3f2",
+      "ts": "2026-07-07T00:04:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vnv018eattczpppb3f2",
+      "data": {
+        "rules": [],
+        "default": "allow"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "users.key_add",
+      "id": "00005d2vn6gwfe3qmd4gfxddqw",
+      "ts": "2026-07-07T00:01:00.000Z",
+      "actor": "admin@example.com",
+      "entity": "00005d2vn6gwfe3qmd4gfxddqw",
+      "data": {
+        "username": "yuumiya",
+        "pub": "ssh-ed25519 KEYA"
+      }
+    }
+  ],
+  "expected_users": {
+    "yuumiya": {
+      "username": "yuumiya",
+      "kind": "human",
+      "status": "suspended",
+      "emails": [
+        "a@example.com"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "keys": [
+        {
+          "pub": "ssh-ed25519 KEYA",
+          "added_at": "2026-07-07T00:01:00.000Z",
+          "revoked_at": null
+        }
+      ]
+    }
+  },
+  "expected_groups": {
+    "core": {
+      "name": "core",
+      "members": [
+        "yuumiya"
+      ]
+    }
+  },
+  "expected_policy": {
+    "rules": [],
+    "default": "allow"
+  }
+}

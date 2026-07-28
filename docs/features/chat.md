@@ -32,7 +32,7 @@ tree:
 }
 ```
 
-`participants` は投稿実績のある actor の集合で、fold が自動集計する。
+`participants` は投稿実績のある actor の集合で、fold が自動集計する。作成者（`created_by`）は投稿の有無に関わらず常に含まれる。
 
 ### messages/<event-id>.md
 
@@ -46,14 +46,15 @@ ULID ファイル名の辞書順が投稿順なので、`ls` の並びがその�
 | chat.create | title, body? | スレッド作成。body があれば最初のメッセージを兼ねる |
 | chat.post | body, reply_to? | messages に追記 |
 | chat.edit_meta | title?, status? | LWW 上書き。status は open / archived |
-| chat.checkpoint | state, count, hash | 読み出し起点 |
+| chat.checkpoint | state（meta/collections/scratch）, event_count, head, max_event_id | 読み出し起点（[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
 メッセージの編集・削除は issue のコメントと同じく `supersedes` 方式で表す。
 
 ## メンションと通知
 
-本文中の `@username` / `@group` をメンションとする。
-CLI は投稿時に本文を走査し、設定が有効なら（既定 true）メンション先を targets にした notify.post を併発する。
+本文中の `@username` / `@group` をメンションとする。名前の形式は users 台帳と同じ `^[a-z0-9][a-z0-9-]{1,38}$` であり、これに合わない `@...`（メールアドレスの一部を含む）はメンションとみなさない。
+投稿時に本文を走査し、`githive.notify.mentions`（既定 true）が有効なら、メンション先を targets にした notify.post を併発する。判定と文言は app 層の `internal/app/notifyapp.NotifyMentions` に 1 箇所だけ置き、CLI と MCP の両方がこれを呼ぶ。
+台帳に存在しない名前は「メンションではない」として黙って無視する。投稿者自身への通知は行わない。
 メンション解決は投稿時のスナップショットで行い、後からグループ構成が変わっても遡及しない。
 
 ## CLI
@@ -64,10 +65,10 @@ githive chat list [--status open] [--json]
 githive chat show <id> [--tail n] [--json]
 githive chat post <id> -m <body> [--reply-to event-id]
 githive chat archive <id>
+githive chat edit-meta <id> [--title t] [--status s]
 ```
 
-`githive chat show <id> --follow` は sync を定期実行して新着を表示する（ポーリング。リアルタイムではない）。
-ポーリング間隔の既定は 60 秒とする。hosted モードで間隔を詰めるとホスティングのレート制限・不正利用検知に当たるためで、forge モードでは `--interval` で短縮してよい。
+`githive chat show <id> --follow`（sync を定期実行して新着を表示するポーリング表示。リアルタイムではない）は**未実装**（P6 TUI と同時期に検討する）。
 
 ## 素の git での読み方
 

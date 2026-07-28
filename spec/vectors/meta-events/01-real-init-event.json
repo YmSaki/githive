@@ -1,0 +1,19 @@
+{
+  "_source": "docs/02-data-model.md「meta.init イベント」/ spec/README.md「meta-events/ の内容」。実際に `githive init`（internal/app/initapp）をビルドして空リポジトリで実行し、refs/projects/meta/config の唯一のコミットから `git log -1 --format=%B` でイベント JSON 本文を取り出したもの（entity/id の ULID・ts・actor はキャプチャ時のもので、値自体に意味はなくスキーマ形状の実例として固定化してある）。meta には fold reducer が無いため、このベクタは envelope + meta.schema.json によるスキーマ検証専用であり、fold の期待値は持たない。",
+  "events": [
+    {
+      "v": 2,
+      "kind": "meta.init",
+      "id": "01kym9zqhbzyvg1bywvxbphq4s",
+      "ts": "2026-07-28T12:07:57.227Z",
+      "actor": "demo@example.com",
+      "entity": "01kym9zqhbzyvg1bywvx9tg3fp",
+      "data": {
+        "schema_version": 1,
+        "project": "meta-init-demo",
+        "features": ["issue", "task", "notify", "users", "chat", "wiki"],
+        "created_at": "2026-07-28T12:07:57.227Z"
+      }
+    }
+  ]
+}

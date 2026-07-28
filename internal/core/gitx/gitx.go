@@ -31,6 +31,17 @@ const ZeroOID = "0000000000000000000000000000000000000000"
 var (
 	ErrNonFastForward = errors.New("gitx: non-fast-forward")
 	ErrRefCASMismatch = errors.New("gitx: ref update rejected (old value mismatch)")
+
+	// ErrNotFound means Show's ref or path does not exist, as distinct from
+	// any other git failure (corrupt object database, not a git repository,
+	// permission denied, ...). `git show <ref>:<path>` reports both cases as
+	// a plain exit status 128 fatal error with no distinguishing exit code,
+	// so the only signal available is git's (LC_ALL=C, via gitEnv)
+	// diagnostic text; see isShowNotFound for the exact patterns matched.
+	// Callers such as wikiapp.Show use errors.Is against this to decide
+	// whether to present a not-found result or propagate an unexpected git
+	// error unmasked.
+	ErrNotFound = errors.New("gitx: ref or path not found")
 )
 
 // Version is a parsed `git version` result.
@@ -65,8 +76,22 @@ func New(dir string) *Runner {
 	return &Runner{Dir: dir}
 }
 
+// gitEnv returns the current process environment with LC_ALL forced to "C",
+// so every git subprocess gitx starts prints its diagnostics in a
+// locale-independent form that gitx's error classifiers (isRefUpdateRetryable,
+// classifyPushRejection in syncapp) can pattern-match reliably regardless of
+// the operator's locale. It must prefix rather than append its own entry:
+// environment lookup returns the first match in the slice, so if the
+// inherited environment already sets LC_ALL (or LANG), ours must come first
+// to win - POSIX gives LC_ALL top precedence, but only once it is the value
+// git actually sees.
+func gitEnv() []string {
+	return append([]string{"LC_ALL=C"}, os.Environ()...)
+}
+
 func (r *Runner) run(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir}, args...)...)
+	cmd.Env = gitEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -81,6 +106,7 @@ func (r *Runner) run(ctx context.Context, args ...string) ([]byte, error) {
 // or unparsable.
 func CheckVersion(ctx context.Context) (Version, error) {
 	cmd := exec.CommandContext(ctx, "git", "version")
+	cmd.Env = gitEnv()
 	out, err := cmd.Output()
 	if err != nil {
 		return Version{}, fmt.Errorf("gitx: git version: %w", err)
@@ -163,10 +189,41 @@ func (r *Runner) RevParse(ctx context.Context, ref string) (string, error) {
 
 // Show returns the bytes of path at ref, equivalent to
 // `git show <ref>:<path>` (docs/features/wiki.md「素の git での読み書き」).
-// It errors if ref or path does not exist; read-only callers (wikiapp) map
-// that to a not-found result.
+// When ref or path does not exist, the returned error wraps ErrNotFound so
+// read-only callers (wikiapp) can map that specific case to a not-found
+// result. Any other git failure (corrupt object database, not a git
+// repository, permission denied, ...) is returned as-is, without
+// ErrNotFound, so callers do not mistake an unexpected git error for a
+// legitimate "page does not exist".
 func (r *Runner) Show(ctx context.Context, ref, path string) ([]byte, error) {
-	return r.run(ctx, "show", ref+":"+path)
+	out, err := r.run(ctx, "show", ref+":"+path)
+	if err != nil {
+		if isShowNotFound(err.Error()) {
+			return nil, fmt.Errorf("%w: %v", ErrNotFound, err)
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
+// isShowNotFound reports whether the combined diagnostic text of a failed
+// `git show <ref>:<path>` describes a missing ref or a missing path, as
+// opposed to any other git failure. Verified (see gitx_test.go) against
+// git's actual (LC_ALL=C) wording:
+//   - "invalid object name" - ref itself does not resolve to any object.
+//   - "does not exist in" - ref resolves, but path is not present in it.
+//   - "exists on disk, but not in" - path exists in the worktree/index but
+//     was never committed to ref (same "not found in ref" outcome for our
+//     purposes).
+//
+// Every other message (not a git repository, corrupt loose object, disk
+// full, permission denied, ...) deliberately does not match: per
+// docs/10-cli-spec.md an unrecognized failure must be treated as a real
+// error rather than silently folded into "not found".
+func isShowNotFound(output string) bool {
+	return strings.Contains(output, "invalid object name") ||
+		strings.Contains(output, "does not exist in") ||
+		strings.Contains(output, "exists on disk, but not in")
 }
 
 // LogEntry is one row of `git log` output.
@@ -220,6 +277,7 @@ func (r *Runner) Log(ctx context.Context, ref, path string) ([]LogEntry, error) 
 // (docs/03-sync-and-concurrency.md「sync のアルゴリズム」).
 func (r *Runner) IsAncestor(ctx context.Context, ancestor, descendant string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	cmd.Env = gitEnv()
 	err := cmd.Run()
 	if err == nil {
 		return true, nil
@@ -229,6 +287,33 @@ func (r *Runner) IsAncestor(ctx context.Context, ancestor, descendant string) (b
 		return false, nil
 	}
 	return false, fmt.Errorf("gitx: merge-base --is-ancestor: %w", err)
+}
+
+// ErrNoMergeBase means two commits share no common ancestor at all, i.e.
+// they are the tips of two unrelated histories. For users/registry that is
+// the "two trust roots" condition docs/03-sync-and-concurrency.md
+// 「共通祖先が無い場合」refuses to resolve automatically.
+var ErrNoMergeBase = errors.New("gitx: commits have no common ancestor")
+
+// MergeBase returns the best common ancestor of a and b
+// (`git merge-base a b`), or ErrNoMergeBase when there is none.
+func (r *Runner) MergeBase(ctx context.Context, a, b string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "merge-base", a, b)
+	cmd.Env = gitEnv()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		return strings.TrimSpace(stdout.String()), nil
+	}
+	// git exits 1 with no output when the histories are unrelated; any
+	// other exit code (or exit 1 with a message) is a real failure.
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && strings.TrimSpace(stderr.String()) == "" {
+		return "", ErrNoMergeBase
+	}
+	return "", fmt.Errorf("gitx: merge-base %s %s: %w: %s", a, b, err, strings.TrimSpace(stderr.String()))
 }
 
 // ConfigGet reads a git config value (`git config --get key`). It returns
@@ -301,6 +386,7 @@ func (r *Runner) VerifyCommit(ctx context.Context, commitHash, allowedSignersFil
 		"-c", "gpg.format=ssh",
 		"verify-commit", "--raw", commitHash,
 	)
+	cmd.Env = gitEnv()
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -317,22 +403,49 @@ func (r *Runner) VerifyCommit(ctx context.Context, commitHash, allowedSignersFil
 
 // UpdateRef performs a compare-and-swap ref update: it succeeds only if ref
 // currently points at oldOID (use ZeroOID for "must not exist yet").
-// (docs/03-sync-and-concurrency.md「クラッシュ安全性とローカル競合」).
+// (docs/03-sync-and-concurrency.md「クラッシュ安全性とローカル競合」). A
+// failure is only ever ErrRefCASMismatch when it looks like the CAS race
+// itself (see isRefUpdateRetryable); every other failure (bad ref name, disk
+// full, permission denied, ...) is returned as-is so callers such as
+// entitychain do not retry a permanent failure forever.
 func (r *Runner) UpdateRef(ctx context.Context, ref, newOID, oldOID string) error {
 	_, err := r.run(ctx, "update-ref", ref, newOID, oldOID)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrRefCASMismatch, err)
-	}
-	return nil
+	return wrapUpdateRefErr(err)
 }
 
-// DeleteRef removes ref, verifying it currently points at oldOID.
+// DeleteRef removes ref, verifying it currently points at oldOID. See
+// UpdateRef for the same CAS-vs-permanent-failure classification.
 func (r *Runner) DeleteRef(ctx context.Context, ref, oldOID string) error {
 	_, err := r.run(ctx, "update-ref", "-d", ref, oldOID)
-	if err != nil {
+	return wrapUpdateRefErr(err)
+}
+
+// wrapUpdateRefErr classifies a failed `git update-ref` invocation. err is
+// already r.run's wrapped error, which embeds git's stderr text.
+func wrapUpdateRefErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if isRefUpdateRetryable(err.Error()) {
 		return fmt.Errorf("%w: %v", ErrRefCASMismatch, err)
 	}
-	return nil
+	return err
+}
+
+// isRefUpdateRetryable reports whether the combined output of a failed
+// `git update-ref` describes a compare-and-swap race worth retrying: the
+// ref's current value did not match the given old value ("but expected"), or
+// another writer holds (or briefly held) the ref's lock ("cannot lock ref").
+// Every other failure - refusing a malformed ref name, a full disk,
+// permission denied, and so on - is a permanent failure that no amount of
+// retrying fixes, so this deliberately returns false for anything it does
+// not recognize: per docs/10-cli-spec.md, an unrecognized rejection must be
+// treated as permanent, since looping forever is worse than failing once.
+// Git's wording here has been stable across the versions githive supports in
+// practice; gitEnv forces LC_ALL=C on every git subprocess so this match
+// does not depend on the operator's locale.
+func isRefUpdateRetryable(output string) bool {
+	return strings.Contains(output, "but expected") || strings.Contains(output, "cannot lock ref")
 }
 
 // Fetch runs `git fetch remote refspecs...`.
@@ -355,6 +468,7 @@ type PushResult struct {
 func (r *Runner) Push(ctx context.Context, remote string, refspecs ...string) ([]PushResult, error) {
 	args := append([]string{"push", "--porcelain", remote}, refspecs...)
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir}, args...)...)
+	cmd.Env = gitEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -421,6 +535,7 @@ func parsePushPorcelain(out string) []PushResult {
 // the Runner's repository).
 func runIn(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = gitEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -464,6 +579,7 @@ func (r *Runner) WorktreeAdd(ctx context.Context, ref string) (string, error) {
 // fresh parentless commit of it, used as the base for a first-ever wiki save.
 func (r *Runner) emptyRootCommit(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "hash-object", "-w", "-t", "tree", "--stdin")
+	cmd.Env = gitEnv()
 	cmd.Stdin = bytes.NewReader(nil)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
@@ -545,6 +661,7 @@ func (r *Runner) WorktreeHead(ctx context.Context, worktreeDir string) (string, 
 // waiting for the human to resolve the markers and re-run save.
 func (r *Runner) MergeInProgress(ctx context.Context, worktreeDir string) (bool, error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", worktreeDir, "rev-parse", "--verify", "--quiet", "MERGE_HEAD")
+	cmd.Env = gitEnv()
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
@@ -609,6 +726,7 @@ func (r *Runner) MergeWikiRemote(ctx context.Context, worktreeDir, remote, ref, 
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, "git", "-C", worktreeDir, "merge", "--no-edit", remoteOID)
+	cmd.Env = gitEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

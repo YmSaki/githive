@@ -51,14 +51,19 @@ _ALLOWED_TRANSITIONS = {
 }
 
 
+# 終端状態。ここから抜けられるのは再開（todo への遷移）だけで、
+# 特に終端からの cancelled は不正遷移として無視する（ADR-0015）。
+_TERMINAL_STATUSES = frozenset({"done", "cancelled"})
+
+
 def _is_valid_transition(frm: Optional[str], to: str) -> bool:
     if to not in STATUSES:
         return False
     if frm is None:
         return True
     if to == "cancelled":
-        # 任意 -> cancelled は常に許可する。
-        return True
+        # 非終端の任意の状態 -> cancelled を許可する。
+        return frm not in _TERMINAL_STATUSES
     if to == "todo":
         # 再開（終端 done/cancelled や blocked からの todo 復帰含む）を許可する。
         return frm != "todo"

@@ -6,9 +6,17 @@ import (
 	"regexp"
 )
 
-// SchemaVersion is the only envelope schema version githive currently emits
-// or accepts. docs/02-data-model.md: 未知の v は読み取り拒否する。
-const SchemaVersion = 1
+// SchemaVersion is the envelope schema version githive writes. Readers
+// accept any version from MinSchemaVersion up to it and reject anything
+// newer: docs/01-architecture.md「バージョニングと互換性」/
+// .claude/rules/determinism.md「未知の v は読み取り拒否」. It was raised to
+// 2 by ADR-0015 (task の終端 -> cancelled を不正遷移にする fold 意味論変更).
+const SchemaVersion = 2
+
+// MinSchemaVersion is the oldest envelope version that still folds
+// correctly under the current reducers. Older events stay readable so that
+// raising SchemaVersion does not invalidate existing chains (ADR-0015).
+const MinSchemaVersion = 1
 
 var (
 	kindRe  = regexp.MustCompile(`^[a-z]+\.[a-z_]+$`)
@@ -63,8 +71,8 @@ func (e *ValidationError) Error() string {
 // Validate checks the envelope against docs/02-data-model.md /
 // spec/schemas/envelope.schema.json.
 func (e *Envelope) Validate() error {
-	if e.V != SchemaVersion {
-		return &ValidationError{"v", fmt.Sprintf("unsupported envelope version %d (want %d)", e.V, SchemaVersion)}
+	if e.V < MinSchemaVersion || e.V > SchemaVersion {
+		return &ValidationError{"v", fmt.Sprintf("unsupported envelope version %d (want %d-%d)", e.V, MinSchemaVersion, SchemaVersion)}
 	}
 	if !kindRe.MatchString(e.Kind) {
 		return &ValidationError{"kind", fmt.Sprintf("must match ^[a-z]+\\.[a-z_]+$, got %q", e.Kind)}
@@ -182,9 +190,10 @@ func FromMap(m map[string]any) (*Envelope, error) {
 			e.Extra[k] = v
 		}
 	}
-	if e.Data == nil {
-		e.Data = map[string]any{}
-	}
+	// A missing data key is rejected rather than defaulted to {}:
+	// spec/schemas/envelope.schema.json lists data as required and the spec
+	// is authoritative (ADR-0015). githive always writes it, so this only
+	// ever rejects foreign or hand-edited events.
 	if err := e.Validate(); err != nil {
 		return nil, err
 	}

@@ -49,7 +49,7 @@ event: 01j8xq4d3nbz9k7w2m5e8h1t6a
 
 `open -> in_progress -> resolved -> closed` を基本とし、`archived` 以外の任意の状態から `closed` と `open`（再オープン）へ遷移できる。
 `archived` は closed の後にのみ遷移でき、一覧の既定表示から外れる。
-`archived` からの遷移は `open`（復活）のみ許す。
+`archived` は終端であり、復活はできない。
 不正な遷移イベントは fold 時に無視する（エラーにせず、検証コマンドで警告する）。
 
 ## イベント定義
@@ -63,7 +63,7 @@ event: 01j8xq4d3nbz9k7w2m5e8h1t6a
 | issue.label | add[], remove[] | ラベル集合に適用（remove を先に、add を後に） |
 | issue.assign | add[], remove[] | 担当者集合に適用 |
 | issue.link | rel, id, remove? | links 集合に適用。rel は task / issue / chat |
-| issue.checkpoint | state, count, hash | 読み出し起点（[03](../03-sync-and-concurrency.md)） |
+| issue.checkpoint | state（meta/collections/scratch）, event_count, head, max_event_id | 読み出し起点（[03](../03-sync-and-concurrency.md)、[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
 ## CLI（対応コマンドの要約、正式仕様は [10](../10-cli-spec.md)）
 
@@ -76,7 +76,7 @@ githive issue status <id> <to>
 githive issue edit <id> [--title] [--body]
 githive issue label <id> [--add ...] [--remove ...]
 githive issue assign <id> [--add ...] [--remove ...]
-githive issue link <id> --task <task-id>
+githive issue link <id> <linked-id> [--rel task/issue/chat] [--remove]
 ```
 
 ## 素の git での読み方

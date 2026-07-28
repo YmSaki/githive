@@ -16,6 +16,7 @@ import (
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/idgen"
 	"github.com/ymsaki/githive/internal/core/refspace"
+	"github.com/ymsaki/githive/internal/core/sign"
 )
 
 // SchemaVersion is written into refs/projects/meta/config's config.json
@@ -105,7 +106,7 @@ func ensureMetaConfig(ctx context.Context, dir, project string) (bool, error) {
 		"created_at":     ts,
 	}
 	env := &event.Envelope{
-		V: 1, Kind: "meta.init", ID: eventID, TS: ts,
+		V: event.SchemaVersion, Kind: "meta.init", ID: eventID, TS: ts,
 		Actor: sig.Email, Entity: entityID, Data: data, Extra: map[string]any{},
 	}
 
@@ -115,8 +116,14 @@ func ensureMetaConfig(ctx context.Context, dir, project string) (bool, error) {
 	}
 	files := map[string][]byte{"config.json": configJSON}
 
+	signer, cleanupSigner, err := sign.ResolveSigner(ctx, dir)
+	if err != nil {
+		return false, err
+	}
+	defer cleanupSigner()
+
 	sig.When = time.Now()
-	newHash, err := chain.AppendEvent(repo, chain.ZeroHash, env, "meta.init: "+project, files, sig)
+	newHash, err := chain.AppendEvent(repo, chain.ZeroHash, env, "meta.init: "+project, files, sig, chain.WithSigner(signer))
 	if err != nil {
 		return false, err
 	}

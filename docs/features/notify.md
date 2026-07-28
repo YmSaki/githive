@@ -27,7 +27,7 @@ tree:
 |------|------|-----------|
 | notify.post | targets[], title, body?, source?, priority? | 当月の jsonl に追記 |
 | notify.ack | ack_of（notify.post の event-id） | acks.json の該当エントリに actor を追加 |
-| notify.checkpoint | state, count, hash | 読み出し起点 |
+| notify.checkpoint | state（meta/collections/scratch）, event_count, head, max_event_id | 読み出し起点（[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
 ### notify.post の data
 
@@ -45,11 +45,15 @@ tree:
 - **source**：通知の発生元エンティティ。CLI はここからジャンプできる。
 - **priority**：`low` / `normal` / `high`。表示順制御のみで意味論は持たない。
 
+fold は `events/<yyyy-mm>.jsonl` の各レコードに、上記の data フィールドに加えて `id`・`ts`・`actor`（イベント自身の値）と `month`（`ts` から抽出した `YYYY-MM`。月次ファイルへの振り分けに使う fold 由来のフィールドで、イベント data には含まれない）を付与する。
+
 ## 自動通知
 
-issue や task の操作が通知を「自動生成」する仕組みは、コア層には置かない。
-CLI の書き込みコマンドが、設定（`githive.notify.auto = true`、既定 true）に応じて notify.post を併発する。
-自動生成する契機は次に限る：issue.assign（新規担当者宛て）、task.reassign（新 owner 宛て）、issue.comment の reply_to（返信先の author 宛て）、task.status の done 遷移（task の created_by 宛て）。
+issue や task の操作が通知を「自動生成」する仕組みは、コア層（fold）には置かない。
+**app 層の共通ヘルパ**（`internal/app/notifyapp` の `NotifyAssigned` / `NotifyReplied` / `NotifyDone`）が、設定（`githive.notify.auto = true`、既定 true）に応じて書き込み成功後に notify.post を併発し、CLI と MCP はそれを呼ぶだけにする。
+判定条件（自己通知の抑止、既存担当者の再通知抑止）と通知の文言はこのヘルパ 1 箇所にのみ存在する。クライアントごとに実装すると、同じ操作でも CLI と MCP で違う通知が出る（[15](../15-clients.md)「全クライアントは機能の意味論を再実装しない」に反する）。
+なお通知の併発と、書き込み後の自動 sync は分離する。MCP は自動 sync しない（[ADR-0011](../adr/0011-mcp-no-auto-sync.md)）ため、両者を app 層で束ねてはならない。
+自動生成する契機は次に限る：issue.assign（新規担当者宛て）、task.reassign（新 owner 宛て）、issue.comment の reply_to（返信先の author 宛て）、task.status の done 遷移（task の created_by 宛て）、chat のメンション（[chat.md](chat.md)「メンションと通知」）。
 すべての変更を通知にすると流量が実用に耐えないため、明示的な宛先が存在する操作だけを対象とする。
 
 ## 未読の判定
@@ -65,6 +69,13 @@ push 競合が問題になる規模では、書き込み先を `refs/projects/no
 - 読み手は `refs/projects/notify/` 配下の全 ref を対象とする（stream と月次シャードの混在を許す）。
 - 書き手は meta/config の `notify_sharding: "monthly"` を見て書き込み先を選ぶ。
 - イベント形式は変わらないため、移行はデータ変換なしで行える。
+
+**現状（D8）**：`refspace.Parse`・`syncapp`・`fsckapp`・`verifyapp` はシャード ref
+（`refs/projects/notify/<yyyy-mm>`）に対応済みで、event-union マージ・署名検証・
+checkpoint は per-feature 共通機構のためパーサが通れば通常の notify チェーンと
+して扱われる。**未実装なのは読み手の集約（`notifyapp` は `notify/stream` 固定の
+まま）とローテーション（`notify_sharding` 設定に応じた書き込み先の切り替え）で
+あり、これは実際のシャーディング移行時に実装する。**
 
 ## CLI
 

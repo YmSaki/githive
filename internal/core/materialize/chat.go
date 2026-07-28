@@ -23,6 +23,7 @@ func addChatParticipant(s *State, actor string) {
 
 func newChatRegistry() *Registry {
 	r := NewRegistry()
+	r.SetScratchDecoder(decodeChatScratch)
 
 	r.Register("chat.create", func(s *State, env *event.Envelope) {
 		if s.Meta != nil {

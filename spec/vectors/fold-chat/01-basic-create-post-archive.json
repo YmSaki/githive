@@ -1,0 +1,67 @@
+{
+  "name": "01-basic-create-post-archive",
+  "description": "chat.create（body 付き＝最初のメッセージを兼ねる）→ chat.post（別 actor）→ chat.edit_meta（archive）。message_count と participants（作成者 + 投稿者、昇順）を確認する。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "chat.create",
+      "id": "00001snn1shanajn0mnee80qgv",
+      "ts": "2026-07-04T10:00:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zh3fmrnjwge01wpkzhmb",
+      "data": {
+        "title": "リリース手順の相談",
+        "body": "まず手順を書きます"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn208kp93z0cg9kafxjv",
+      "ts": "2026-07-04T10:01:00.000Z",
+      "actor": "dev-agent-01@example.com",
+      "entity": "0000g6zh3fmrnjwge01wpkzhmb",
+      "data": {
+        "body": "了解しました、進めます"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.edit_meta",
+      "id": "00001snn279jtm7qaksy06chaq",
+      "ts": "2026-07-04T10:05:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zh3fmrnjwge01wpkzhmb",
+      "data": {
+        "status": "archived"
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "0000g6zh3fmrnjwge01wpkzhmb",
+    "title": "リリース手順の相談",
+    "status": "archived",
+    "created_by": "yuumiya@example.com",
+    "created_at": "2026-07-04T10:00:00.000Z",
+    "updated_at": "2026-07-04T10:05:00.000Z",
+    "message_count": 2,
+    "participants": [
+      "dev-agent-01@example.com",
+      "yuumiya@example.com"
+    ]
+  },
+  "expected_messages": {
+    "00001snn1shanajn0mnee80qgv": {
+      "id": "00001snn1shanajn0mnee80qgv",
+      "author": "yuumiya@example.com",
+      "ts": "2026-07-04T10:00:00.000Z",
+      "body": "まず手順を書きます"
+    },
+    "00001snn208kp93z0cg9kafxjv": {
+      "id": "00001snn208kp93z0cg9kafxjv",
+      "author": "dev-agent-01@example.com",
+      "ts": "2026-07-04T10:01:00.000Z",
+      "body": "了解しました、進めます"
+    }
+  }
+}

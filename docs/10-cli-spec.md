@@ -16,19 +16,19 @@
 | --repo <path> | 対象リポジトリ |
 | --no-sync | 書き込み後の自動 sync を行わない |
 | --remote <name> | 同期先 remote（既定 origin） |
-| --quiet / --verbose | 出力量の制御 |
 
 ## コマンド体系
 
 ```
-githive init                     # fetch refspec 追加、meta/config 作成（無ければ）、初回 fetch
-githive sync [--kind issue,...]  # fetch -> merge -> push（[03] のアルゴリズム）
+githive init [--project name]    # fetch refspec 追加、meta/config 作成（無ければ）、初回 fetch
+                                 # --project 省略時はリポジトリのディレクトリ名
+githive sync [--kind issue,...]  # fetch -> merge -> push（[03] のアルゴリズム）。wiki は fetch と fast-forward のみ（[ADR-0017](adr/0017-wiki-and-meta-sync.md)）
 githive status                   # 未 push の ref、未読 notify、自分の doing task の要約
 
 githive issue   new|list|show|comment|status|edit|label|assign|link
-githive task    new|list|show|status|note|reassign
-githive notify  post|list|ack
-githive chat    new|list|show|post|archive
+githive task    new|list|show|status|note|reassign|link
+githive notify  post|list|ack     # list は [--unread] [--all] を取る（[features/notify.md](features/notify.md)）
+githive chat    new|list|show|post|archive|edit-meta
 githive users   add|list|key|group|policy
 githive wiki    edit|save|show|log
 githive whoami
@@ -69,7 +69,7 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 ```
 
 - `data` の形は「コマンド名 + スキーマバージョン」で安定させ、破壊的変更をしない。
-- 一覧系は `{ "items": [...], "total": n }` で統一する。
+- 一覧系は `{ "items": [...], "total": n }` で統一する。例外は `githive users list` で、users/groups/policy という 3 種類の異なる一覧を同時に返す都合上 `{ "users": [...], "groups": [...], "policy": {...} }` の形をとる（[features/users.md](features/users.md)）。
 - ID は常に完全形（26 文字）で出力する。短縮は入力時のみ受け付ける。
 
 ## 終了コード
@@ -77,10 +77,10 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 | コード | 意味 |
 |--------|------|
 | 0 | 成功（警告があっても成功は 0） |
-| 1 | 一般エラー |
+| 1 | 一般エラー。push が非 fast-forward 以外の理由で拒否された場合（pre-receive フック拒否、権限エラーなど）を含み、その場合は `error.code: "push_rejected"`、`retryable: false`（再試行しても成功しない。非 fast-forward の競合は 3 を参照） |
 | 2 | 使い方の誤り（引数、未知フラグ） |
 | 3 | 同期の競合再試行が尽きた（ローカルは保存済み、再実行可能） |
-| 4 | 検証失敗（署名不正、スキーマ違反の検出） |
+| 4 | 検証失敗（署名不正、スキーマ違反の検出）。`githive sync` が users 台帳に無関係な 2 つの信頼の根を見つけ、`githive.trust.root` の pin で決着できない場合を含み、その場合は `error.code: "trust_root_conflict"`、`error.data` に両側のルート OID と復旧手順（`recovery`）を入れる（[03](03-sync-and-concurrency.md)「共通祖先が無い場合」） |
 | 5 | 環境不備（git が古い、リポジトリでない、schema_version 非対応） |
 
 ## ID の入力解決
@@ -94,6 +94,7 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 | キー | 既定 | 意味 |
 |------|------|------|
 | githive.notify.auto | true | 操作に伴う自動 notify.post（[features/notify.md](features/notify.md)） |
+| githive.notify.mentions | true | chat 本文の `@username` / `@group` に伴う自動 notify.post（[features/chat.md](features/chat.md)） |
 | githive.sync.retries | 5 | push 競合の再試行回数 |
 | githive.trust.root | （なし） | users 台帳の信頼の根の pin（[11](11-security.md)） |
 

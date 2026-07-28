@@ -46,11 +46,11 @@ tree:
 ```
 todo -> doing -> review -> done
         doing -> blocked -> doing
-任意   -> cancelled
+非終端 -> cancelled
 ```
 
 `done` と `cancelled` が終端。再開は `todo` への遷移イベントで表す。
-終端状態から `cancelled` への遷移イベントは不正遷移として無視する（fold の基本則どおりエラーにはしない）。
+終端状態から `cancelled` への遷移イベントは不正遷移として無視する（fold の基本則どおりエラーにはしない。[ADR-0015](../adr/0015-task-terminal-cancel-and-schema-version-2.md)）。
 
 ## イベント定義
 
@@ -62,7 +62,7 @@ todo -> doing -> review -> done
 | task.reassign | owner | owner を上書き（LWW） |
 | task.note | body | notes に追記 |
 | task.link | rel, id, remove? | links 集合に適用 |
-| task.checkpoint | state, count, hash | 読み出し起点 |
+| task.checkpoint | state（meta/collections/scratch）, event_count, head, max_event_id | 読み出し起点（[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
 ## ユーザーとの紐づけ
 
@@ -80,6 +80,7 @@ githive task show <id> [--json]
 githive task status <id> <to> [-m note]
 githive task note <id> -m <note>
 githive task reassign <id> --owner <u>
+githive task link <id> <linked-id> [--rel task/issue/chat] [--remove]
 ```
 
 ## 素の git での読み方

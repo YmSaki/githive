@@ -6,6 +6,7 @@ package refspace
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/ymsaki/githive/internal/core/event"
@@ -41,6 +42,24 @@ var perEntityFeatures = map[Feature]bool{
 	FeatureChat:  true,
 }
 
+// shardedFeatures are the features that, alongside their singleton ref,
+// also accept monthly shard refs (refs/projects/<feature>/<yyyy-mm>) for a
+// future rotation away from a single ever-growing ref
+// (docs/features/notify.md「シャーディング（将来）」, ADR-0006「単一 ref の機能
+// も <kind>/<name> 形式にしておけば、後からのシャード追加・並置が ref 名の変更
+// なしにできる」). Only notify has this today; the reader-side aggregation
+// across stream + shards and the write-path rotation itself are deferred to
+// the actual migration (D8: this package only parses and validates the
+// shard ref shape ahead of time).
+var shardedFeatures = map[Feature]bool{
+	FeatureNotify: true,
+}
+
+// shardRe matches a monthly shard name: a 4-digit year and a 2-digit month
+// 01-12, e.g. "2026-07". Anything else (a 1-digit month, an out-of-range
+// month, extra characters) is rejected, same as any other malformed ref.
+var shardRe = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
+
 // Singleton ref names (docs/02-data-model.md「ref 名前空間」).
 const (
 	MetaConfigRef    = Root + "/meta/config"
@@ -65,12 +84,19 @@ func EntityRef(feature Feature, id string) (string, error) {
 // ParsedRef is the result of decomposing a refs/projects/... ref name.
 type ParsedRef struct {
 	Feature Feature
-	ID      string // empty for singleton refs
+	ID      string // ULID entity id; empty for singleton and shard refs.
+	// Shard is the yyyy-mm name for a notify monthly shard ref
+	// (refs/projects/notify/<yyyy-mm>, docs/features/notify.md「シャーディ
+	// ング（将来）」); empty for every other ref. It is a separate field from
+	// ID (never both set) so per-entity consumers that key off ID
+	// (FilterByFeature, issueapp/taskapp/chatapp's readers) cannot mistake
+	// a shard name for an entity ULID.
+	Shard string
 }
 
 // Parse decomposes a ref name under Root into its feature (and entity ID,
-// for per-entity features). It rejects anything outside the known
-// namespace/feature set.
+// for per-entity features, or shard name, for a sharded feature's monthly
+// ref). It rejects anything outside the known namespace/feature set.
 func Parse(ref string) (ParsedRef, error) {
 	rest, ok := strings.CutPrefix(ref, Root+"/")
 	if !ok {
@@ -93,14 +119,19 @@ func Parse(ref string) (ParsedRef, error) {
 		return ParsedRef{}, fmt.Errorf("refspace: malformed ref %q", ref)
 	}
 	feature := Feature(parts[0])
-	id := parts[1]
+	name := parts[1]
+
+	if shardedFeatures[feature] && shardRe.MatchString(name) {
+		return ParsedRef{Feature: feature, Shard: name}, nil
+	}
+
 	if !perEntityFeatures[feature] {
 		return ParsedRef{}, fmt.Errorf("refspace: unknown or non-per-entity feature %q in ref %q", parts[0], ref)
 	}
-	if !event.IsValidULID(id) {
-		return ParsedRef{}, fmt.Errorf("refspace: invalid entity id %q in ref %q", id, ref)
+	if !event.IsValidULID(name) {
+		return ParsedRef{}, fmt.Errorf("refspace: invalid entity id %q in ref %q", name, ref)
 	}
-	return ParsedRef{Feature: feature, ID: id}, nil
+	return ParsedRef{Feature: feature, ID: name}, nil
 }
 
 // FilterByFeature returns the refs among candidates that belong to the given

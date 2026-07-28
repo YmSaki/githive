@@ -50,8 +50,8 @@
         "state": {
           "status": "in_progress"
         },
-        "count": 3,
-        "hash": "deadbeef"
+        "event_count": 3,
+        "head": "deadbeef"
       }
     },
     {

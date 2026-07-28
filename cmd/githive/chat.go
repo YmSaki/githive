@@ -7,7 +7,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
+	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/cliout"
+	"github.com/ymsaki/githive/internal/core/identity"
 )
 
 func newChatCmd() *cobra.Command {
@@ -18,6 +20,7 @@ func newChatCmd() *cobra.Command {
 		newChatShowCmd(),
 		newChatPostCmd(),
 		newChatArchiveCmd(),
+		newChatEditMetaCmd(),
 	)
 	return cmd
 }
@@ -134,17 +137,8 @@ func newChatShowCmd() *cobra.Command {
 	return cmd
 }
 
-// newChatPostCmd does not yet implement docs/features/chat.md「メンション
-// と通知」(@username/@group in the body auto-posting a notify.post): that
-// requires resolving a username/group to an email, which needs the users
-// registry that lands in P3 (docs/13-roadmap.md「P3：users / 署名 /
-// verify」). Attempting it now would mean guessing an email from a bare
-// "@name" token, producing invalid notify targets
-// (spec/schemas/notify.schema.json requires "user:<email>"). This is a
-// known, deliberate gap, not an oversight - revisit once the registry
-// exists.
 func newChatPostCmd() *cobra.Command {
-	var message, replyTo string
+	var message, replyTo, supersedes string
 	cmd := &cobra.Command{
 		Use:   "post <id>",
 		Short: "Post a message",
@@ -160,10 +154,11 @@ func newChatPostCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := svc.Post(ctx, id, message, replyTo, ""); err != nil {
+			if err := svc.Post(ctx, id, message, replyTo, supersedes); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, chatRef(id))
+			warnings := notifyWarnings(notifyChatMentions(ctx, dir, id, message))
+			warnings = append(warnings, syncIfEnabled(dir, chatRef(id))...)
 			if flags.json {
 				cliout.PrintSuccess(nil, warnings)
 				return nil
@@ -174,6 +169,7 @@ func newChatPostCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&message, "message", "m", "", "message body (required)")
 	cmd.Flags().StringVar(&replyTo, "reply-to", "", "event id this message replies to")
+	cmd.Flags().StringVar(&supersedes, "supersedes", "", "event id of the message this replaces")
 	cmd.MarkFlagRequired("message")
 	return cmd
 }
@@ -207,4 +203,49 @@ func newChatArchiveCmd() *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+func newChatEditMetaCmd() *cobra.Command {
+	var title, status string
+	cmd := &cobra.Command{
+		Use:   "edit-meta <id>",
+		Short: "Edit a chat thread's title/status",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := repoDir()
+			if err != nil {
+				return err
+			}
+			svc := chatapp.New(dir)
+			ctx := context.Background()
+			id, err := resolveChatID(ctx, svc, args[0])
+			if err != nil {
+				return err
+			}
+			if err := svc.EditMeta(ctx, id, title, status); err != nil {
+				return err
+			}
+			warnings := syncIfEnabled(dir, chatRef(id))
+			if flags.json {
+				cliout.PrintSuccess(nil, warnings)
+				return nil
+			}
+			printWarnings(warnings)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&title, "title", "", "new title; omit to leave unchanged")
+	cmd.Flags().StringVar(&status, "status", "", "new status; omit to leave unchanged")
+	return cmd
+}
+
+// notifyChatMentions posts the @mention notifications a chat message
+// triggers (docs/features/chat.md「メンションと通知」). Shared by the CLI and
+// the MCP server so a mention notifies the same people either way.
+func notifyChatMentions(ctx context.Context, dir, id, body string) []string {
+	selfEmail := ""
+	if sig, err := identity.Resolve(ctx, dir); err == nil {
+		selfEmail = sig.Email
+	}
+	return notifyapp.NotifyMentions(ctx, dir, id, body, selfEmail, mentionResolver(dir))
 }

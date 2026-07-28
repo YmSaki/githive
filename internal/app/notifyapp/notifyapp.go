@@ -21,6 +21,15 @@ var ErrRetriesExhausted = entitychain.ErrRetriesExhausted
 
 // StreamRef is the notify feature's single ref
 // (docs/02-data-model.md「ref 名前空間」).
+//
+// Monthly shard refs (refs/projects/notify/<yyyy-mm>) are now recognized by
+// refspace.Parse and are processed by sync/fsck/verify as ordinary notify
+// chains, ahead of the actual sharding migration (D8,
+// docs/features/notify.md「シャーディング（将来）」). This Service is
+// intentionally still hard-coded to StreamRef, though: reading and writing
+// across stream + shards - i.e. the reader-side aggregation and the
+// meta/config-driven write-target switch - is deferred to that migration,
+// not implemented here.
 const StreamRef = "refs/projects/notify/stream"
 
 // Post is one folded notification.
@@ -73,7 +82,7 @@ func (s *Service) Post(ctx context.Context, targets []string, title, body string
 		eid, ts := idgen.NewWithTimestamp()
 		newID = eid
 		return &event.Envelope{
-			V: 1, Kind: "notify.post", ID: eid, TS: ts,
+			V: event.SchemaVersion, Kind: "notify.post", ID: eid, TS: ts,
 			Entity: eid, Data: data, Extra: map[string]any{},
 		}, "notify.post: " + title
 	})
@@ -91,7 +100,7 @@ func (s *Service) Ack(ctx context.Context, ackOf []string) error {
 		_, err := s.writer.Append(ctx, "", func() (*event.Envelope, string) {
 			eid, ts := idgen.NewWithTimestamp()
 			return &event.Envelope{
-				V: 1, Kind: "notify.ack", ID: eid, TS: ts,
+				V: event.SchemaVersion, Kind: "notify.ack", ID: eid, TS: ts,
 				Entity: eid, Data: map[string]any{"ack_of": targetID}, Extra: map[string]any{},
 			}, "notify.ack: " + targetID
 		})

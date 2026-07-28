@@ -1,0 +1,8 @@
+{
+  "input": {
+    "title": "同期がWindowsでパスを壊す",
+    "actor": "yuumiya",
+    "note": "日本語のコメントです。改行は含みません。"
+  },
+  "expected": "{\"actor\": \"yuumiya\", \"note\": \"日本語のコメントです。改行は含みません。\", \"title\": \"同期がWindowsでパスを壊す\"}"
+}

@@ -40,6 +40,67 @@ func OpenRepository(dir string) (*git.Repository, error) {
 // docs/02-data-model.md「コミットの規約」, Email must equal the event's actor.
 type Signature = object.Signature
 
+// Signer produces an armored SSH signature over a commit payload - the
+// commit object's content as git hashes it, minus the gpgsig header. The
+// result is embedded as that header (ADR-0014).
+//
+// This package deliberately does not know how signatures are produced or
+// whether this repository wants them: callers resolve that from git config
+// (core/sign.ResolveSigner) and pass the result in via WithSigner, keeping
+// chain free of configuration reads.
+type Signer func(payload []byte) (string, error)
+
+// Option customizes commit creation.
+type Option func(*commitOptions)
+
+type commitOptions struct {
+	signer Signer
+}
+
+// WithSigner attaches an SSH signature to the commit being created. A nil
+// signer means "do not sign", so callers can pass through the result of a
+// signing-config lookup without branching.
+func WithSigner(s Signer) Option {
+	return func(o *commitOptions) { o.signer = s }
+}
+
+func newCommitOptions(opts []Option) commitOptions {
+	var o commitOptions
+	for _, apply := range opts {
+		apply(&o)
+	}
+	return o
+}
+
+// attachSignature signs commit in place. The payload is taken from go-git's
+// EncodeWithoutSignature so that the signed bytes are by construction the
+// ones go-git will write minus the gpgsig header, which is exactly what
+// `git verify-commit` reconstructs when it checks the signature.
+func attachSignature(commit *object.Commit, signer Signer) error {
+	if signer == nil {
+		return nil
+	}
+	payload := &plumbing.MemoryObject{}
+	if err := commit.EncodeWithoutSignature(payload); err != nil {
+		return fmt.Errorf("chain: encode commit for signing: %w", err)
+	}
+	reader, err := payload.Reader()
+	if err != nil {
+		return fmt.Errorf("chain: read commit payload for signing: %w", err)
+	}
+	defer reader.Close()
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return fmt.Errorf("chain: read commit payload for signing: %w", err)
+	}
+	sig, err := signer(body)
+	if err != nil {
+		return err
+	}
+	commit.PGPSignature = sig
+	return nil
+}
+
 // buildMessage renders the two-part commit message: a human summary line
 // (truncated to 72 runes) followed by a blank line and the event's canonical
 // JSON (docs/02-data-model.md「コミットの規約」「イベント封筒」).
@@ -64,8 +125,9 @@ func truncateSummary(s string) string {
 // computed state after folding in env) and whose message encodes env, with
 // parent set to parent (use ZeroHash for a chain root). It does not move any
 // ref; callers perform the ref update themselves (typically via gitx's CAS
-// update-ref, per docs/03-sync-and-concurrency.md).
-func AppendEvent(repo *git.Repository, parent plumbing.Hash, env *event.Envelope, summary string, files map[string][]byte, sig Signature) (plumbing.Hash, error) {
+// update-ref, per docs/03-sync-and-concurrency.md). Pass WithSigner to
+// attach an SSH signature (ADR-0014).
+func AppendEvent(repo *git.Repository, parent plumbing.Hash, env *event.Envelope, summary string, files map[string][]byte, sig Signature, opts ...Option) (plumbing.Hash, error) {
 	if err := env.Validate(); err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("chain: invalid envelope: %w", err)
 	}
@@ -87,14 +149,18 @@ func AppendEvent(repo *git.Repository, parent plumbing.Hash, env *event.Envelope
 	if parent != plumbing.ZeroHash {
 		commit.ParentHashes = []plumbing.Hash{parent}
 	}
+	if err := attachSignature(commit, newCommitOptions(opts).signer); err != nil {
+		return plumbing.ZeroHash, err
+	}
 	return encodeCommit(repo, commit)
 }
 
 // AppendMerge creates a two-parent merge commit with message "merge:
 // event-union" and no event body (docs/02-data-model.md「コミットの規約」,
 // docs/03-sync-and-concurrency.md「event-union マージ」). tree is the fold
-// result over the union of both sides' events.
-func AppendMerge(repo *git.Repository, parents [2]plumbing.Hash, files map[string][]byte, sig Signature) (plumbing.Hash, error) {
+// result over the union of both sides' events. Pass WithSigner to attach an
+// SSH signature (ADR-0014).
+func AppendMerge(repo *git.Repository, parents [2]plumbing.Hash, files map[string][]byte, sig Signature, opts ...Option) (plumbing.Hash, error) {
 	treeHash, err := WriteTree(repo, files)
 	if err != nil {
 		return plumbing.ZeroHash, err
@@ -105,6 +171,9 @@ func AppendMerge(repo *git.Repository, parents [2]plumbing.Hash, files map[strin
 		Message:      "merge: event-union",
 		TreeHash:     treeHash,
 		ParentHashes: []plumbing.Hash{parents[0], parents[1]},
+	}
+	if err := attachSignature(commit, newCommitOptions(opts).signer); err != nil {
+		return plumbing.ZeroHash, err
 	}
 	return encodeCommit(repo, commit)
 }

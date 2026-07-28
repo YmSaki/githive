@@ -3,6 +3,7 @@ package fsckapp
 import (
 	"context"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
+	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
@@ -39,6 +41,35 @@ func newTestRepo(t *testing.T) string {
 	return dir
 }
 
+// appendNotifyShardEvent appends a notify.post event directly onto
+// shardRef (a refs/projects/notify/<yyyy-mm> monthly shard, D8), bypassing
+// notifyapp.Service, which is intentionally still hard-coded to the stream
+// ref (notifyapp.go「シャード読み手の集約は移行時に実装」). It uses
+// entitychain.Writer directly - the same primitive notifyapp.Service uses
+// internally - to build a chain fsck/sync/verify can be pointed at ahead of
+// the reader-side migration.
+func appendNotifyShardEvent(t *testing.T, dir, shardRef, title string) {
+	t.Helper()
+	w := &entitychain.Writer{
+		Dir:       dir,
+		RefFor:    func(string) plumbing.ReferenceName { return plumbing.ReferenceName(shardRef) },
+		Registry:  materialize.NotifyRegistry,
+		TreeFiles: notifyapp.TreeFiles,
+	}
+	_, err := w.Append(context.Background(), "", func() (*event.Envelope, string) {
+		eid, ts := idgen.NewWithTimestamp()
+		return &event.Envelope{
+			V: event.SchemaVersion, Kind: "notify.post", ID: eid, TS: ts,
+			Entity: eid,
+			Data:   map[string]any{"targets": []any{"all"}, "title": title},
+			Extra:  map[string]any{},
+		}, "notify.post: " + title
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // chatRefState folds a chat chain and returns a canonical-JSON signature of
 // its materialized state, so a before/after comparison can assert a checkpoint
 // left the fold result unchanged.
@@ -57,7 +88,11 @@ func chatRefState(t *testing.T, dir, id string) string {
 		t.Fatal(err)
 	}
 	state := materialize.ChatRegistry.Fold(events)
-	sig, err := event.EncodeString(stateToMap(state))
+	stateMap, err := materialize.StateToMap(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := event.EncodeString(stateMap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +184,127 @@ func TestCorruptEnvelopeReported(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected invalid_envelope finding on %s, got %+v", badHash, report.Findings)
+	}
+}
+
+// TestNotifyMonthlyShardValidatedAsNotifyChain is D8's fsck goal: a
+// hand-built refs/projects/notify/2026-07 shard chain must be picked up by
+// refspace.Parse (Feature notify) and validated exactly like notify/stream
+// - a clean chain passes, and a corrupted envelope on the shard is reported
+// with the shard ref attached, proving it is actually walked and not
+// silently skipped the way an unrecognized ref is (see
+// TestUnrecognizedRefReportedAsWarning).
+func TestNotifyMonthlyShardValidatedAsNotifyChain(t *testing.T) {
+	requireGit(t)
+	dir := newTestRepo(t)
+	ctx := context.Background()
+	shardRef := "refs/projects/notify/2026-07"
+
+	appendNotifyShardEvent(t, dir, shardRef, "shard notice")
+
+	report, err := New(dir).Run(ctx, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK() {
+		t.Fatalf("expected a valid notify shard chain to pass fsck cleanly, got findings: %+v", report.Findings)
+	}
+
+	// Corrupt the shard's tip commit the same way TestCorruptEnvelopeReported
+	// does for chat, to prove the shard ref is actually schema-validated.
+	repo, err := chain.OpenRepository(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oid, err := gitx.New(dir).RevParse(ctx, shardRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := plumbing.NewHash(oid)
+	parentCommit, err := object.GetCommit(repo.Storer, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig := object.Signature{Name: "Tester", Email: "tester@example.com", When: time.Now()}
+	bad := &object.Commit{
+		Author:       sig,
+		Committer:    sig,
+		Message:      "bad shard commit\n\n{ this is not valid json",
+		TreeHash:     parentCommit.TreeHash,
+		ParentHashes: []plumbing.Hash{parent},
+	}
+	encoded := repo.Storer.NewEncodedObject()
+	if err := bad.Encode(encoded); err != nil {
+		t.Fatal(err)
+	}
+	badHash, err := repo.Storer.SetEncodedObject(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gitx.New(dir).UpdateRef(ctx, shardRef, badHash.String(), oid); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err = New(dir).Run(ctx, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range report.Findings {
+		if f.Ref == shardRef && f.Code == "invalid_envelope" && f.Commit == badHash.String() {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected invalid_envelope finding on shard ref %s commit %s, got %+v", shardRef, badHash, report.Findings)
+	}
+}
+
+// TestUnrecognizedRefReportedAsWarning is D8 item 4: a ref under
+// refs/projects/ that refspace.Parse rejects outright (here, an unknown
+// feature name) used to be silently skipped by fsck; it must now surface as
+// a SeverityWarning Finding naming the ref, without failing fsck's OK().
+func TestUnrecognizedRefReportedAsWarning(t *testing.T) {
+	requireGit(t)
+	dir := newTestRepo(t)
+	ctx := context.Background()
+
+	out, err := exec.Command("git", "-C", dir, "commit", "--allow-empty", "--quiet", "-m", "x").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git commit --allow-empty: %v\n%s", err, out)
+	}
+	headOut, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v\n%s", err, headOut)
+	}
+	head := strings.TrimSpace(string(headOut))
+
+	bogusRef := "refs/projects/bogus/x"
+	if err := gitx.New(dir).UpdateRef(ctx, bogusRef, head, gitx.ZeroOID); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := New(dir).Run(ctx, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *Finding
+	for i, f := range report.Findings {
+		if f.Ref == bogusRef {
+			found = &report.Findings[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected a finding for %s, got %+v", bogusRef, report.Findings)
+	}
+	if found.Severity != SeverityWarning {
+		t.Errorf("expected severity %q for %s, got %q", SeverityWarning, bogusRef, found.Severity)
+	}
+	if !strings.Contains(found.Message, bogusRef) {
+		t.Errorf("expected message to mention %s, got %q", bogusRef, found.Message)
+	}
+	if !report.OK() {
+		t.Errorf("a warning-only finding must not fail fsck's OK(), findings: %+v", report.Findings)
 	}
 }
 
@@ -312,23 +468,21 @@ func TestCheckpointFoldTransparency(t *testing.T) {
 	}
 	stateWithout := materialize.ChatRegistry.Fold(base)
 
+	cpData, err := checkpointData(stateWithout, countNonCheckpoint(base), "deadbeef", maxEventID(base))
+	if err != nil {
+		t.Fatal(err)
+	}
 	cp := &event.Envelope{
 		V: 1, Kind: "chat.checkpoint", ID: "01j8xq4d3nbz9k7w2m5e8h1t62", TS: "2026-07-01T00:00:02.000Z",
 		Actor: "a@example.com", Entity: "01j8xq4d3nbz9k7w2m5e8h1t60",
-		Data:  checkpointData(stateWithout, countNonCheckpoint(base), "deadbeef"),
+		Data:  cpData,
 		Extra: map[string]any{},
 	}
 	withCP := append(append([]*event.Envelope(nil), base...), cp)
 	stateWith := materialize.ChatRegistry.Fold(withCP)
 
-	sigWithout, err := event.EncodeString(stateToMap(stateWithout))
-	if err != nil {
-		t.Fatal(err)
-	}
-	sigWith, err := event.EncodeString(stateToMap(stateWith))
-	if err != nil {
-		t.Fatal(err)
-	}
+	sigWithout := foldStateSignature(t, stateWithout)
+	sigWith := foldStateSignature(t, stateWith)
 	if sigWithout != sigWith {
 		t.Errorf("checkpoint changed fold result:\nwithout=%s\nwith   =%s", sigWithout, sigWith)
 	}
@@ -379,4 +533,19 @@ func TestShouldCompactThresholds(t *testing.T) {
 	if reason, due := shouldCompact(cpOnly, 1, time.Nanosecond, now); due {
 		t.Errorf("checkpoint with no following events: want not due, got (%q,%v)", reason, due)
 	}
+}
+
+// foldStateSignature renders a fold state (including Scratch) as canonical
+// JSON, for comparing two folds byte for byte.
+func foldStateSignature(t *testing.T, s *materialize.State) string {
+	t.Helper()
+	m, err := materialize.StateToMap(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := event.EncodeString(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sig
 }

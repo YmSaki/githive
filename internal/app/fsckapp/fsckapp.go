@@ -11,11 +11,23 @@
 //     unlike chain.WalkChain which stops at the first bad envelope).
 //   - meta/config is event-sourced too but is not one of the entity chains;
 //     it gets its own shape-appropriate check: envelope validation plus a
-//     config.json schema_version support check (docs/01-architecture.md
-//     「バージョニングと互換性」: 自分の対応版より新しい schema_version は拒否).
+//     config.json schema_version support check against initapp.SchemaVersion
+//     (the config schema's own version counter, independent of the envelope
+//     schema counter event.SchemaVersion, per docs/01-architecture.md「Go
+//     モジュールは...データスキーマはこの v と schema_version で、それぞれ
+//     独立に管理する」): 自分の対応版より新しい schema_version は拒否.
 //   - wiki/main is NOT event-sourced (a plain git branch); it gets the
 //     filename-portability check shared with `githive wiki save`
 //     (internal/core/wikifs), never event-schema validation.
+//
+// A ref under refs/projects/ that refspace.Parse rejects outright (an
+// unrecognized feature, a malformed entity id, a would-be shard name that
+// doesn't match yyyy-mm, ...) is reported as a SeverityWarning Finding
+// instead of being silently dropped (D8 item 4); it is not schema-validated
+// since Parse could not even identify what kind of ref it is. A notify
+// monthly shard ref (refs/projects/notify/<yyyy-mm>) is not this case: it
+// parses to Feature notify and is validated exactly like notify/stream
+// above.
 //
 // With --compact it additionally appends a checkpoint event to any entity
 // chain past the docs/03-sync-and-concurrency.md threshold (500 events or 90
@@ -32,6 +44,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
@@ -41,15 +54,26 @@ import (
 // Finding is one integrity problem fsck found. Commit and Path are set only
 // when the problem is scoped to a specific commit (schema validation) or tree
 // path (wiki portability); both are empty otherwise. Code is a stable machine
-// token for --json and tests.
+// token for --json and tests. Severity is SeverityWarning for a finding that
+// should not fail fsck (see Report.OK) and empty ("") for every
+// longstanding finding kind (schema/portability defects), which is treated
+// as blocking for backward compatibility with fsck's existing pass/fail
+// behavior.
 type Finding struct {
-	Ref     string
-	Feature string
-	Commit  string
-	Path    string
-	Code    string
-	Message string
+	Ref      string
+	Feature  string
+	Commit   string
+	Path     string
+	Code     string
+	Message  string
+	Severity string
 }
+
+// SeverityWarning marks a Finding that fsck reports but does not fail on
+// (Report.OK ignores it). Currently only used for a ref under
+// refs/projects/ that refspace.Parse rejects: surprising enough to surface,
+// but not a schema/portability defect fsck can actually validate.
+const SeverityWarning = "warning"
 
 // CheckpointInfo records a checkpoint fsck created under --compact, for
 // reporting. It is never populated when Options.Compact is false.
@@ -68,8 +92,17 @@ type Report struct {
 	Checkpoints []CheckpointInfo
 }
 
-// OK reports whether fsck found zero problems.
-func (r *Report) OK() bool { return len(r.Findings) == 0 }
+// OK reports whether fsck found zero blocking problems. A SeverityWarning
+// finding (an unrecognized ref under refs/projects/) is reported in
+// Findings but does not by itself make OK false.
+func (r *Report) OK() bool {
+	for _, f := range r.Findings {
+		if f.Severity != SeverityWarning {
+			return false
+		}
+	}
+	return true
+}
 
 // Options controls a Run. The zero value means "validate only, default
 // thresholds, real wall clock".
@@ -143,8 +176,16 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
 		if err != nil {
-			// Not a recognized githive ref; leave it alone, mirroring
-			// verifyapp.VerifyAll's skip-on-parse-failure behavior.
+			// Not a recognized githive ref name (a typo, a hand-created
+			// ref, an as-yet-unsupported shape): unlike verifyapp's silent
+			// skip-on-parse-failure, fsck surfaces this as a warning
+			// finding rather than dropping it unreported (D8 item 4) - it
+			// still can't be schema-validated, but an operator should at
+			// least be told it exists.
+			report.Findings = append(report.Findings, Finding{
+				Ref: e.Ref, Code: "unrecognized_ref", Severity: SeverityWarning,
+				Message: fmt.Sprintf("%s is under refs/projects/ but is not a recognized githive ref: %v", e.Ref, err),
+			})
 			continue
 		}
 		head := plumbing.NewHash(e.OID)
@@ -247,10 +288,10 @@ func validateMetaConfig(repo *git.Repository, ref string, head plumbing.Hash) []
 			Message: "config.json has no integer schema_version",
 		})
 	}
-	if sv > event.SchemaVersion {
+	if sv > initapp.SchemaVersion {
 		findings = append(findings, Finding{
 			Ref: ref, Feature: string(refspace.FeatureMeta), Code: "unsupported_schema_version",
-			Message: fmt.Sprintf("config.json schema_version %d is newer than supported %d", sv, event.SchemaVersion),
+			Message: fmt.Sprintf("config.json schema_version %d is newer than supported %d", sv, initapp.SchemaVersion),
 		})
 	}
 	return findings

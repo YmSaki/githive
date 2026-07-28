@@ -1,0 +1,8 @@
+{
+  "input": {
+    "int_zero": 0,
+    "float_int_valued": 1.0,
+    "big_int": 100000000000000000
+  },
+  "expected": "{\"big_int\": 100000000000000000, \"float_int_valued\": 1, \"int_zero\": 0}"
+}

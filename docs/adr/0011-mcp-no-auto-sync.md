@@ -17,7 +17,7 @@ MCP サーバー（[15](../15-clients.md)）は長時間稼働する1プロセ�
 
 - `cmd/githive/mcp.go` の書き込みツール（issue_new/comment/status/... 等すべて）は sync を一切行わない。CLI の `--no-sync` を常に指定した状態と同じ既定動作にする。
 - 明示的に sync したい Agent は `sync` ツールを呼ぶ。`status` ツールで未 push ref を確認できる。
-- 自動 notify（issue.comment の reply-to、issue.assign の新規担当者、task.status(done)、task.reassign）は CLI と同じ規則（自分自身・既に対象だった相手への再通知を抑止）でそのまま発行する。CLI 側もこれらの notify イベント自体を自動 sync の対象に含めていない（`syncIfEnabled` は当該エンティティの ref のみを対象にし、`notifyapp.StreamRef` を含めない）ため、MCP のこの決定は既存の CLI の実際の挙動（notify イベントは常にローカルのみで生成され、次の明示的な sync まで push されない）を変えるものではない。
+- 自動 notify（issue.comment の reply-to、issue.assign の新規担当者、task.status(done)、task.reassign）は CLI と同じ規則（自分自身・既に対象だった相手への再通知を抑止）でそのまま発行する。CLI 側も、これらのコマンドが発行する自動 notify イベント自体は自動 sync の対象に含めていない（`autoNotify` を呼ぶ issue/task コマンドの `syncIfEnabled` は当該エンティティ自身の ref のみを対象にし、`notifyapp.StreamRef` は渡さない）ため、MCP のこの決定は「issue/task コマンド起点の自動 notify はローカルのみで生成され、次の明示的な sync まで push されない」という既存の CLI の挙動を変えるものではない（`githive notify post`/`ack` 自体は `cmd/githive/notify.go:50,143` のとおり `syncIfEnabled` に `notifyapp.StreamRef` を渡しており、notify を主目的とする書き込みは通常どおり自動 sync される）。
 
 ## 帰結
 

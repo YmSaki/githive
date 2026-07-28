@@ -9,12 +9,21 @@ githive P0 の実行可能スペックを検証するスクリプト。
       スキーマで検証する。
   (b) spec/vectors/canonical/*.json を spec/reference/canonical_json.py で
       再計算し、expected と完全一致することを確認する。
-  (c) spec/vectors/fold-issue/*.json, spec/vectors/fold-task/*.json を
-      spec/reference/fold_issue.py, fold_task.py で再計算し、
-      expected_meta / expected_comments / expected_notes と一致することを
-      確認する。イベント順をシャッフルしても同一結果になることを
-      3 回試行で確認する。
-  (d) 結果を PASS/FAIL のサマリで stdout に出す。
+  (b2) spec/vectors/canonical-compact/*.json を
+      spec/reference/canonical_json.py の encode_compact_line で再計算し、
+      expected と完全一致することを確認する（docs/02-data-model.md
+      「canonical JSON」の唯一の例外: notify jsonl の圧縮形）。
+  (c) spec/vectors/fold-issue/*.json, spec/vectors/fold-task/*.json,
+      spec/vectors/fold-chat/*.json, spec/vectors/fold-notify/*.json,
+      spec/vectors/fold-users/*.json を spec/reference/fold_issue.py,
+      fold_task.py, fold_chat.py, fold_notify.py, fold_users.py で
+      再計算し、それぞれの expected_* と一致することを確認する。
+      イベント順をシャッフルしても同一結果になることを 3 回試行で
+      確認する。
+  (d) spec/vectors/ordering/*.json を spec/reference/events_common.py の
+      sort_events（の ID 抽出版）で再計算し、expected_sorted と
+      一致することを確認する。
+  (e) 結果を PASS/FAIL のサマリで stdout に出す。
 
 終了コード: 全 PASS なら 0、1 件でも FAIL があれば 1。
 
@@ -43,8 +52,12 @@ except ImportError:
     sys.exit(1)
 
 import canonical_json as cj
+import fold_chat
 import fold_issue
+import fold_notify
 import fold_task
+import fold_users
+from events_common import sort_events
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +121,7 @@ def build_validators() -> tuple[Draft202012Validator, dict[str, Draft202012Valid
         "notify": "notify.schema.json",
         "users": "users.schema.json",
         "chat": "chat.schema.json",
+        "meta": "meta.schema.json",
     }
     kind_validators: dict[str, Draft202012Validator] = {}
     for feature, filename in feature_files.items():
@@ -128,12 +142,16 @@ def build_validators() -> tuple[Draft202012Validator, dict[str, Draft202012Valid
 # ---------------------------------------------------------------------------
 
 def iter_all_events() -> list[tuple[str, dict]]:
-    """vectors 配下の fold-issue / fold-task の events 配列から
-    (vector_file, event) のペアを列挙する。canonical/ordering ベクタは
-    イベント封筒を持たないため対象外。
+    """vectors 配下の fold-issue / fold-task / fold-chat / fold-notify /
+    fold-users / meta-events の events 配列から (vector_file, event) のペアを
+    列挙する。canonical/ordering ベクタはイベント封筒を持たないため対象外。
+    meta-events/ は他の fold-* と違い fold 検証（run_fold_validation）の対象
+    にはならない（meta/config には reducer が無いため、docs/02-data-model.md
+    「meta.init イベント」）。ここでのみ、envelope + meta.schema.json による
+    スキーマ検証の対象として拾われる。
     """
     out = []
-    for sub in ("fold-issue", "fold-task"):
+    for sub in ("fold-issue", "fold-task", "fold-chat", "fold-notify", "fold-users", "meta-events"):
         d = VECTORS_DIR / sub
         for path in sorted(d.glob("*.json")):
             with open(path, encoding="utf-8") as f:
@@ -203,7 +221,37 @@ def run_canonical_validation(results: Results) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (c) fold ベクタ（issue / task）
+# (b2) canonical-compact ベクタ（圧縮形、notify jsonl 用の唯一の例外）
+# ---------------------------------------------------------------------------
+
+def run_canonical_compact_validation(results: Results) -> None:
+    d = VECTORS_DIR / "canonical-compact"
+    paths = sorted(d.glob("*.json"))
+    if not paths:
+        results.fail("canonical-compact/no-vectors-found", "canonical-compact vectors が見つからない")
+        return
+
+    for path in paths:
+        name = f"canonical-compact[{path.name}]"
+        with open(path, encoding="utf-8") as f:
+            vector = json.load(f)
+        try:
+            actual = cj.encode_compact_line(vector["input"])
+        except Exception as e:  # noqa: BLE001
+            results.fail(name, f"encode 中に例外: {e!r}")
+            continue
+        expected = vector["expected"]
+        if actual != expected:
+            results.fail(
+                name,
+                f"不一致\n      expected: {expected!r}\n      actual:   {actual!r}",
+            )
+            continue
+        results.ok(name)
+
+
+# ---------------------------------------------------------------------------
+# (c) fold ベクタ（issue / task / chat / notify / users）
 # ---------------------------------------------------------------------------
 
 def run_fold_validation(results: Results) -> None:
@@ -211,19 +259,41 @@ def run_fold_validation(results: Results) -> None:
         results,
         VECTORS_DIR / "fold-issue",
         fold_issue.fold,
-        "expected_meta",
-        "expected_comments",
+        [("meta", "expected_meta"), ("comments", "expected_comments")],
     )
     _run_fold_dir(
         results,
         VECTORS_DIR / "fold-task",
         fold_task.fold,
-        "expected_meta",
-        "expected_notes",
+        [("meta", "expected_meta"), ("notes", "expected_notes")],
+    )
+    _run_fold_dir(
+        results,
+        VECTORS_DIR / "fold-chat",
+        fold_chat.fold,
+        [("meta", "expected_meta"), ("messages", "expected_messages")],
+    )
+    _run_fold_dir(
+        results,
+        VECTORS_DIR / "fold-notify",
+        fold_notify.fold,
+        [("meta", "expected_meta"), ("posts", "expected_posts"), ("acks", "expected_acks")],
+    )
+    _run_fold_dir(
+        results,
+        VECTORS_DIR / "fold-users",
+        fold_users.fold,
+        [("users", "expected_users"), ("groups", "expected_groups"), ("policy", "expected_policy")],
     )
 
 
-def _run_fold_dir(results: Results, dir_path: Path, fold_fn, meta_key: str, coll_key: str) -> None:
+def _run_fold_dir(results: Results, dir_path: Path, fold_fn, fields: list[tuple[str, str]]) -> None:
+    """1 ベクタディレクトリを検証する。fold_fn(events) は fields と同じ順序・
+    個数のタプルを返す（issue/task/chat は (meta, コレクション) の 2 要素、
+    notify は month 派生フィールドを含む posts に加えて Scratch 由来の acks
+    を持つため (meta, posts, acks) の 3 要素、という具合に feature ごとに
+    異なるため、fields で汎用化してある）。
+    """
     paths = sorted(dir_path.glob("*.json"))
     if not paths:
         results.fail(f"fold/no-vectors-found[{dir_path.name}]", "vectors が見つからない")
@@ -235,27 +305,28 @@ def _run_fold_dir(results: Results, dir_path: Path, fold_fn, meta_key: str, coll
             vector = json.load(f)
 
         events = vector["events"]
-        expected_meta = vector[meta_key]
-        expected_coll = vector[coll_key]
+        expected = [vector[key] for _, key in fields]
+
+        def mismatch_reason(got: tuple, label: str) -> str | None:
+            for (field_name, _), want, actual in zip(fields, expected, got):
+                if actual != want:
+                    return (
+                        f"{label}: {field_name} 不一致\n"
+                        f"      expected: {json.dumps(want, ensure_ascii=False)}\n"
+                        f"      actual:   {json.dumps(actual, ensure_ascii=False)}"
+                    )
+            return None
 
         # 元の順序での fold
         try:
-            meta, coll = fold_fn(events)
+            got = fold_fn(events)
         except Exception as e:  # noqa: BLE001
             results.fail(name + " (original order)", f"fold 中に例外: {e!r}")
             continue
 
-        if meta != expected_meta:
-            results.fail(
-                name + " (original order, meta)",
-                f"meta 不一致\n      expected: {json.dumps(expected_meta, ensure_ascii=False)}\n      actual:   {json.dumps(meta, ensure_ascii=False)}",
-            )
-            continue
-        if coll != expected_coll:
-            results.fail(
-                name + f" (original order, {coll_key})",
-                f"{coll_key} 不一致\n      expected: {json.dumps(expected_coll, ensure_ascii=False)}\n      actual:   {json.dumps(coll, ensure_ascii=False)}",
-            )
+        reason = mismatch_reason(got, "original order")
+        if reason is not None:
+            results.fail(name + " (original order)", reason)
             continue
 
         # シャッフルして 3 回試行し、同一結果になることを確認する。
@@ -266,24 +337,62 @@ def _run_fold_dir(results: Results, dir_path: Path, fold_fn, meta_key: str, coll
             shuffled = events[:]
             rng.shuffle(shuffled)
             try:
-                meta2, coll2 = fold_fn(shuffled)
+                got2 = fold_fn(shuffled)
             except Exception as e:  # noqa: BLE001
                 shuffle_ok = False
                 shuffle_reason = f"trial {trial}: fold 中に例外: {e!r}"
                 break
-            if meta2 != expected_meta or coll2 != expected_coll:
+            reason2 = mismatch_reason(got2, f"trial {trial}")
+            if reason2 is not None:
                 shuffle_ok = False
-                shuffle_reason = (
-                    f"trial {trial}: シャッフル後の結果が期待値と不一致\n"
-                    f"      meta:   {json.dumps(meta2, ensure_ascii=False)}\n"
-                    f"      {coll_key}: {json.dumps(coll2, ensure_ascii=False)}"
-                )
+                shuffle_reason = f"trial {trial}: シャッフル後の結果が期待値と不一致\n      {reason2}"
                 break
 
         if not shuffle_ok:
             results.fail(name + " (shuffle-invariance)", shuffle_reason)
             continue
 
+        results.ok(name)
+
+
+# ---------------------------------------------------------------------------
+# (d) ordering ベクタ
+# ---------------------------------------------------------------------------
+
+def run_ordering_validation(results: Results) -> None:
+    """spec/vectors/ordering/*.json を events_common.sort_events で
+    再計算する。sort_events は封筒（dict の "id" キー）を前提にしているため、
+    生の ULID 文字列を {"id": s} に包んでソートし、ソート後に取り出す
+    （spec/README.md「vectors/ の内容」、ADR なしの単純な ULID 辞書順
+    ソートの検証）。
+    """
+    d = VECTORS_DIR / "ordering"
+    paths = sorted(d.glob("*.json"))
+    if not paths:
+        results.fail("ordering/no-vectors-found", "ordering vectors が見つからない")
+        return
+
+    for path in paths:
+        name = f"ordering[{path.name}]"
+        with open(path, encoding="utf-8") as f:
+            vector = json.load(f)
+
+        input_ids = vector["input"]
+        expected_sorted = vector["expected_sorted"]
+
+        wrapped = [{"id": s} for s in input_ids]
+        try:
+            actual = [e["id"] for e in sort_events(wrapped)]
+        except Exception as e:  # noqa: BLE001
+            results.fail(name, f"sort_events 中に例外: {e!r}")
+            continue
+
+        if actual != expected_sorted:
+            results.fail(
+                name,
+                f"不一致\n      expected: {expected_sorted!r}\n      actual:   {actual!r}",
+            )
+            continue
         results.ok(name)
 
 
@@ -295,7 +404,9 @@ def main() -> int:
     results = Results()
     run_schema_validation(results)
     run_canonical_validation(results)
+    run_canonical_compact_validation(results)
     run_fold_validation(results)
+    run_ordering_validation(results)
     return results.print_summary()
 
 

@@ -1,0 +1,91 @@
+{
+  "name": "03-checkpoint-ignored",
+  "description": "notify.checkpoint（ADR-0013 新形式: state/event_count/head）を post/ack の間に挟んでも、fold は常にそれを無視し、前後の post/ack の積み上げに影響しない。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "notify.post",
+      "id": "00003kc75xyt633s5bk5fpd3a4",
+      "ts": "2026-07-11T08:00:00.000Z",
+      "actor": "a@example.com",
+      "entity": "00003kc75xyt633s5bk5fpd3a4",
+      "data": {
+        "targets": [
+          "all"
+        ],
+        "title": "t1"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.checkpoint",
+      "id": "00003kc764grdsfqfcd19a3xm9",
+      "ts": "2026-07-11T08:01:00.000Z",
+      "actor": "a@example.com",
+      "entity": "00003kc764grdsfqfcd19a3xm9",
+      "data": {
+        "event_count": 1,
+        "head": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        "state": {
+          "meta": {},
+          "collections": {
+            "posts": {}
+          }
+        }
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.post",
+      "id": "00003kc76bxfqnyp27c4e247wp",
+      "ts": "2026-07-11T08:02:00.000Z",
+      "actor": "a@example.com",
+      "entity": "00003kc76bxfqnyp27c4e247wp",
+      "data": {
+        "targets": [
+          "all"
+        ],
+        "title": "t2"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.ack",
+      "id": "00003kc76jdzxm8rn5ncxg6n34",
+      "ts": "2026-07-11T08:03:00.000Z",
+      "actor": "x@example.com",
+      "entity": "00003kc76jdzxm8rn5ncxg6n34",
+      "data": {
+        "ack_of": "00003kc75xyt633s5bk5fpd3a4"
+      }
+    }
+  ],
+  "expected_meta": {},
+  "expected_posts": {
+    "00003kc75xyt633s5bk5fpd3a4": {
+      "id": "00003kc75xyt633s5bk5fpd3a4",
+      "ts": "2026-07-11T08:00:00.000Z",
+      "actor": "a@example.com",
+      "targets": [
+        "all"
+      ],
+      "title": "t1",
+      "month": "2026-07"
+    },
+    "00003kc76bxfqnyp27c4e247wp": {
+      "id": "00003kc76bxfqnyp27c4e247wp",
+      "ts": "2026-07-11T08:02:00.000Z",
+      "actor": "a@example.com",
+      "targets": [
+        "all"
+      ],
+      "title": "t2",
+      "month": "2026-07"
+    }
+  },
+  "expected_acks": {
+    "00003kc75xyt633s5bk5fpd3a4": [
+      "x@example.com"
+    ]
+  }
+}

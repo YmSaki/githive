@@ -25,10 +25,14 @@ func (e *verifyFailedError) Error() string {
 
 func newVerifyCmd() *cobra.Command {
 	var ref string
+	var all bool
 	cmd := &cobra.Command{
 		Use:   "verify",
 		Short: "Verify commit signatures and chain integrity (docs/11-security.md)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if all && ref != "" {
+				return errVerifyAllWithRef
+			}
 			dir, err := repoDir()
 			if err != nil {
 				return err
@@ -83,6 +87,7 @@ func newVerifyCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&ref, "ref", "", "verify only this ref (default: every verifiable ref)")
+	cmd.Flags().BoolVar(&all, "all", false, "verify every ref (default behavior; explicit alias, mutually exclusive with --ref)")
 	return cmd
 }
 
@@ -112,3 +117,11 @@ func asVerifyFailedError(err error) (*verifyFailedError, bool) {
 	}
 	return nil, false
 }
+
+// errVerifyAllWithRef is returned when both --all and --ref are given.
+// --all just names the (already-default) "verify every ref" behavior
+// explicitly (docs/10-cli-spec.md「コマンド体系」: `githive verify [--ref
+// <ref>] [--all]`), so combining it with --ref is a contradiction in terms
+// rather than a meaningful combination - a usage error (exit code 2,
+// docs/10-cli-spec.md「終了コード」), not a general one.
+var errVerifyAllWithRef = errors.New("githive verify: --all and --ref are mutually exclusive")

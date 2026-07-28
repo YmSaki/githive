@@ -92,7 +92,7 @@ registry 型 ref もイベントソーシングで管理する（形式は他機
 | users.group_set | name, members[], description? | グループの作成または置換 |
 | users.group_remove | name | グループを削除 |
 | users.policy_set | rules[], default | policy.json 全体を置換（LWW） |
-| users.checkpoint | state, count, hash | 読み出し起点 |
+| users.checkpoint | state（meta/collections/scratch）, event_count, head, max_event_id | 読み出し起点（[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
 policy は部分編集イベントにせず全置換とする。
 ルールの順序が意味を持つため、部分編集の合併で順序が壊れることを避ける。
@@ -123,14 +123,19 @@ revoke された鍵による「revoke 時刻より後の」署名は無効と判
 ## CLI
 
 ```
-githive users add <name> [--display d] [--email e] [--agent] [--role r]
+githive users add <name> [--display d] [--email e] [--kind k] [--agent] [--role r]
+                          [--project p] [--key-dir d]   # --agent 時のみ有効
 githive users key add <name> --pub <key or file>
 githive users key revoke <name> --pub <key>
 githive users group set <name> --member a --member b
+githive users group remove <name>
 githive users list [--json]
 githive users policy edit          # $EDITOR で rules を編集し policy_set を発行
 githive whoami                     # 自分のユーザー特定結果と鍵の状態を表示
 ```
+
+- `--kind`：`human` または `agent`（`--agent` を使わず直接指定する場合）。
+- `--agent`：Agent 用の identity・鍵ペアを一括生成する（「Agent のセットアップ」参照）。`--project` は鋳造する email のプロジェクト名部分（省略時は meta/config から読む）、`--key-dir` は鍵ペアの出力先（省略時は `~/.ssh`）を指定する。
 
 ## 素の git での読み方
 

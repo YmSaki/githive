@@ -1,0 +1,97 @@
+{
+  "name": "03-title-edit-and-checkpoint-ignored",
+  "description": "chat.edit_meta で title だけを LWW 上書きしても status は変わらず、updated_at は常に更新される。chat.checkpoint（ADR-0013 新形式: state/event_count/head）は fold から常に無視され、その前後の post の積み上げに影響しない。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "chat.create",
+      "id": "00001snn653ha1ttf8be4sh8cy",
+      "ts": "2026-07-06T08:00:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zh9s2z5z4ha035dxt300",
+      "data": {
+        "title": "アーカイブ判定の検証"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn6cej9da8qya4wh1k9y",
+      "ts": "2026-07-06T08:01:00.000Z",
+      "actor": "dev-agent-01@example.com",
+      "entity": "0000g6zh9s2z5z4ha035dxt300",
+      "data": {
+        "body": "進捗共有"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.edit_meta",
+      "id": "00001snn6kp8b54jrz6cwrggd0",
+      "ts": "2026-07-06T08:02:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zh9s2z5z4ha035dxt300",
+      "data": {
+        "title": "アーカイブ判定の検証(更新)"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.checkpoint",
+      "id": "00001snn6tyag7g6ht38mkrqma",
+      "ts": "2026-07-06T08:03:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zh9s2z5z4ha035dxt300",
+      "data": {
+        "event_count": 3,
+        "head": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        "state": {
+          "meta": {
+            "status": "open"
+          },
+          "collections": {
+            "messages": {}
+          }
+        }
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn719s8tfw615ragfye8",
+      "ts": "2026-07-06T08:04:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zh9s2z5z4ha035dxt300",
+      "data": {
+        "body": "続報です"
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "0000g6zh9s2z5z4ha035dxt300",
+    "title": "アーカイブ判定の検証(更新)",
+    "status": "open",
+    "created_by": "yuumiya@example.com",
+    "created_at": "2026-07-06T08:00:00.000Z",
+    "updated_at": "2026-07-06T08:04:00.000Z",
+    "message_count": 2,
+    "participants": [
+      "dev-agent-01@example.com",
+      "yuumiya@example.com"
+    ]
+  },
+  "expected_messages": {
+    "00001snn6cej9da8qya4wh1k9y": {
+      "id": "00001snn6cej9da8qya4wh1k9y",
+      "author": "dev-agent-01@example.com",
+      "ts": "2026-07-06T08:01:00.000Z",
+      "body": "進捗共有"
+    },
+    "00001snn719s8tfw615ragfye8": {
+      "id": "00001snn719s8tfw615ragfye8",
+      "author": "yuumiya@example.com",
+      "ts": "2026-07-06T08:04:00.000Z",
+      "body": "続報です"
+    }
+  }
+}

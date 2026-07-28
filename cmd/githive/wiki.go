@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -104,7 +106,7 @@ func newWikiShowCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"path": args[0], "content": string(content)}, nil)
+				cliout.PrintSuccess(wikiShowJSON(args[0], content), nil)
 				return nil
 			}
 			if _, err := os.Stdout.Write(content); err != nil {
@@ -153,4 +155,23 @@ func shortHash(v any) string {
 		return s[:8]
 	}
 	return s
+}
+
+// wikiShowJSON renders a wiki page for `--json` output. Valid UTF-8 goes out
+// as `content`; anything else (a file under _assets/, or a page that happens
+// to hold invalid UTF-8) goes out base64-encoded as `content_base64` with
+// `content` omitted.
+//
+// The split exists because canonical JSON is UTF-8 (docs/02-data-model.md
+// 「canonical JSON」) and the encoder replaces invalid sequences with U+FFFD:
+// putting raw bytes in `content` silently returns something that is not what
+// the repository holds. Emitting a different key rather than a mangled
+// `content` makes the distinction impossible for a client to miss - reading
+// `content` never yields corrupted bytes, it is simply absent (issue #53,
+// docs/features/wiki.md「_assets/」).
+func wikiShowJSON(path string, content []byte) map[string]any {
+	if utf8.Valid(content) {
+		return map[string]any{"path": path, "content": string(content)}
+	}
+	return map[string]any{"path": path, "content_base64": base64.StdEncoding.EncodeToString(content)}
 }

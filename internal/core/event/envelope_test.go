@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 )
 
@@ -41,8 +40,8 @@ func TestEnvelopeVectorsValidate(t *testing.T) {
 					t.Errorf("%s: event[%d]: %v", entry.Name(), i, err)
 					continue
 				}
-				if env.V != SchemaVersion {
-					t.Errorf("%s: event[%d]: unexpected v=%d", entry.Name(), i, env.V)
+				if env.V < MinSchemaVersion || env.V > SchemaVersion {
+					t.Errorf("%s: event[%d]: v=%d outside the accepted range %d-%d", entry.Name(), i, env.V, MinSchemaVersion, SchemaVersion)
 				}
 			}
 		}
@@ -66,7 +65,8 @@ func TestValidateRejectsBadEnvelopes(t *testing.T) {
 		name   string
 		mutate func(*Envelope)
 	}{
-		{"bad version", func(e *Envelope) { e.V = 2 }},
+		{"future version", func(e *Envelope) { e.V = SchemaVersion + 1 }},
+		{"zero version", func(e *Envelope) { e.V = 0 }},
 		{"bad kind", func(e *Envelope) { e.Kind = "IssueCreate" }},
 		{"bad id", func(e *Envelope) { e.ID = "not-a-ulid" }},
 		{"bad ts", func(e *Envelope) { e.TS = "2026-07-04" }},
@@ -122,8 +122,12 @@ func TestCanonicalJSONRoundTrip(t *testing.T) {
 }
 
 // TestOrderingVectors exercises the ULID lexical-order vectors
-// (spec/vectors/ordering) against plain string sort, which is what
-// sort_by_event_id relies on (docs/02-data-model.md).
+// (spec/vectors/ordering) against the production ordering path,
+// event.SortEvents, which is what materialize.Registry.Fold actually calls
+// to realize state = fold(sort_by_event_id(events)) (docs/02-data-model.md).
+// Each raw ULID is wrapped in a minimal Envelope so this exercises the same
+// function real fold code paths use, rather than a parallel sort.Strings
+// call that could silently drift from SortEvents's behavior.
 func TestOrderingVectors(t *testing.T) {
 	dir := specDir(t, "vectors/ordering")
 	entries, err := os.ReadDir(dir)
@@ -147,8 +151,15 @@ func TestOrderingVectors(t *testing.T) {
 			if err := json.Unmarshal(raw, &vec); err != nil {
 				t.Fatal(err)
 			}
-			got := append([]string(nil), vec.Input...)
-			sort.Strings(got)
+			envs := make([]*Envelope, len(vec.Input))
+			for i, id := range vec.Input {
+				envs[i] = &Envelope{ID: id}
+			}
+			sorted := SortEvents(envs)
+			got := make([]string, len(sorted))
+			for i, e := range sorted {
+				got[i] = e.ID
+			}
 			if len(got) != len(vec.ExpectedSorted) {
 				t.Fatalf("length mismatch: got %v want %v", got, vec.ExpectedSorted)
 			}

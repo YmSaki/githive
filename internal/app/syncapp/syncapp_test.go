@@ -2,11 +2,22 @@ package syncapp
 
 import (
 	"context"
+	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/go-git/go-git/v5/plumbing"
+
+	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/app/notifyapp"
+	"github.com/ymsaki/githive/internal/core/event"
+	"github.com/ymsaki/githive/internal/core/gitx"
+	"github.com/ymsaki/githive/internal/core/idgen"
+	"github.com/ymsaki/githive/internal/core/materialize"
 )
 
 func requireGit(t *testing.T) {
@@ -40,6 +51,80 @@ func cloneRepo(t *testing.T, origin, email string) string {
 		}
 	}
 	return dir
+}
+
+// appendNotifyShardEvent appends a notify.post event directly onto shardRef
+// (a refs/projects/notify/<yyyy-mm> monthly shard, D8), bypassing
+// notifyapp.Service, which stays hard-coded to the stream ref
+// (notifyapp.go「シャード読み手の集約は移行時に実装」). It uses
+// entitychain.Writer directly, the same primitive notifyapp.Service uses
+// internally, to build a chain that exercises syncapp's feature-generic
+// fetch/merge/push path ahead of the reader-side migration.
+func appendNotifyShardEvent(t *testing.T, dir, shardRef, title string) {
+	t.Helper()
+	w := &entitychain.Writer{
+		Dir:       dir,
+		RefFor:    func(string) plumbing.ReferenceName { return plumbing.ReferenceName(shardRef) },
+		Registry:  materialize.NotifyRegistry,
+		TreeFiles: notifyapp.TreeFiles,
+	}
+	_, err := w.Append(context.Background(), "", func() (*event.Envelope, string) {
+		eid, ts := idgen.NewWithTimestamp()
+		return &event.Envelope{
+			V: event.SchemaVersion, Kind: "notify.post", ID: eid, TS: ts,
+			Entity: eid,
+			Data:   map[string]any{"targets": []any{"all"}, "title": title},
+			Extra:  map[string]any{},
+		}, "notify.post: " + title
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSyncRoundTripsNotifyMonthlyShard is D8's sync goal: a hand-built
+// refs/projects/notify/2026-07 chain must sync exactly like an ordinary
+// notify chain - refspace.Parse now resolves it to Feature notify, which is
+// all syncOne needs to route it through the normal fetch/merge/push path
+// (syncapp.go never special-cases singleton vs. shard refs; it only
+// switches on Feature).
+func TestSyncRoundTripsNotifyMonthlyShard(t *testing.T) {
+	requireGit(t)
+	origin := initBareOrigin(t)
+	dirA := cloneRepo(t, origin, "a@example.com")
+	dirB := cloneRepo(t, origin, "b@example.com")
+	ctx := context.Background()
+	shardRef := "refs/projects/notify/2026-07"
+
+	appendNotifyShardEvent(t, dirA, shardRef, "shard notice")
+
+	resA, err := Sync(ctx, dirA, "origin", []string{shardRef}, 5)
+	if err != nil {
+		t.Fatalf("A sync: %v", err)
+	}
+	if resA[0].Action != ActionFastForwardOut {
+		t.Errorf("expected A's push of a new shard ref to be a fast-forward, got %s", resA[0].Action)
+	}
+
+	resB, err := Sync(ctx, dirB, "origin", []string{shardRef}, 5)
+	if err != nil {
+		t.Fatalf("B sync: %v", err)
+	}
+	if resB[0].Action != ActionFastForwardIn {
+		t.Errorf("expected B to fast-forward in the shard ref, got %s", resB[0].Action)
+	}
+
+	oidA, err := gitx.New(dirA).RevParse(ctx, shardRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oidB, err := gitx.New(dirB).RevParse(ctx, shardRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oidA == "" || oidA != oidB {
+		t.Errorf("expected A and B to converge on the shard ref, got A=%q B=%q", oidA, oidB)
+	}
 }
 
 // TestSyncConvergesConcurrentUpdates mirrors docs/14-testing.md 標準シナリオ1
@@ -127,6 +212,113 @@ func fmtLabels(labels []any) string {
 	return s
 }
 
+// TestClassifyPushRejection pins classifyPushRejection's non-fast-forward
+// vs. permanent-rejection split (A4, docs/10-cli-spec.md「終了コード」): the
+// races a fetch->merge->push retry can resolve map to gitx.ErrNonFastForward,
+// every other rejection - including a git version's phrasing this function
+// does not recognize - maps to ErrPushRejected carrying the raw reason.
+func TestClassifyPushRejection(t *testing.T) {
+	cases := []struct {
+		name      string
+		reason    string
+		wantNonFF bool
+	}{
+		{"non-fast-forward", "[rejected] (non-fast-forward)", true},
+		{"fetch first", "[rejected] (fetch first)", true},
+		{"stale info", "[rejected] (stale info)", true},
+		{"pre-receive hook", "[remote rejected] (pre-receive hook declined)", false},
+		{"unrecognized reason falls back to permanent", "[remote rejected] (some future git message)", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := classifyPushRejection(c.reason)
+			if c.wantNonFF {
+				if !errors.Is(err, gitx.ErrNonFastForward) {
+					t.Errorf("classifyPushRejection(%q) = %v, want gitx.ErrNonFastForward", c.reason, err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrPushRejected) {
+				t.Errorf("classifyPushRejection(%q) = %v, want ErrPushRejected", c.reason, err)
+			}
+			if !strings.Contains(err.Error(), c.reason) {
+				t.Errorf("classifyPushRejection(%q).Error() = %q, want it to contain the raw git reason", c.reason, err.Error())
+			}
+		})
+	}
+}
+
+// installRejectingHook writes a pre-receive hook into the bare repo at
+// bareDir that rejects every push and records one line to a counter file per
+// invocation, so tests can assert exactly how many times the remote saw a
+// push attempt.
+func installRejectingHook(t *testing.T, bareDir string) {
+	t.Helper()
+	hooksDir := filepath.Join(bareDir, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The counter path is relative on purpose: git runs a pre-receive hook
+	// with the bare repository as its working directory, and embedding an
+	// absolute path here breaks on Windows, where the backslashes in the
+	// path are escapes to the /bin/sh that Git for Windows runs hooks with.
+	script := "#!/bin/sh\necho hit >> pre-receive-hits\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-receive"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// hookHitCount reads back how many times installRejectingHook's script ran.
+func hookHitCount(t *testing.T, bareDir string) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(bareDir, "pre-receive-hits"))
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	trimmed := strings.TrimRight(string(data), "\n")
+	if trimmed == "" {
+		return 0
+	}
+	return len(strings.Split(trimmed, "\n"))
+}
+
+// TestSyncPushRejectedByPreReceiveHookFailsOnce is A4's headline scenario: a
+// remote that permanently rejects every push (a pre-receive hook, standing
+// in for policy/permission rejections in general) must fail sync's very
+// first attempt with ErrPushRejected instead of retrying up to Retries times
+// like a real non-fast-forward race would.
+func TestSyncPushRejectedByPreReceiveHookFailsOnce(t *testing.T) {
+	requireGit(t)
+	origin := initBareOrigin(t)
+	installRejectingHook(t, origin)
+	dirA := cloneRepo(t, origin, "a@example.com")
+	ctx := context.Background()
+
+	svcA := issueapp.New(dirA)
+	id, err := svcA.NewIssue(ctx, "seed", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := "refs/projects/issue/" + id
+
+	_, err = Sync(ctx, dirA, "origin", []string{ref}, 5)
+	if err == nil {
+		t.Fatal("expected the pre-receive hook's rejection to surface as an error")
+	}
+	if !errors.Is(err, ErrPushRejected) {
+		t.Errorf("expected ErrPushRejected, got: %v", err)
+	}
+	if errors.Is(err, ErrRetriesExhausted) {
+		t.Errorf("a permanent rejection must not be reported as retries exhausted: %v", err)
+	}
+	if got := hookHitCount(t, origin); got != 1 {
+		t.Errorf("expected exactly 1 push attempt against a permanently-rejecting remote, got %d", got)
+	}
+}
+
 func TestSyncUpToDate(t *testing.T) {
 	requireGit(t)
 	origin := initBareOrigin(t)
@@ -148,5 +340,49 @@ func TestSyncUpToDate(t *testing.T) {
 	}
 	if results[0].Action != ActionUpToDate {
 		t.Errorf("expected up-to-date on second sync, got %s", results[0].Action)
+	}
+}
+
+// TestRetriesFromConfig verifies githive.sync.retries wiring
+// (docs/10-cli-spec.md「設定（git config）」: 既定 5, 0 以上の整数のみ受理):
+// unset, negative, and unparsable values all fall back to DefaultRetries,
+// while a valid non-negative integer (including 0) overrides it.
+func TestRetriesFromConfig(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "--quiet", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	ctx := context.Background()
+
+	if got := RetriesFromConfig(ctx, dir); got != DefaultRetries {
+		t.Errorf("unset config: got %d, want DefaultRetries (%d)", got, DefaultRetries)
+	}
+
+	setConfig := func(v string) {
+		t.Helper()
+		if out, err := exec.Command("git", "-C", dir, "config", "githive.sync.retries", v).CombinedOutput(); err != nil {
+			t.Fatalf("git config githive.sync.retries %q: %v\n%s", v, err, out)
+		}
+	}
+
+	setConfig("3")
+	if got := RetriesFromConfig(ctx, dir); got != 3 {
+		t.Errorf("githive.sync.retries=3: got %d, want 3", got)
+	}
+
+	setConfig("0")
+	if got := RetriesFromConfig(ctx, dir); got != 0 {
+		t.Errorf("githive.sync.retries=0: got %d, want 0 (0 is a valid non-negative integer)", got)
+	}
+
+	setConfig("-1")
+	if got := RetriesFromConfig(ctx, dir); got != DefaultRetries {
+		t.Errorf("githive.sync.retries=-1 (negative): got %d, want DefaultRetries (%d)", got, DefaultRetries)
+	}
+
+	setConfig("not-a-number")
+	if got := RetriesFromConfig(ctx, dir); got != DefaultRetries {
+		t.Errorf("githive.sync.retries=not-a-number (unparsable): got %d, want DefaultRetries (%d)", got, DefaultRetries)
 	}
 }

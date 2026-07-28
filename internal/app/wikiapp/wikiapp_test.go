@@ -104,6 +104,26 @@ func TestShow(t *testing.T) {
 	}
 }
 
+// TestShowOtherGitErrorPropagatesUnwrapped verifies that a gitx.Show failure
+// unrelated to a missing ref/path (here: Dir is not a git repository at all)
+// is returned as-is, not folded into ErrNotFound — a --json caller must not
+// see a misleading "not_found" for an unrelated git failure (repository
+// corruption, permission trouble, ...).
+func TestShowOtherGitErrorPropagatesUnwrapped(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir() // deliberately never `git init`-ed
+	s := New(dir)
+	ctx := context.Background()
+
+	_, err := s.Show(ctx, "Home.md")
+	if err == nil {
+		t.Fatal("expected an error showing in a non-git directory")
+	}
+	if errors.Is(err, ErrNotFound) {
+		t.Errorf("Show outside a git repo: want a plain error, not ErrNotFound: %v", err)
+	}
+}
+
 func TestLog(t *testing.T) {
 	requireGit(t)
 	dir := t.TempDir()

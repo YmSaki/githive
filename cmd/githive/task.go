@@ -6,6 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/identity"
@@ -20,6 +22,7 @@ func newTaskCmd() *cobra.Command {
 		newTaskStatusCmd(),
 		newTaskNoteCmd(),
 		newTaskReassignCmd(),
+		newTaskLinkCmd(),
 	)
 	return cmd
 }
@@ -31,7 +34,7 @@ func resolveTaskID(ctx context.Context, svc *taskapp.Service, arg string) (strin
 }
 
 func newTaskNewCmd() *cobra.Command {
-	var title, body, owner, due, priority string
+	var title, body, owner, due, priority, issueRef string
 	cmd := &cobra.Command{
 		Use:   "new",
 		Short: "Create a new task",
@@ -45,10 +48,26 @@ func newTaskNewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var resolvedIssueID string
+			if issueRef != "" {
+				resolvedIssueID, err = issueapp.New(dir).ResolveID(ctx, issueRef)
+				if err != nil {
+					return err
+				}
+			}
 			svc := taskapp.New(dir)
 			id, err := svc.NewTask(ctx, title, body, resolvedOwner, due, priority)
 			if err != nil {
 				return err
+			}
+			if resolvedIssueID != "" {
+				// Links to the linked issue (task.link rel=issue), the
+				// same way `githive task link` does
+				// (docs/features/task.md「イベント定義」「設計判断」: issue<->task
+				// links are each side's own independent link event).
+				if err := svc.Link(ctx, id, "issue", resolvedIssueID, false); err != nil {
+					return err
+				}
 			}
 			warnings := syncIfEnabled(dir, taskRef(id))
 			if flags.json {
@@ -65,6 +84,7 @@ func newTaskNewCmd() *cobra.Command {
 	cmd.Flags().StringVar(&owner, "owner", "", "owner (defaults to actor)")
 	cmd.Flags().StringVar(&due, "due", "", "due date")
 	cmd.Flags().StringVar(&priority, "priority", "", "priority")
+	cmd.Flags().StringVar(&issueRef, "issue", "", "issue id or an unambiguous >=8 char prefix to link (rel=issue)")
 	cmd.MarkFlagRequired("title")
 	return cmd
 }
@@ -178,18 +198,7 @@ func newTaskStatusCmd() *cobra.Command {
 			if !ok {
 				warnings = append(warnings, cliout.Warning{Code: "invalid_transition", Message: fmt.Sprintf("transition to %q was rejected", args[1])})
 			} else if args[1] == "done" {
-				// Notify the task's creator (docs/features/notify.md「自動通知」).
-				if show, showErr := svc.Show(ctx, id); showErr == nil {
-					createdBy, _ := show.Meta["created_by"].(string)
-					sig, sigErr := identity.Resolve(ctx, dir)
-					if createdBy != "" && (sigErr != nil || createdBy != sig.Email) {
-						for _, w := range autoNotify(ctx, dir, "user:"+createdBy,
-							fmt.Sprintf("task %s が done になりました", shortID(id)),
-							map[string]any{"kind": "task", "id": id}) {
-							warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})
-						}
-					}
-				}
+				warnings = append(warnings, notifyWarnings(notifyTaskDone(ctx, dir, svc, id))...)
 			}
 			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
 			if flags.json {
@@ -285,11 +294,8 @@ func newTaskReassignCmd() *cobra.Command {
 			if resolvedOwner != selfEmail && resolvedOwner != previousOwner {
 				// Don't notify yourself, and don't re-notify the owner
 				// this task already had (docs/features/notify.md「自動通知」).
-				for _, w := range autoNotify(ctx, dir, "user:"+resolvedOwner,
-					fmt.Sprintf("task %s の担当になりました", shortID(id)),
-					map[string]any{"kind": "task", "id": id}) {
-					warnings = append(warnings, cliout.Warning{Code: "auto_notify_failed", Message: w})
-				}
+				warnings = append(warnings, notifyWarnings(
+					notifyapp.NotifyAssigned(ctx, dir, "task", id, selfEmail, resolvedOwner))...)
 			}
 			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
 			if flags.json {
@@ -303,4 +309,54 @@ func newTaskReassignCmd() *cobra.Command {
 	cmd.Flags().StringVar(&owner, "owner", "", "new owner (required)")
 	cmd.MarkFlagRequired("owner")
 	return cmd
+}
+
+func newTaskLinkCmd() *cobra.Command {
+	var rel string
+	var remove bool
+	cmd := &cobra.Command{
+		Use:   "link <id> <linked-id>",
+		Short: "Link this task to another entity",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir, err := repoDir()
+			if err != nil {
+				return err
+			}
+			svc := taskapp.New(dir)
+			ctx := context.Background()
+			id, err := resolveTaskID(ctx, svc, args[0])
+			if err != nil {
+				return err
+			}
+			if err := svc.Link(ctx, id, rel, args[1], remove); err != nil {
+				return err
+			}
+			warnings := syncIfEnabled(dir, taskRef(id))
+			if flags.json {
+				cliout.PrintSuccess(nil, warnings)
+				return nil
+			}
+			printWarnings(warnings)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&rel, "rel", "issue", "link relation: task/issue/chat")
+	cmd.Flags().BoolVar(&remove, "remove", false, "remove the link instead of adding it")
+	return cmd
+}
+
+// notifyTaskDone posts the "task is done" notification to whoever created it
+// (docs/features/notify.md「自動通知」). Shared by the CLI and the MCP server.
+func notifyTaskDone(ctx context.Context, dir string, svc *taskapp.Service, id string) []string {
+	show, err := svc.Show(ctx, id)
+	if err != nil {
+		return nil
+	}
+	createdBy, _ := show.Meta["created_by"].(string)
+	selfEmail := ""
+	if sig, sigErr := identity.Resolve(ctx, dir); sigErr == nil {
+		selfEmail = sig.Email
+	}
+	return notifyapp.NotifyDone(ctx, dir, "task", id, selfEmail, createdBy)
 }

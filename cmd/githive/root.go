@@ -9,6 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ymsaki/githive/internal/app/apperr"
+	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/logapp"
 	"github.com/ymsaki/githive/internal/app/syncapp"
@@ -16,17 +18,16 @@ import (
 	"github.com/ymsaki/githive/internal/app/wikiapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/identity"
+	"github.com/ymsaki/githive/internal/core/sign"
 )
 
 // globalFlags holds the persistent flags every subcommand shares
 // (docs/10-cli-spec.md「グローバルフラグ」).
 type globalFlags struct {
-	repo    string
-	json    bool
-	noSync  bool
-	remote  string
-	quiet   bool
-	verbose bool
+	repo   string
+	json   bool
+	noSync bool
+	remote string
 }
 
 var flags globalFlags
@@ -42,8 +43,6 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().BoolVar(&flags.json, "json", false, "JSON output")
 	root.PersistentFlags().BoolVar(&flags.noSync, "no-sync", false, "do not sync after a write")
 	root.PersistentFlags().StringVar(&flags.remote, "remote", "origin", "sync remote name")
-	root.PersistentFlags().BoolVar(&flags.quiet, "quiet", false, "reduce output")
-	root.PersistentFlags().BoolVar(&flags.verbose, "verbose", false, "increase output")
 
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newSyncCmd())
@@ -129,7 +128,11 @@ var errNotARepo = errors.New("not a githive/git repository (no .git found; use -
 // classifyError maps an error to a CLI exit code and JSON error envelope
 // (docs/10-cli-spec.md「終了コード」).
 func classifyError(err error) (int, cliout.ErrorInfo) {
-	var ambiguous *issueapp.AmbiguousIDError
+	var ambiguous *apperr.AmbiguousIDError
+	var schemaUnsupported *entitychain.SchemaUnsupportedError
+	if errors.As(err, &schemaUnsupported) {
+		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "schema_unsupported", Message: err.Error()}
+	}
 	if vfe, ok := asVerifyFailedError(err); ok {
 		return cliout.ExitVerifyFailed, cliout.ErrorInfo{
 			Code:    "verify_failed",
@@ -151,9 +154,12 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 			Data:    map[string]any{"findings": findingsToAny(ffe.report.Findings), "checkpoints": checkpointsToAny(ffe.report.Checkpoints)},
 		}
 	}
+	var trustRootConflict *syncapp.TrustRootConflictError
 	var wikiValidation *wikiapp.ValidationError
 	var wikiConflict *wikiapp.ConflictError
 	switch {
+	case errors.Is(err, errVerifyAllWithRef):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "usage_error", Message: err.Error()}
 	case errors.As(err, &ambiguous):
 		return cliout.ExitUsageError, cliout.ErrorInfo{
 			Code:    "ambiguous_id",
@@ -164,14 +170,42 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "not_a_repo", Message: err.Error()}
 	case errors.Is(err, identity.ErrNotConfigured), errors.Is(err, issueapp.ErrIdentityNotConfigured):
 		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "identity_not_configured", Message: err.Error()}
+	case errors.Is(err, sign.ErrUnsupportedFormat), errors.Is(err, sign.ErrSigningKeyMissing):
+		// Signing was asked for but cannot be performed: environment
+		// misconfiguration, not a usage error (ADR-0014, `githive doctor`'s
+		// signing check reports the same condition).
+		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "signing_misconfigured", Message: err.Error()}
+	case errors.As(err, &trustRootConflict):
+		// Two competing users registries: a verification failure that needs a
+		// human decision, not a retryable sync race (docs/03「共通祖先が無い
+		// 場合」, docs/10「終了コード」4).
+		return cliout.ExitVerifyFailed, cliout.ErrorInfo{
+			Code:    "trust_root_conflict",
+			Message: err.Error(),
+			Data: map[string]any{
+				"ref":          trustRootConflict.Ref,
+				"local_roots":  toAnySlice(trustRootConflict.LocalRoots),
+				"remote_roots": toAnySlice(trustRootConflict.RemoteRoots),
+				"pin":          trustRootConflict.Pin,
+				"recovery":     trustRootConflict.Recovery(),
+			},
+		}
 	case errors.Is(err, usersapp.ErrInvalidName):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_name", Message: err.Error()}
+	case errors.Is(err, errInvalidNotifyPriority):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_priority", Message: err.Error()}
 	case errors.Is(err, logapp.ErrInvalidSince):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_since", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrNotFound), errors.Is(err, usersapp.ErrUserNotFound), errors.Is(err, usersapp.ErrGroupNotFound), errors.Is(err, wikiapp.ErrNotFound):
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "not_found", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrRetriesExhausted), errors.Is(err, syncapp.ErrRetriesExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "conflict_retry_exhausted", Message: err.Error(), Retryable: true}
+	case errors.Is(err, syncapp.ErrPushRejected):
+		// A permanent push rejection (pre-receive hook, permission error,
+		// ...), not a non-fast-forward race - retrying will not help, so
+		// this is exit 1 (general error) rather than exit 3
+		// (docs/10-cli-spec.md「終了コード」).
+		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "push_rejected", Message: err.Error(), Retryable: false}
 	case errors.As(err, &wikiValidation):
 		items := make([]any, len(wikiValidation.Violations))
 		for i, v := range wikiValidation.Violations {
@@ -182,6 +216,11 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_conflict", Message: err.Error(), Retryable: true, Data: map[string]any{"paths": toAnySlice(wikiConflict.Paths)}}
 	case errors.Is(err, wikiapp.ErrPushRaceExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_push_race", Message: err.Error(), Retryable: true}
+	case errors.Is(err, wikiapp.ErrWorktreeExists):
+		// A prior `wiki edit` is still outstanding (issue #57): the fix is to
+		// `wiki save` or explicitly discard it, not to retry, so
+		// Retryable defaults to false.
+		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "wiki_worktree_exists", Message: err.Error()}
 	default:
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "error", Message: err.Error()}
 	}
@@ -203,7 +242,9 @@ func syncIfEnabled(dir, ref string) []cliout.Warning {
 	if flags.noSync {
 		return nil
 	}
-	if _, err := syncapp.Sync(context.Background(), dir, flags.remote, []string{ref}, syncapp.DefaultRetries); err != nil {
+	ctx := context.Background()
+	retries := syncapp.RetriesFromConfig(ctx, dir)
+	if _, err := syncapp.Sync(ctx, dir, flags.remote, []string{ref}, retries); err != nil {
 		return []cliout.Warning{{Code: "sync_failed", Message: err.Error()}}
 	}
 	return nil

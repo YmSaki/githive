@@ -56,7 +56,7 @@ wiki を除く各 ref は、**イベントソーシング**で管理する（[AD
 commit 9f3ab2...
     issue.status: open -> in_progress
 
-    {"v":1,"kind":"issue.status","id":"01j8xq4d3nbz9k7w2m5e8h1t6a", ...}
+    {"v":2,"kind":"issue.status","id":"01j8xq4d3nbz9k7w2m5e8h1t6a", ...}
 
 tree:
     meta.json
@@ -77,7 +77,7 @@ wiki だけは通常の git ブランチと同じ運用（自由なツリー編�
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "kind": "issue.comment",
   "id": "01j8xq4d3nbz9k7w2m5e8h1t6a",
   "ts": "2026-07-04T12:34:56.789Z",
@@ -87,15 +87,17 @@ wiki だけは通常の git ブランチと同じ運用（自由なツリー編�
 }
 ```
 
-- **v**：封筒スキーマのバージョン。現在は 1。
+- **v**：封筒スキーマのバージョン。現在は 2（[ADR-0015](adr/0015-task-terminal-cancel-and-schema-version-2.md) で 1 から昇格）。
 - **kind**：`<機能>.<動詞>` 形式のイベント種別。正規表現 `^[a-z]+\.[a-z_]+$` に従う。各機能仕様で定義する。
 - **id**：イベント ID。ULID。リポジトリ全体で一意。
 - **ts**：発生時刻。RFC 3339、UTC、ミリ秒精度。ULID 内の時刻と同値を書く。
-- **actor**：書き手の identity。git の `user.email` の値をそのまま記録する（[ADR-0009](adr/0009-identity-user-email.md)）。形式検査は緩くする（空白と制御文字を含まない、`@` を含む、320 byte 以下）。未設定ならエラー（終了コード 5）。fold は actor を不透明な文字列として扱い、username・表示名への解決（users 台帳の emails[] との突合）は表示時にのみ行う。実体化が registry という別 ref の状態に依存すると決定性が壊れるためである。
+- **actor**：書き手の identity。git の `user.email` の値をそのまま記録する（[ADR-0009](adr/0009-identity-user-email.md)）。形式検査は緩くする（空白を含まない、`@` を含む、320 byte 以下）。320 の単位は byte（Go 実装 `len(e.Actor)` が正）。`spec/schemas/envelope.schema.json` の `maxLength: 320` は JSON Schema の仕様上コードポイント数によるコードポイント近似であり、マルチバイト文字を含む actor では両者の判定がずれうる。「制御文字を含まない」は現状の検査（`\s` = 空白類のみを拒否）には含まれておらず、将来の強化課題とする。未設定ならエラー（終了コード 5）。fold は actor を不透明な文字列として扱い、username・表示名への解決（users 台帳の emails[] との突合）は表示時にのみ行う。実体化が registry という別 ref の状態に依存すると決定性が壊れるためである。
 - **entity**：対象エンティティの ID。ref 名から自明でも冗長に持つ（ログ単体で自己完結させるため）。
 - **data**：kind ごとのペイロード。各機能仕様で定義する。
 
 読み手は未知フィールドを無視し、書き換え時も保存する。
+
+`v` の扱いは未知フィールドとは異なる。書き手は常に自分の最新バージョンで書き、読み手は**既知の古いバージョンを受理し、未知（自分より新しい）バージョンは拒否する**（[01](01-architecture.md)「バージョニングと互換性」）。fold は `v` で分岐せず、イベントのバージョンに関わらず現行の意味論を適用する。分岐させると「同じイベント集合 → 同じツリー」の不変条件が「同じイベント集合かつ同じ `v` 分布 → 同じツリー」に弱まるためである。
 
 ## canonical JSON
 
@@ -107,6 +109,16 @@ wiki だけは通常の git ブランチと同じ運用（自由なツリー編�
 - 文字コードは UTF-8、改行は LF。
 
 コミットメッセージ内のイベント JSON も同じ正規形で書く。
+
+**唯一の例外**：notify の `events/<yyyy-mm>.jsonl`（[features/notify.md](features/notify.md)「ref とツリー」、1 行 1 レコード）だけは圧縮形を使う（`event.EncodeCompactLine` / `spec/reference/canonical_json.py` の `encode_compact_line`）。grep 等で 1 レコード 1 行を保証するにはインデント形式が使えないための例外であり、キーソート・数値の最短表現・文字列エスケープの規則は上記と完全に共通で、レイアウトだけが異なる。
+
+- インデント・改行を持たず、1 値（1 レコード）を 1 行で表す。
+- オブジェクトの `key: value` 区切りはインデント形式と同じ `": "`（コロン+スペース）。
+- オブジェクト/配列の要素区切りは `,\n` ではなく `", "`（カンマ+スペース）。
+- 空オブジェクト/空配列はインデント形式と同じ `{}`/`[]`。
+- `EncodeCompactLine` 自体は末尾に改行を付けない。jsonl の 1 行としての改行は呼び出し側（notify の `events/<month>.jsonl` 生成、`internal/app/notifyapp/tree.go`）がレコードごとに付与する。
+
+この圧縮形は決定性のために既にツリーの byte を決めており、今から変更すると互換性が壊れるため、以後もこの形式を維持する。
 
 ## ID：ULID
 
@@ -175,6 +187,21 @@ front matter は人間の閲覧と grep のためであり、機械処理はイ�
 ```
 
 ツールは操作前に `schema_version` を確認し、自分の対応バージョンより新しければ操作を拒否する。
+
+### meta.init イベント
+
+`refs/projects/meta/config` は他の機能（issue/task/chat/notify/users）と違い、fold（`internal/core/materialize`）に対応する reducer を持たない。`config.json` は `githive init`（`internal/app/initapp`）が ref 未作成の場合に限り直接書き込む唯一のツリーであり、実体化は fold ではなく初期化コマンドの直接書き込みである。
+
+とはいえ書き込みは他機能と同じ形（1 イベント = 1 コミット、コミットメッセージにイベント JSON 封筒、`refs/projects/meta/config` を CAS で前進）で行い、`kind: "meta.init"` のイベントを残す。このイベントは fold に使われない監査記録である（未知 kind として fold からは無視される・そもそも meta 用の Registry 自体が存在しない）。
+
+- kind: `meta.init`
+- data（`internal/app/initapp/initapp.go` の `ensureMetaConfig` が実際に入れるフィールド。`config.json` の内容とバイト単位で同一）:
+  - `schema_version`（int）：config.json の schema_version。現行の書き手は常に 1（`initapp.SchemaVersion`）。
+  - `project`（string）：`githive init` に渡されたプロジェクト名。
+  - `features`（string の配列）：有効機能一覧。現行のデフォルト（`initapp.DefaultFeatures`）は `["issue", "task", "notify", "users", "chat", "wiki"]`。
+  - `created_at`（string）：init 実行時刻。RFC3339、UTC、ミリ秒精度（イベント封筒の `ts` と同値）。
+
+冪等性：`refs/projects/meta/config` が既に存在すれば `githive init` は何もしない。したがって `meta.init` イベントはチェーンに 1 個だけ、ルートコミットとしてのみ存在する（後続の meta.* イベント種別は現行実装には無い）。
 
 ## サイズと成長の制約
 

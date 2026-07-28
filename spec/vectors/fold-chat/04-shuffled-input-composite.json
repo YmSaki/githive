@@ -1,0 +1,142 @@
+{
+  "name": "04-shuffled-input-composite",
+  "description": "create+body、複数 actor の post、supersedes、reply_to、edit_meta（archive）を組み合わせた複合シナリオ。events はあえて非時系列順で格納してある。ULID 順ソートにより同一の meta / messages が得られることを確認する（fold は status に関わらず post を受理し続ける点にも注意）。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn97ybnp7y1sqb854b5v",
+      "ts": "2026-07-07T12:04:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zhcy6432s4qa9sgeq028",
+      "data": {
+        "body": "了解です",
+        "reply_to": "00001snn8jfpaedh7sgxhv5m1g"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.create",
+      "id": "00001snn8b8htwwcb2bfgfnxdb",
+      "ts": "2026-07-07T12:00:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zhcy6432s4qa9sgeq028",
+      "data": {
+        "title": "総合テスト用スレッド",
+        "body": "開始します"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn9nh34xjk5kwcwa6z9d",
+      "ts": "2026-07-07T12:06:00.000Z",
+      "actor": "dev-agent-01@example.com",
+      "entity": "0000g6zhcy6432s4qa9sgeq028",
+      "data": {
+        "body": "アーカイブ後の追記"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn8sdj2kc3hs6s7jkkje",
+      "ts": "2026-07-07T12:02:00.000Z",
+      "actor": "carol@example.com",
+      "entity": "0000g6zhcy6432s4qa9sgeq028",
+      "data": {
+        "body": "タイポ: さいしょ"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.edit_meta",
+      "id": "00001snn9egn1knw32m20xpswk",
+      "ts": "2026-07-07T12:05:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "0000g6zhcy6432s4qa9sgeq028",
+      "data": {
+        "title": "総合テスト用スレッド(更新)",
+        "status": "archived"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn8jfpaedh7sgxhv5m1g",
+      "ts": "2026-07-07T12:01:00.000Z",
+      "actor": "dev-agent-01@example.com",
+      "entity": "0000g6zhcy6432s4qa9sgeq028",
+      "data": {
+        "body": "最初の返信"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "chat.post",
+      "id": "00001snn90ndjckkmgvvjar8a6",
+      "ts": "2026-07-07T12:03:00.000Z",
+      "actor": "carol@example.com",
+      "entity": "0000g6zhcy6432s4qa9sgeq028",
+      "data": {
+        "body": "訂正: 最初のコメントです",
+        "supersedes": "00001snn8sdj2kc3hs6s7jkkje"
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "0000g6zhcy6432s4qa9sgeq028",
+    "title": "総合テスト用スレッド(更新)",
+    "status": "archived",
+    "created_by": "yuumiya@example.com",
+    "created_at": "2026-07-07T12:00:00.000Z",
+    "updated_at": "2026-07-07T12:06:00.000Z",
+    "message_count": 6,
+    "participants": [
+      "carol@example.com",
+      "dev-agent-01@example.com",
+      "yuumiya@example.com"
+    ]
+  },
+  "expected_messages": {
+    "00001snn8b8htwwcb2bfgfnxdb": {
+      "id": "00001snn8b8htwwcb2bfgfnxdb",
+      "author": "yuumiya@example.com",
+      "ts": "2026-07-07T12:00:00.000Z",
+      "body": "開始します"
+    },
+    "00001snn8jfpaedh7sgxhv5m1g": {
+      "id": "00001snn8jfpaedh7sgxhv5m1g",
+      "author": "dev-agent-01@example.com",
+      "ts": "2026-07-07T12:01:00.000Z",
+      "body": "最初の返信"
+    },
+    "00001snn8sdj2kc3hs6s7jkkje": {
+      "id": "00001snn8sdj2kc3hs6s7jkkje",
+      "author": "carol@example.com",
+      "ts": "2026-07-07T12:02:00.000Z",
+      "body": "タイポ: さいしょ",
+      "superseded_by": "00001snn90ndjckkmgvvjar8a6"
+    },
+    "00001snn90ndjckkmgvvjar8a6": {
+      "id": "00001snn90ndjckkmgvvjar8a6",
+      "author": "carol@example.com",
+      "ts": "2026-07-07T12:03:00.000Z",
+      "body": "訂正: 最初のコメントです",
+      "supersedes": "00001snn8sdj2kc3hs6s7jkkje"
+    },
+    "00001snn97ybnp7y1sqb854b5v": {
+      "id": "00001snn97ybnp7y1sqb854b5v",
+      "author": "yuumiya@example.com",
+      "ts": "2026-07-07T12:04:00.000Z",
+      "body": "了解です",
+      "reply_to": "00001snn8jfpaedh7sgxhv5m1g"
+    },
+    "00001snn9nh34xjk5kwcwa6z9d": {
+      "id": "00001snn9nh34xjk5kwcwa6z9d",
+      "author": "dev-agent-01@example.com",
+      "ts": "2026-07-07T12:06:00.000Z",
+      "body": "アーカイブ後の追記"
+    }
+  }
+}

@@ -8,7 +8,7 @@ githive は 4 つの層で構成する。
 ```
 +----------------------------------------------------------+
 | クライアント層                                              |
-|  cmd/githive (CLI) | TUI | MCP server | VSCode 拡張        |
+|  cmd/githive (CLI, MCP server はサブコマンド) | TUI* | VSCode 拡張* |
 +----------------------------------------------------------+
 | アプリケーション層  internal/app                            |
 |  issue / task / notify / chat / users / wiki の各サービス   |
@@ -16,7 +16,7 @@ githive は 4 つの層で構成する。
 +----------------------------------------------------------+
 | コア層  internal/core                                      |
 |  event | chain | materialize | merge | refspace |          |
-|  sign | registry | gitx                                    |
+|  sign | wikifs | gitx                                       |
 +----------------------------------------------------------+
 | git 層                                                     |
 |  go-git（ローカルオブジェクト操作） + system git（通信）       |
@@ -24,36 +24,45 @@ githive は 4 つの層で構成する。
 ```
 
 サーバー（forge）は別バイナリとして同じコア層を再利用する（[12](12-forge-server.md)）。
-クライアント層のうち CLI 以外（TUI、MCP、VSCode 拡張）の詳細は [15-clients.md](15-clients.md) に置く。
+クライアント層のうち CLI 以外の詳細は [15-clients.md](15-clients.md) に置く。上図の TUI・VSCode 拡張（*）の現状は次節「リポジトリ構成」で述べる。
 
 ## リポジトリ構成（モノレポ）
 
 ```
 githive/
   cmd/
-    githive/            # CLI エントリポイント（TUI と MCP はサブコマンドとして同梱）
+    githive/            # CLI エントリポイント（MCP はサブコマンドとして同梱。TUI は未着手）
     githive-forge/      # forge サーバー（後続フェーズ）
   internal/
     core/
       refspace/         # ref 名の構築・解決・列挙
       event/            # イベント封筒の定義、canonical JSON codec、スキーマ検証
       chain/            # コミットチェーンの読み書き（go-git）
-      materialize/      # kind ごとの fold 関数（イベント集合 -> 状態ツリー）
+      materialize/      # kind ごとの fold 関数（イベント集合 -> 状態ツリー）。
+                        # users/groups/policy の fold も materialize/users.go に含む
       merge/            # イベント和集合マージの実装
       sign/             # SSH 署名の付与と検証
-      registry/         # users/groups/policy の読み出しと評価
+      wikifs/           # wiki 編集用の一時 worktree 操作（features/wiki.md）
       gitx/             # system git の呼び出し（fetch/push/credential）
     app/
       issueapp/ taskapp/ notifyapp/ chatapp/ usersapp/ wikiapp/
       syncapp/          # fetch -> merge -> push の再試行ループ
+      entitychain/      # CAS 再試行付き追記の共通実装（ADR-0013「帰結」）
+      initapp/          # githive init（refspec 初期化、meta/config）
+      verifyapp/        # githive verify（署名・チェーン整合の検証）
+      doctorapp/        # githive doctor（環境診断）
+      fsckapp/          # githive fsck --compact（チェックポイント作成）
+      logapp/           # githive log（横断タイムライン）
     cliout/             # human/JSON 出力の整形
-    tui/                # TUI 実装（bubbletea 想定）
-    mcpserv/            # MCP サーバー実装（stdio）
+    # tui/ は未着手（P6/P7 と同じく Horizon 3。存在しない）
   clients/
-    vscode/             # VSCode 拡張（TypeScript、CLI --json を子プロセスとして利用）
     plugins/            # Claude plugin / Codex plugin のマニフェストとテンプレート
+    # vscode/ は未着手（Horizon 3、P7）。存在しない
   docs/
 ```
+
+MCP サーバーは現状 `cmd/githive/mcp.go` に実装されており、独立パッケージ（`internal/mcpserv` 等への分離）にはなっていない。分離は将来のリファクタ候補であり、コミットメントではない。
+`internal/tui/` と `clients/vscode/` は Horizon 3（P6/P7）に対応し、現時点では未着手（ディレクトリ自体が存在しない）。
 
 ## 依存規則
 
@@ -62,6 +71,18 @@ githive/
 - 通信（fetch/push/clone）は `gitx` 経由で system git を呼ぶ。go-git はローカルのオブジェクト・ref 操作にのみ使う（理由は [ADR-0002](adr/0002-go-and-hybrid-git-access.md)）。
 - クライアント層は `app` のサービスだけを呼ぶ。`core` を直接呼ばない。
   VSCode 拡張のみ例外的にプロセス境界（CLI `--json`）越しに `app` を利用する。
+
+クライアント層から `core` を直接呼んでよいのは、**状態を持たない薄い変換・解決**に限る。現行の許容リストは次のとおりで、これ以外を増やすときはこの一覧に追記する。
+
+| 許容 | 理由 |
+|------|------|
+| `identity.Resolve` / `identity.ErrNotConfigured` | git config から identity を引くだけの純粋な解決。app ごとに薄いラッパを増やす方が害が大きい |
+| `event.Encode` / `event.DecodeGeneric` / `event.SchemaVersion` | canonical JSON は 1 実装に集約する規則（[02](02-data-model.md)）そのもの。別経路を作ってはならない |
+| `refspace` の定数と `Parse` / `RemoteTrackingRef` / `LocalRefFromTracking` | ref 名の文字列代数であり I/O を持たない |
+| `core` 各パッケージのセンチネルエラー値 | 終了コードへの対応付け（`classifyError`）に必要。エラー値の参照は振る舞いを持ち込まない |
+
+逆に、**git I/O（`gitx`）・コミットチェーン操作（`chain`）・fold（`materialize`）・マージ（`merge`）はクライアント層から直接呼ばない**。これらはアプリケーションロジックであり、`app` のサービス越しに使う。TUI や外部ツールから再利用できなくなるためである。
+
 
 ## データフロー
 
@@ -107,7 +128,7 @@ githive はワークツリーを使わない。
 
 ## バージョニングと互換性
 
-- イベント封筒に `"v": 1` を持たせる。フィールド追加は同一バージョン内で許し、意味変更・削除はバージョンを上げる。
+- イベント封筒に `v`（現在は 2）を持たせる。フィールド追加は同一バージョン内で許し、意味変更・削除はバージョンを上げる。
 - 読み手は未知フィールドを保存したまま無視する（forward compatible）。未知の `v` は読み取り拒否し、ツールの更新を促す。
 - `refs/projects/meta/config` の `schema_version` はリポジトリ全体の最低要求バージョンを表す。
 - **fold 意味論の変更（同じイベント集合から異なる実体化ツリーが生まれる変更）は、schema_version の昇格を必須とする**。この規則が無いと、新旧ツールの混在チームで実体化ツリーが分岐し、verify が偽の改竄検出をする。fold の互換性は golden テスト（[14](14-testing.md)）で機械的に守る。

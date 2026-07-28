@@ -22,14 +22,13 @@ import (
 )
 
 // featureWriter bundles the fold registry and tree renderer fsck needs to
-// append a checkpoint to one feature's chain. The renderers are each feature
-// app's own TreeFiles: the checkpoint commit's tree MUST be the feature's
-// canonical materialized layout (front matter, jsonl, etc.), not the generic
-// core/merge layout, or the head tree after a checkpoint would differ from
-// what a feature write produces and break byte-identical materialization
-// (docs/02-data-model.md「決定性の不変条件」). Because fold ignores checkpoint
-// kinds, TreeFiles(fold(events + checkpoint)) == TreeFiles(fold(events)), so
-// the tree is byte-identical to the pre-checkpoint head.
+// append a checkpoint to one feature's chain. The renderer MUST be the
+// feature's own TreeFiles (front matter, jsonl, etc.), or the head tree
+// after a checkpoint would differ from what a feature write produces and
+// break byte-identical materialization (docs/02-data-model.md「決定性の不変条
+// 件」). Because fold ignores checkpoint kinds,
+// TreeFiles(fold(events + checkpoint)) == TreeFiles(fold(events)), so the
+// tree is byte-identical to the pre-checkpoint head.
 type featureWriter struct {
 	registry  *materialize.Registry
 	treeFiles func(*materialize.State) (map[string][]byte, error)
@@ -69,10 +68,15 @@ func (s *Service) maybeCheckpoint(ctx context.Context, repo *git.Repository, ref
 	// Fold the snapshot to embed the current state in the checkpoint's data
 	// (docs/03-sync-and-concurrency.md「data に … 完全な状態 …」). The commit's
 	// tree is rendered independently by the Writer from the freshly re-read
-	// chain, so this snapshot is only a read-hint and its exactness is not a
-	// correctness requirement.
+	// chain, so this snapshot never decides the materialized bytes - but it
+	// IS what readers restart their fold from (ADR-0016), so it must be a
+	// faithful, fully restorable copy of the fold state.
 	state := fw.registry.Fold(events)
 	eventCount := countNonCheckpoint(events)
+	data, err := checkpointData(state, eventCount, oid, maxEventID(events))
+	if err != nil {
+		return nil, nil, err
+	}
 
 	w := &entitychain.Writer{
 		Dir:       s.Dir,
@@ -92,12 +96,12 @@ func (s *Service) maybeCheckpoint(ctx context.Context, repo *git.Repository, ref
 		}
 		kind := string(parsed.Feature) + ".checkpoint"
 		return &event.Envelope{
-			V:      1,
+			V:      event.SchemaVersion,
 			Kind:   kind,
 			ID:     eid,
 			TS:     ts,
 			Entity: cpEntity,
-			Data:   checkpointData(state, eventCount, oid),
+			Data:   data,
 			Extra:  map[string]any{},
 		}, kind
 	}); err != nil {
@@ -115,26 +119,37 @@ func (s *Service) maybeCheckpoint(ctx context.Context, repo *git.Repository, ref
 }
 
 // checkpointData is the checkpoint event's data payload: the folded state at
-// this point plus the number of events it subsumes and the head commit it sits
-// on (docs/03-sync-and-concurrency.md「チェックポイント」).
-func checkpointData(state *materialize.State, eventCount int, head string) map[string]any {
-	return map[string]any{
-		"event_count": eventCount,
-		"head":        head,
-		"state":       stateToMap(state),
+// this point, the number of events it subsumes, the head commit it sits on,
+// and the largest event ID it covers
+// (docs/03-sync-and-concurrency.md「チェックポイント」, ADR-0013/ADR-0016).
+//
+// maxEventID is what makes the read shortcut safe: a reader may only restart
+// its fold here if every event after the checkpoint sorts after this ID.
+// Event order is ULID order, which a clock-skewed peer can violate relative
+// to chain order (ADR-0012), so it cannot be inferred from the chain shape.
+func checkpointData(state *materialize.State, eventCount int, head, maxEventID string) (map[string]any, error) {
+	stateMap, err := materialize.StateToMap(state)
+	if err != nil {
+		return nil, err
 	}
+	return map[string]any{
+		"event_count":  eventCount,
+		"head":         head,
+		"max_event_id": maxEventID,
+		"state":        stateMap,
+	}, nil
 }
 
-func stateToMap(state *materialize.State) map[string]any {
-	meta := map[string]any{}
-	if state.Meta != nil {
-		meta = map[string]any(state.Meta)
+// maxEventID returns the largest event ID among events, including any
+// checkpoints being subsumed.
+func maxEventID(events []*event.Envelope) string {
+	max := ""
+	for _, e := range events {
+		if e.ID > max {
+			max = e.ID
+		}
 	}
-	collections := make(map[string]any, len(state.Collections))
-	for name, coll := range state.Collections {
-		collections[name] = map[string]any(coll)
-	}
-	return map[string]any{"meta": meta, "collections": collections}
+	return max
 }
 
 func isCheckpoint(kind string) bool { return strings.HasSuffix(kind, ".checkpoint") }

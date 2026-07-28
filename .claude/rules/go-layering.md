@@ -9,7 +9,7 @@ githive は 4 層構成である（[docs/01-architecture.md](../../docs/01-archi
 ```
 クライアント層  cmd/githive, internal/tui, internal/mcpserv, clients/vscode
 アプリケーション層  internal/app/*（issueapp, taskapp, notifyapp, chatapp, usersapp, wikiapp, syncapp）
-コア層  internal/core/*（event, chain, materialize, merge, refspace, sign, registry, gitx, identity, idgen）
+コア層  internal/core/*（event, chain, materialize, merge, refspace, sign, wikifs, gitx, identity, idgen）
 git 層  go-git（ローカル）+ system git（通信、internal/core/gitx 経由）
 ```
 
@@ -18,6 +18,7 @@ git 層  go-git（ローカル）+ system git（通信、internal/core/gitx 経�
 - 依存は `cmd` → `app` → `core` の一方向のみ。逆方向の import は禁止。
 - `internal/core` パッケージから `internal/app` を import してはならない。`core/materialize` と `core/merge` は純粋関数として書き、I/O（git 読み書き）は `core/chain` に隔離する（依存規則）。
 - クライアント層（`cmd/githive`、TUI、MCP サーバー）は `app` のサービスだけを呼び、`core` を直接呼ばない。例外は VSCode 拡張で、プロセス境界（CLI `--json`）越しに `app` を利用する。
+- 上記の例外として、**状態を持たない薄い変換・解決に限り** クライアント層から `core` を直接呼んでよい。許容リストは `identity.Resolve`／`event.Encode`・`DecodeGeneric`・`SchemaVersion`（canonical JSON の一元化のため）／`refspace` の定数と `Parse`・`RemoteTrackingRef`・`LocalRefFromTracking`／`core` 各パッケージのセンチネルエラー値（終了コード対応付けのため）。git I/O（`gitx`）・`chain`・`materialize`・`merge` は必ず `app` 経由にする（[docs/01-architecture.md](../../docs/01-architecture.md)「依存規則」に同じ表がある）。
 - 通信（fetch/push/clone）は `core/gitx` 経由で system git を呼ぶ。go-git はローカルのオブジェクト・ref 操作にのみ使う（[ADR-0002](../../docs/adr/0002-go-and-hybrid-git-access.md)）。
 
 新しいパッケージを追加するときは、まずこの表のどの層に属するかを決め、依存が下方向だけになっているか確認する。`go vet` や CI の import 検査には現状この方向性チェックは含まれないため、レビュー観点として自分で確認すること。

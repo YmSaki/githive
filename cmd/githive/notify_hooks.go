@@ -2,33 +2,36 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ymsaki/githive/internal/app/notifyapp"
-	"github.com/ymsaki/githive/internal/core/gitx"
+	"github.com/ymsaki/githive/internal/app/usersapp"
+	"github.com/ymsaki/githive/internal/cliout"
 )
 
-// autoNotifyEnabled reads githive.notify.auto (default true,
-// docs/10-cli-spec.md「設定（git config）」).
-func autoNotifyEnabled(ctx context.Context, dir string) bool {
-	v, err := gitx.New(dir).ConfigGet(ctx, "githive.notify.auto")
-	if err != nil || v == "" {
-		return true
+// The conditions and wording of githive's automatic notifications used to
+// live here and again, verbatim, in mcp.go - so the same action produced a
+// different notification depending on the client, contradicting
+// docs/15-clients.md「全クライアントは機能の意味論を再実装しない」. They now
+// live in internal/app/notifyapp (auto.go); what remains here is the shaping
+// of its warning strings into the CLI's envelope, and the users-registry
+// resolver the mention helper needs injected.
+//
+// Automatic sync stays on the client side: ADR-0011 has the MCP server
+// deliberately not syncing, so the notification and the sync that may follow
+// it must not be welded together in the app layer.
+
+// notifyWarnings converts notifyapp's failure strings into CLI warnings.
+func notifyWarnings(msgs []string) []cliout.Warning {
+	out := make([]cliout.Warning, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, cliout.Warning{Code: "auto_notify_failed", Message: m})
 	}
-	return v != "false" && v != "0"
+	return out
 }
 
-// autoNotify posts one notification if githive.notify.auto is enabled,
-// swallowing (as a warning, not an error) any failure - auto-notify is a
-// convenience, not a correctness requirement
-// (docs/features/notify.md「自動通知」: コア層には置かず、CLI の書き込み
-// コマンドが設定に応じて併発する).
-func autoNotify(ctx context.Context, dir, target, title string, source map[string]any) []string {
-	if !autoNotifyEnabled(ctx, dir) {
-		return nil
+// mentionResolver binds the users registry in dir as notifyapp's resolver.
+func mentionResolver(dir string) notifyapp.MentionResolver {
+	return func(ctx context.Context, name string) ([]string, error) {
+		return usersapp.MentionTargets(ctx, dir, name)
 	}
-	if _, err := notifyapp.New(dir).Post(ctx, []string{target}, title, "", source, ""); err != nil {
-		return []string{fmt.Sprintf("auto-notify to %s failed: %v", target, err)}
-	}
-	return nil
 }

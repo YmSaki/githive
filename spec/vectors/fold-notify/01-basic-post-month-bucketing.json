@@ -1,0 +1,70 @@
+{
+  "name": "01-basic-post-month-bucketing",
+  "description": "notify.post 2 件（7 月・8 月）。month が ts の先頭 7 文字から導出されること、body/source/priority がキー存在時のみ素通しされること、meta は notify/users のようなシングルトンでフィールドを持たない空 dict であることを確認する。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "notify.post",
+      "id": "00003kc71hfvxmvh2yb8a0q0ks",
+      "ts": "2026-07-04T09:00:00.000Z",
+      "actor": "a@example.com",
+      "entity": "00003kc71hfvxmvh2yb8a0q0ks",
+      "data": {
+        "targets": [
+          "user:b@example.com"
+        ],
+        "title": "task 完了",
+        "body": "確認してください",
+        "source": {
+          "kind": "task",
+          "id": "01j8xt5e6f7g8h9j0k1a2b3c4d"
+        },
+        "priority": "normal"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "notify.post",
+      "id": "00003kc71r2r21020195zpqr5a",
+      "ts": "2026-08-01T00:00:00.000Z",
+      "actor": "a@example.com",
+      "entity": "00003kc71r2r21020195zpqr5a",
+      "data": {
+        "targets": [
+          "all"
+        ],
+        "title": "月次アナウンス"
+      }
+    }
+  ],
+  "expected_meta": {},
+  "expected_posts": {
+    "00003kc71hfvxmvh2yb8a0q0ks": {
+      "id": "00003kc71hfvxmvh2yb8a0q0ks",
+      "ts": "2026-07-04T09:00:00.000Z",
+      "actor": "a@example.com",
+      "targets": [
+        "user:b@example.com"
+      ],
+      "title": "task 完了",
+      "month": "2026-07",
+      "body": "確認してください",
+      "source": {
+        "kind": "task",
+        "id": "01j8xt5e6f7g8h9j0k1a2b3c4d"
+      },
+      "priority": "normal"
+    },
+    "00003kc71r2r21020195zpqr5a": {
+      "id": "00003kc71r2r21020195zpqr5a",
+      "ts": "2026-08-01T00:00:00.000Z",
+      "actor": "a@example.com",
+      "targets": [
+        "all"
+      ],
+      "title": "月次アナウンス",
+      "month": "2026-08"
+    }
+  },
+  "expected_acks": {}
+}

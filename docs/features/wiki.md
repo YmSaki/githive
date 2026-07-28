@@ -19,6 +19,11 @@ tree:（自由な markdown ツリー。例）
   _assets/            # 小さな画像等。バイナリは 1 MiB 上限（超えるものは LFS 対応まで不可）
 ```
 
+`_assets/` 配下のバイナリを `githive wiki show --json` で読むときは、`content` ではなく `content_base64` が返る。
+canonical JSON は UTF-8 であり（[02](../02-data-model.md)「canonical JSON」）、不正なバイト列は U+FFFD に置換されてしまうため、有効な UTF-8 でない内容は base64 で返し `content` を省略する。
+`content` が存在すれば必ず元のバイト列そのものであり、壊れた内容が `content` から読めることはない。
+生バイトが欲しい場合は `--json` を付けずに `githive wiki show <path>` を使う（標準出力にそのまま書き出す）。
+
 `Home.md` を入口ページの規約とする。
 
 ## 他機能との違い：イベントソーシングを使わない
@@ -45,6 +50,26 @@ githive wiki log [<path>]
 
 `githive wiki edit --keep` で worktree を残し、通常の git 操作（`git -C <worktree> ...`）で作業してもよい。
 競合したら `githive wiki save` が通常の git コンフリクトマーカーを提示し、解決後の再実行で完了する。
+
+`githive wiki edit` は編集中の worktree を1つだけ記録する（`githive.wiki.worktree` という git config キー）。
+前回の `wiki edit` を `wiki save` せずに再度 `wiki edit` を実行すると、記録済みの worktree がまだディスク上に存在する限り
+`ErrWorktreeExists`（`--json` では `error.code: "wiki_worktree_exists"`、終了コード 1）で拒否され、新しい worktree は作られない。
+前回の worktree を放置したまま2つ目を作って古い方を参照不能にする（worktree 登録とディスクの両方がリークする）ことを避けるためである。
+先に `githive wiki save` を実行するか、明示的に破棄する（`git -C <repo> worktree remove --force <worktree>` の後
+`git -C <repo> config --unset githive.wiki.worktree`）こと。
+なお、記録済みの worktree が（`wiki save` を経由せず）人手で既に削除されている場合は、この検出は行われず新規の
+worktree 作成に進む（そうしないと二度と `wiki edit` できなくなるため）。
+
+## sync との関係
+
+`githive sync` は wiki について **fetch と fast-forward だけ**を行う（[ADR-0017](../adr/0017-wiki-and-meta-sync.md)）。
+
+- ローカルがリモートの祖先なら、ローカル ref をリモートへ前進させる。逆向きなら push する。
+- 分岐している場合は自動マージしない。`wiki-diverged` として警告を返し、`githive wiki edit` → `githive wiki save` での解消を促す。sync 自体は失敗しない（終了コード 0 のまま、他の ref の同期も完了する）。
+- `githive.wiki.worktree` が設定され、その worktree が実在する（= 編集中）場合は ref を動かさず `wiki-editing` として警告する。チェックアウト中の worktree の足元で ref が動くのを避けるためである。
+
+3-way マージは `wiki save` が worktree 上で行う唯一の経路である。sync は作業ファイルに触らない（[03](../03-sync-and-concurrency.md)）。
+`githive status` の未 push 一覧にも wiki が含まれる。
 
 ## 素の git での読み書き
 

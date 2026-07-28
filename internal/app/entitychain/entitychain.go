@@ -12,16 +12,20 @@ package entitychain
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/materialize"
+	"github.com/ymsaki/githive/internal/core/refspace"
+	"github.com/ymsaki/githive/internal/core/sign"
 )
 
 // ErrRetriesExhausted means a local CAS write kept losing to concurrent
@@ -29,6 +33,95 @@ import (
 var ErrRetriesExhausted = errors.New("entitychain: local ref update retries exhausted")
 
 const defaultRetries = 10
+
+// SchemaUnsupportedError is returned by Append when refs/projects/meta/config
+// declares a schema_version newer than this build supports
+// (docs/02-data-model.md「meta/config ref」「ツールは操作前に schema_version
+// を確認し、自分の対応バージョンより新しければ操作を拒否する」). The CLI maps
+// it to exit code 5 and error.code "schema_unsupported"
+// (docs/10-cli-spec.md「終了コード」).
+type SchemaUnsupportedError struct {
+	Found     int
+	Supported int
+}
+
+func (e *SchemaUnsupportedError) Error() string {
+	return fmt.Sprintf("entitychain: meta/config schema_version %d is newer than the %d this build supports", e.Found, e.Supported)
+}
+
+// checkSchemaSupported rejects a write when refs/projects/meta/config's
+// config.json declares a schema_version newer than initapp.SchemaVersion -
+// the config schema's own version counter, independent of the envelope
+// schema counter event.SchemaVersion (docs/01-architecture.md「Go モジュール
+// は...データスキーマはこの v と schema_version で、それぞれ独立に管理する」).
+//
+// A repository with no meta/config ref yet (pre-`githive init`, or a partial
+// clone that never fetched it) skips the check entirely, preserving prior
+// behavior for those repositories. Likewise, a meta/config tree this
+// function cannot make sense of (missing/malformed config.json, no integer
+// schema_version) is left for `githive fsck` to report; Append's job here is
+// only to block writes against a config it can positively identify as too
+// new, not to duplicate fsck's broader validation.
+func checkSchemaSupported(ctx context.Context, dir string) error {
+	r := gitx.New(dir)
+	oid, err := r.RevParse(ctx, refspace.MetaConfigRef)
+	if err != nil {
+		return err
+	}
+	if oid == "" {
+		return nil
+	}
+	repo, err := chain.OpenRepository(dir)
+	if err != nil {
+		return err
+	}
+	files, err := chain.ReadTree(repo, plumbing.NewHash(oid))
+	if err != nil {
+		return err
+	}
+	raw, ok := files["config.json"]
+	if !ok {
+		return nil
+	}
+	decoded, err := event.DecodeGeneric(raw)
+	if err != nil {
+		return nil
+	}
+	m, ok := decoded.(map[string]any)
+	if !ok {
+		return nil
+	}
+	sv, ok := schemaVersionAsInt(m["schema_version"])
+	if !ok {
+		return nil
+	}
+	if sv > initapp.SchemaVersion {
+		return &SchemaUnsupportedError{Found: sv, Supported: initapp.SchemaVersion}
+	}
+	return nil
+}
+
+// schemaVersionAsInt reads schema_version out of a map decoded by
+// event.DecodeGeneric, which yields json.Number for numbers (probed via its
+// Float64 method here without importing encoding/json).
+func schemaVersionAsInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	default:
+		type float64er interface{ Float64() (float64, error) }
+		if f, ok := v.(float64er); ok {
+			if got, err := f.Float64(); err == nil {
+				return int(got), true
+			}
+		}
+		return 0, false
+	}
+}
 
 // writeLocks serializes Append calls that target the same repository
 // directory, across all Writer instances and features. This is purely an
@@ -68,8 +161,90 @@ type Writer struct {
 	NotFoundErr error
 }
 
+// foldInputs returns what to fold id's current state from: a base state to
+// start from (nil = start empty) and the events to apply on top, plus the
+// ref's current OID.
+//
+// When the chain carries a usable checkpoint, the base is that checkpoint's
+// snapshot and only the events after it are returned - the read shortcut of
+// docs/03-sync-and-concurrency.md「チェックポイント」. Otherwise it degrades
+// to the full walk, which produces the same state, just slower.
+// newEventID, when non-empty, is the ID of an event the caller is about to
+// append; it participates in the shortcut's ordering check just like the
+// events already on the chain.
+func (w *Writer) foldInputs(ctx context.Context, id, newEventID string) (base *materialize.State, events []*event.Envelope, oid string, err error) {
+	r := gitx.New(w.Dir)
+	ref := w.RefFor(id)
+	oid, err = r.RevParse(ctx, ref.String())
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if oid == "" {
+		return nil, nil, gitx.ZeroOID, nil
+	}
+	repo, err := chain.OpenRepository(w.Dir)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	head := plumbing.NewHash(oid)
+
+	start, err := chain.FindCheckpointStart(repo, head)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if start != nil {
+		if base, ok := w.checkpointBase(start, newEventID); ok {
+			return base, start.After, oid, nil
+		}
+	}
+
+	events, err = chain.WalkChain(repo, head)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return nil, events, oid, nil
+}
+
+// checkpointBase restores start's snapshot if it is safe to fold from
+// (ADR-0016 条件 2・3). Any doubt - an older checkpoint format, a snapshot
+// this tool cannot decode, or an event after the checkpoint that would sort
+// before something the checkpoint already subsumed - answers "no", and the
+// caller falls back to walking the whole chain.
+func (w *Writer) checkpointBase(start *chain.CheckpointStart, newEventID string) (*materialize.State, bool) {
+	maxID, ok := start.Checkpoint.Data["max_event_id"].(string)
+	if !ok || !event.IsValidULID(maxID) {
+		return nil, false
+	}
+	ids := make([]string, 0, len(start.After)+1)
+	for _, e := range start.After {
+		ids = append(ids, e.ID)
+	}
+	if newEventID != "" {
+		ids = append(ids, newEventID)
+	}
+	for _, id := range ids {
+		if id <= maxID {
+			// A clock-skewed peer's event sorts inside the range the
+			// checkpoint already folded; restarting here would apply events
+			// in a different order than a full fold (ADR-0012).
+			return nil, false
+		}
+	}
+	raw, ok := start.Checkpoint.Data["state"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	base, err := w.Registry.StateFromMap(raw)
+	if err != nil {
+		return nil, false
+	}
+	return base, true
+}
+
 // CurrentEvents returns every event in id's chain (empty if it does not
-// exist yet) and the ref's current OID (gitx.ZeroOID if absent).
+// exist yet) and the ref's current OID (gitx.ZeroOID if absent). It always
+// walks the whole chain: callers that want the event list want all of it.
+// State reconstruction goes through foldInputs instead.
 func (w *Writer) CurrentEvents(ctx context.Context, id string) (events []*event.Envelope, oid string, err error) {
 	r := gitx.New(w.Dir)
 	ref := w.RefFor(id)
@@ -100,6 +275,10 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 	mu.Lock()
 	defer mu.Unlock()
 
+	if err := checkSchemaSupported(ctx, w.Dir); err != nil {
+		return nil, err
+	}
+
 	r := gitx.New(w.Dir)
 	repo, err := chain.OpenRepository(w.Dir)
 	if err != nil {
@@ -109,17 +288,25 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 	if err != nil {
 		return nil, err
 	}
+	// Resolved once per Append rather than per attempt: the signing config
+	// cannot change mid-loop, and a literal user.signingkey costs a temp
+	// file (ADR-0014).
+	signer, cleanupSigner, err := sign.ResolveSigner(ctx, w.Dir)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanupSigner()
 	ref := w.RefFor(id)
 
 	for attempt := 0; attempt < defaultRetries; attempt++ {
-		existingEvents, oid, err := w.CurrentEvents(ctx, id)
+		env, summary := buildEvent()
+		env.Actor = sig.Email
+		base, existingEvents, oid, err := w.foldInputs(ctx, id, env.ID)
 		if err != nil {
 			return nil, err
 		}
-		env, summary := buildEvent()
-		env.Actor = sig.Email
 		allEvents := append(append([]*event.Envelope(nil), existingEvents...), env)
-		state := w.Registry.Fold(allEvents)
+		state := w.Registry.FoldFrom(base, allEvents)
 		if w.NotFoundErr != nil && state.Meta == nil {
 			return nil, w.NotFoundErr
 		}
@@ -132,7 +319,7 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 		if oid != gitx.ZeroOID {
 			parent = plumbing.NewHash(oid)
 		}
-		newHash, err := chain.AppendEvent(repo, parent, env, summary, files, sig)
+		newHash, err := chain.AppendEvent(repo, parent, env, summary, files, sig, chain.WithSigner(signer))
 		if err != nil {
 			return nil, err
 		}
@@ -147,11 +334,12 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 	return nil, ErrRetriesExhausted
 }
 
-// Fold returns the current fold state for id without writing anything.
+// Fold returns the current fold state for id without writing anything,
+// taking the checkpoint shortcut when the chain offers one.
 func (w *Writer) Fold(ctx context.Context, id string) (*materialize.State, error) {
-	events, _, err := w.CurrentEvents(ctx, id)
+	base, events, _, err := w.foldInputs(ctx, id, "")
 	if err != nil {
 		return nil, err
 	}
-	return w.Registry.Fold(events), nil
+	return w.Registry.FoldFrom(base, events), nil
 }

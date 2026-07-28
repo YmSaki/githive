@@ -46,6 +46,10 @@ type Reducer func(s *State, env *event.Envelope)
 // that applies it.
 type Registry struct {
 	reducers map[string]Reducer
+	// scratchDecoder rebuilds this feature's typed Scratch values when a
+	// fold is restarted from a checkpoint snapshot (ADR-0016). Nil for
+	// features whose reducers never touch Scratch.
+	scratchDecoder ScratchDecoder
 }
 
 // NewRegistry returns an empty registry.
@@ -62,7 +66,25 @@ func (r *Registry) Register(kind string, fn Reducer) {
 // package doc. Unknown kinds are ignored (forward compatibility,
 // docs/02-data-model.md「読み手は未知フィールドを無視し」の kind 版).
 func (r *Registry) Fold(events []*event.Envelope) *State {
-	s := NewState()
+	return r.FoldFrom(nil, events)
+}
+
+// FoldFrom is Fold starting from an already-computed state instead of an
+// empty one, so that a reader which restored a checkpoint snapshot only has
+// to apply the events after it (docs/03-sync-and-concurrency.md
+// 「チェックポイント」, ADR-0016). A nil initial means "start empty", making
+// Fold the special case.
+//
+// The caller must guarantee that every event in events sorts after every
+// event already folded into initial; otherwise the result differs from
+// folding the whole set, breaking determinism. chain.FindCheckpointStart
+// plus the checkpoint's max_event_id establish that (ADR-0016 条件 3).
+// FoldFrom takes ownership of initial and mutates it in place.
+func (r *Registry) FoldFrom(initial *State, events []*event.Envelope) *State {
+	s := initial
+	if s == nil {
+		s = NewState()
+	}
 	ordered := event.SortEvents(events)
 	for _, env := range ordered {
 		if strings.HasSuffix(env.Kind, ".checkpoint") {
