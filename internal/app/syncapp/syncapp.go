@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
@@ -17,6 +18,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/core/chain"
+	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/materialize"
@@ -42,6 +44,11 @@ const (
 	// 「共通祖先が無い場合」).
 	ActionKeptLocalTrustRoot     Action = "kept-local-trust-root"
 	ActionAdoptedRemoteTrustRoot Action = "adopted-remote-trust-root"
+	// ActionWikiDiverged and ActionWikiSkippedEditing are the two cases
+	// where sync deliberately leaves the wiki ref alone: sync only
+	// fast-forwards the wiki, it never merges it (ADR-0017).
+	ActionWikiDiverged       Action = "wiki-diverged"
+	ActionWikiSkippedEditing Action = "wiki-editing"
 )
 
 // Result is the per-ref outcome of a sync. Warning carries a message the
@@ -69,20 +76,24 @@ var ErrRetriesExhausted = errors.New("syncapp: push retries exhausted")
 // sync is expected to converge.
 var ErrPushRejected = errors.New("syncapp: push rejected")
 
-// SupportedFeatures lists the features sync can fetch/merge/push today:
-// issue/task/chat (per-entity refs), notify (the single notify/stream ref),
-// and users (the single users/registry ref) - event-union merge works
-// identically for a singleton ref, since it is just union-then-fold like
-// any other ref. wiki is not yet wired up (docs/13-roadmap.md P4: it uses
-// ordinary git history, not event-union merge). cmd/githive's `sync` and
-// `status` commands both use this so the set of synced refs stays in one
-// place.
+// SupportedFeatures lists every feature sync handles. issue/task/chat
+// (per-entity refs), notify (notify/stream and its monthly shards) and users
+// (users/registry) go through event-union merge - it works identically for a
+// singleton ref, being just union-then-fold like any other. meta/config is
+// event-sourced too but has no reducer, so its merge resolves config.json
+// directly (metaMergeFiles). wiki is not event-sourced at all (ADR-0003) and
+// is fetched and fast-forwarded only, never merged (ADR-0017, planWiki).
+//
+// cmd/githive's `sync` and `status` commands both use this so the set of
+// synced refs stays in one place.
 var SupportedFeatures = map[refspace.Feature]bool{
 	refspace.FeatureIssue:  true,
 	refspace.FeatureTask:   true,
 	refspace.FeatureChat:   true,
 	refspace.FeatureNotify: true,
 	refspace.FeatureUsers:  true,
+	refspace.FeatureMeta:   true,
+	refspace.FeatureWiki:   true,
 }
 
 // registryAndWriter returns the fold registry and tree writer for a
@@ -227,6 +238,12 @@ func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*push
 		return nil, Result{Ref: ref, Action: ActionUpToDate}, nil
 	}
 
+	// wiki is not event-sourced, so it gets fetch + fast-forward only
+	// (ADR-0017); everything below assumes an event chain.
+	if parsed.Feature == refspace.FeatureWiki {
+		return planWiki(ctx, dir, r, ref, localOID, remoteOID)
+	}
+
 	if remoteOID == "" {
 		// Remote has never seen this ref: plain push.
 		return &pushPlan{ref: ref, action: ActionFastForwardOut}, Result{}, nil
@@ -356,14 +373,26 @@ func orderedResults(refs []string, done map[string]Result) []Result {
 // succeed.
 func classifyPushRejection(reason string) error {
 	lower := strings.ToLower(reason)
-	// "failed to update ref" is receive-pack's answer when the ref moved
-	// between the advertisement our push negotiated against and the update it
-	// tried to apply - i.e. another client pushed in the window. It reads
-	// like a permanent failure but is exactly the race a fetch->merge->push
-	// retry resolves, and it is what a genuine concurrent push produces over
-	// the local transport (where the client never sees a stale-enough
-	// advertisement to call it non-fast-forward itself).
-	for _, s := range []string{"non-fast-forward", "fetch first", "stale info", "failed to update ref"} {
+	// The retryable set is "the remote ref moved or was locked under us",
+	// which git words differently depending on where the mismatch was caught
+	// and which version is running:
+	//
+	//   - non-fast-forward / fetch first / stale info: the client noticed
+	//     from the advertisement that it is behind.
+	//   - failed to update ref / incorrect old value provided: receive-pack's
+	//     ref-update transaction found the ref had changed since the
+	//     advertisement our push negotiated against - a concurrent push in
+	//     the fetch->push window. git 2.43 phrases it the first way, 2.54 the
+	//     second, which is why both are listed.
+	//   - cannot lock ref: another process held the ref lock; the next round
+	//     will not.
+	//
+	// Everything else stays permanent per A4's rule, so an unrecognized
+	// rejection fails immediately rather than burning every retry.
+	for _, s := range []string{
+		"non-fast-forward", "fetch first", "stale info",
+		"failed to update ref", "incorrect old value provided", "cannot lock ref",
+	} {
 		if strings.Contains(lower, s) {
 			return gitx.ErrNonFastForward
 		}
@@ -372,10 +401,6 @@ func classifyPushRejection(reason string) error {
 }
 
 func mergeAndAdvance(ctx context.Context, dir, ref string, feature refspace.Feature, localOID, remoteOID string) error {
-	registry, treeWriter, err := registryAndWriter(feature)
-	if err != nil {
-		return err
-	}
 	repo, err := chain.OpenRepository(dir)
 	if err != nil {
 		return err
@@ -383,16 +408,7 @@ func mergeAndAdvance(ctx context.Context, dir, ref string, feature refspace.Feat
 	localHash := plumbing.NewHash(localOID)
 	remoteHash := plumbing.NewHash(remoteOID)
 
-	localEvents, err := chain.WalkChain(repo, localHash)
-	if err != nil {
-		return err
-	}
-	remoteEvents, err := chain.WalkChain(repo, remoteHash)
-	if err != nil {
-		return err
-	}
-	state := merge.Fold(registry, localEvents, remoteEvents)
-	files, err := treeWriter(state)
+	files, err := mergedTree(ctx, dir, repo, feature, localHash, remoteHash)
 	if err != nil {
 		return err
 	}
@@ -410,4 +426,99 @@ func mergeAndAdvance(ctx context.Context, dir, ref string, feature refspace.Feat
 		return err
 	}
 	return chain.AdvanceRef(dir, plumbing.ReferenceName(ref), mergeHash, localOID)
+}
+
+// mergedTree renders the tree an event-union merge commit should carry.
+//
+// Every feature with a reducer folds the union of both sides' events and
+// lets its own TreeFiles render it. meta/config has no reducer - `githive
+// init` writes config.json directly (docs/02-data-model.md「meta/config
+// ref」) - so its tree is resolved from the two config.json blobs instead
+// (ADR-0017). The events themselves still merge as a union and stay in the
+// history either way.
+func mergedTree(ctx context.Context, dir string, repo *git.Repository, feature refspace.Feature, localHash, remoteHash plumbing.Hash) (map[string][]byte, error) {
+	if feature == refspace.FeatureMeta {
+		return metaMergeFiles(ctx, dir, localHash.String(), remoteHash.String())
+	}
+	registry, treeWriter, err := registryAndWriter(feature)
+	if err != nil {
+		return nil, err
+	}
+	localEvents, err := chain.WalkChain(repo, localHash)
+	if err != nil {
+		return nil, err
+	}
+	remoteEvents, err := chain.WalkChain(repo, remoteHash)
+	if err != nil {
+		return nil, err
+	}
+	return treeWriter(merge.Fold(registry, localEvents, remoteEvents))
+}
+
+// metaMergeFiles picks the config.json of whichever side declares the higher
+// schema_version, local winning a tie.
+//
+// Higher wins because schema_version is the repository's *minimum* required
+// version (docs/01-architecture.md「バージョニングと互換性」) and a tool that
+// is too old must refuse to operate. Merging downwards would instead let an
+// old tool happily read events written under newer semantics.
+func metaMergeFiles(ctx context.Context, dir, localOID, remoteOID string) (map[string][]byte, error) {
+	r := gitx.New(dir)
+	local, localErr := r.Show(ctx, localOID, metaConfigPath)
+	remote, remoteErr := r.Show(ctx, remoteOID, metaConfigPath)
+
+	switch {
+	case localErr != nil && remoteErr != nil:
+		return nil, fmt.Errorf("syncapp: neither side of %s has %s: %v", refspace.MetaConfigRef, metaConfigPath, localErr)
+	case localErr != nil:
+		return map[string][]byte{metaConfigPath: remote}, nil
+	case remoteErr != nil:
+		return map[string][]byte{metaConfigPath: local}, nil
+	}
+
+	localVersion, err := configSchemaVersion(local)
+	if err != nil {
+		return nil, err
+	}
+	remoteVersion, err := configSchemaVersion(remote)
+	if err != nil {
+		return nil, err
+	}
+	if remoteVersion > localVersion {
+		return map[string][]byte{metaConfigPath: remote}, nil
+	}
+	return map[string][]byte{metaConfigPath: local}, nil
+}
+
+const metaConfigPath = "config.json"
+
+// configSchemaVersion reads schema_version out of a config.json blob. A
+// missing or non-numeric value counts as 0 so a malformed side never wins.
+func configSchemaVersion(blob []byte) (int, error) {
+	decoded, err := event.DecodeGeneric(blob)
+	if err != nil {
+		return 0, fmt.Errorf("syncapp: decode %s: %w", metaConfigPath, err)
+	}
+	obj, ok := decoded.(map[string]any)
+	if !ok {
+		return 0, fmt.Errorf("syncapp: %s is not a JSON object", metaConfigPath)
+	}
+	n, ok := obj["schema_version"]
+	if !ok {
+		return 0, nil
+	}
+	switch v := n.(type) {
+	case float64:
+		return int(v), nil
+	case int:
+		return v, nil
+	default:
+		// json.Number and anything else: fall back to its text form.
+		s := fmt.Sprintf("%v", v)
+		parsed := 0
+		if _, err := fmt.Sscanf(s, "%d", &parsed); err != nil {
+			return 0, nil
+		}
+		return parsed, nil
+	}
 }
