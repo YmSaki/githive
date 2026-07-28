@@ -69,8 +69,90 @@ type Writer struct {
 	NotFoundErr error
 }
 
+// foldInputs returns what to fold id's current state from: a base state to
+// start from (nil = start empty) and the events to apply on top, plus the
+// ref's current OID.
+//
+// When the chain carries a usable checkpoint, the base is that checkpoint's
+// snapshot and only the events after it are returned - the read shortcut of
+// docs/03-sync-and-concurrency.md「チェックポイント」. Otherwise it degrades
+// to the full walk, which produces the same state, just slower.
+// newEventID, when non-empty, is the ID of an event the caller is about to
+// append; it participates in the shortcut's ordering check just like the
+// events already on the chain.
+func (w *Writer) foldInputs(ctx context.Context, id, newEventID string) (base *materialize.State, events []*event.Envelope, oid string, err error) {
+	r := gitx.New(w.Dir)
+	ref := w.RefFor(id)
+	oid, err = r.RevParse(ctx, ref.String())
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if oid == "" {
+		return nil, nil, gitx.ZeroOID, nil
+	}
+	repo, err := chain.OpenRepository(w.Dir)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	head := plumbing.NewHash(oid)
+
+	start, err := chain.FindCheckpointStart(repo, head)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if start != nil {
+		if base, ok := w.checkpointBase(start, newEventID); ok {
+			return base, start.After, oid, nil
+		}
+	}
+
+	events, err = chain.WalkChain(repo, head)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return nil, events, oid, nil
+}
+
+// checkpointBase restores start's snapshot if it is safe to fold from
+// (ADR-0016 条件 2・3). Any doubt - an older checkpoint format, a snapshot
+// this tool cannot decode, or an event after the checkpoint that would sort
+// before something the checkpoint already subsumed - answers "no", and the
+// caller falls back to walking the whole chain.
+func (w *Writer) checkpointBase(start *chain.CheckpointStart, newEventID string) (*materialize.State, bool) {
+	maxID, ok := start.Checkpoint.Data["max_event_id"].(string)
+	if !ok || !event.IsValidULID(maxID) {
+		return nil, false
+	}
+	ids := make([]string, 0, len(start.After)+1)
+	for _, e := range start.After {
+		ids = append(ids, e.ID)
+	}
+	if newEventID != "" {
+		ids = append(ids, newEventID)
+	}
+	for _, id := range ids {
+		if id <= maxID {
+			// A clock-skewed peer's event sorts inside the range the
+			// checkpoint already folded; restarting here would apply events
+			// in a different order than a full fold (ADR-0012).
+			return nil, false
+		}
+	}
+	raw, ok := start.Checkpoint.Data["state"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	base, err := w.Registry.StateFromMap(raw)
+	if err != nil {
+		return nil, false
+	}
+	return base, true
+}
+
 // CurrentEvents returns every event in id's chain (empty if it does not
-// exist yet) and the ref's current OID (gitx.ZeroOID if absent).
+// exist yet) and the ref's current OID (gitx.ZeroOID if absent). It always
+// walks the whole chain: callers that want the event list want all of it.
+// State reconstruction goes through foldInputs instead.
 func (w *Writer) CurrentEvents(ctx context.Context, id string) (events []*event.Envelope, oid string, err error) {
 	r := gitx.New(w.Dir)
 	ref := w.RefFor(id)
@@ -121,14 +203,14 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 	ref := w.RefFor(id)
 
 	for attempt := 0; attempt < defaultRetries; attempt++ {
-		existingEvents, oid, err := w.CurrentEvents(ctx, id)
+		env, summary := buildEvent()
+		env.Actor = sig.Email
+		base, existingEvents, oid, err := w.foldInputs(ctx, id, env.ID)
 		if err != nil {
 			return nil, err
 		}
-		env, summary := buildEvent()
-		env.Actor = sig.Email
 		allEvents := append(append([]*event.Envelope(nil), existingEvents...), env)
-		state := w.Registry.Fold(allEvents)
+		state := w.Registry.FoldFrom(base, allEvents)
 		if w.NotFoundErr != nil && state.Meta == nil {
 			return nil, w.NotFoundErr
 		}
@@ -156,11 +238,12 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 	return nil, ErrRetriesExhausted
 }
 
-// Fold returns the current fold state for id without writing anything.
+// Fold returns the current fold state for id without writing anything,
+// taking the checkpoint shortcut when the chain offers one.
 func (w *Writer) Fold(ctx context.Context, id string) (*materialize.State, error) {
-	events, _, err := w.CurrentEvents(ctx, id)
+	base, events, _, err := w.foldInputs(ctx, id, "")
 	if err != nil {
 		return nil, err
 	}
-	return w.Registry.Fold(events), nil
+	return w.Registry.FoldFrom(base, events), nil
 }
