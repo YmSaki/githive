@@ -60,6 +60,17 @@ githive wiki log [<path>]
 なお、記録済みの worktree が（`wiki save` を経由せず）人手で既に削除されている場合は、この検出は行われず新規の
 worktree 作成に進む（そうしないと二度と `wiki edit` できなくなるため）。
 
+## sync との関係
+
+`githive sync` は wiki について **fetch と fast-forward だけ**を行う（[ADR-0017](../adr/0017-wiki-and-meta-sync.md)）。
+
+- ローカルがリモートの祖先なら、ローカル ref をリモートへ前進させる。逆向きなら push する。
+- 分岐している場合は自動マージしない。`wiki-diverged` として警告を返し、`githive wiki edit` → `githive wiki save` での解消を促す。sync 自体は失敗しない（終了コード 0 のまま、他の ref の同期も完了する）。
+- `githive.wiki.worktree` が設定され、その worktree が実在する（= 編集中）場合は ref を動かさず `wiki-editing` として警告する。チェックアウト中の worktree の足元で ref が動くのを避けるためである。
+
+3-way マージは `wiki save` が worktree 上で行う唯一の経路である。sync は作業ファイルに触らない（[03](../03-sync-and-concurrency.md)）。
+`githive status` の未 push 一覧にも wiki が含まれる。
+
 ## 素の git での読み書き
 
 ```

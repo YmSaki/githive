@@ -23,7 +23,7 @@
 ```
 githive init [--project name]    # fetch refspec 追加、meta/config 作成（無ければ）、初回 fetch
                                  # --project 省略時はリポジトリのディレクトリ名
-githive sync [--kind issue,...]  # fetch -> merge -> push（[03] のアルゴリズム）
+githive sync [--kind issue,...]  # fetch -> merge -> push（[03] のアルゴリズム）。wiki は fetch と fast-forward のみ（[ADR-0017](adr/0017-wiki-and-meta-sync.md)）
 githive status                   # 未 push の ref、未読 notify、自分の doing task の要約
 
 githive issue   new|list|show|comment|status|edit|label|assign|link

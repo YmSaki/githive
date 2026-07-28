@@ -108,6 +108,8 @@ P4（運用コマンド）の残タスク候補として扱い、forge 依存分
 - 秘密らしきパターンの投稿前警告：[11-security.md](11-security.md)「秘匿情報」。
 - マージで負けた変更を verify/CLI 表示で気付けるようにする：[ADR-0004](adr/0004-merge-by-event-union.md)「帰結」。
 
+wiki と meta/config が `githive sync` / `githive status` の対象から漏れていた件は解消済みである（[ADR-0017](adr/0017-wiki-and-meta-sync.md)。wiki は fetch と fast-forward のみ、分岐時は警告）。
+
 policy.json のルール評価（[00-vision.md](00-vision.md)「動作モード」の「権限制御：助言的」）は forge の pre-receive 強制（P8）と対をなす機能であり、P8 側の設計時にあわせて着手する。
 
 ## 手戻りリスクと先回りの手当て
