@@ -68,10 +68,11 @@ CRDT の用語では、イベント集合を grow-only set とする operation-b
 チェーンが長くなると、fold の起点を毎回ルートまで遡るのは遅い。
 これを避けるため、**チェックポイントコミット**を導入する。
 
-- kind は `<機能>.checkpoint`。data に「この時点の完全な状態」と「event_count と直前ヘッドコミット OID（head）」を持つ（[ADR-0013](adr/0013-checkpoint-envelope-convention.md)）。
-- チェックポイント以降のイベントだけ fold すれば現在状態を再構成できる。
+- kind は `<機能>.checkpoint`。data に「この時点の完全な状態」（state。meta / collections / scratch の 3 部構成）と、「event_count」「直前ヘッドコミット OID（head）」「包含する全イベント ID の最大値（max_event_id）」を持つ（[ADR-0013](adr/0013-checkpoint-envelope-convention.md)、[ADR-0016](adr/0016-checkpoint-read-shortcut.md)）。
+- チェックポイント以降のイベントだけ fold すれば現在状態を再構成できる。読み出し側は `internal/app/entitychain` がこれを行う。
+- 近道が成立する条件は 3 つある（[ADR-0016](adr/0016-checkpoint-read-shortcut.md)）。head からチェックポイントまでの経路が線形であること、state が復元できること、チェックポイント以降の全イベントの ID が `max_event_id` より大きいこと。ひとつでも欠ければ黙ってルートまでの全走査に落ちる（結果は同じで、遅いだけ）。
 - 作成条件：直前のチェックポイントから 500 イベント、または 90 日経過。`githive fsck --compact` が作成する。
-- チェックポイントは履歴を削除しない。単なる読み出しの近道である。
+- チェックポイントは履歴を削除しない。単なる読み出しの近道である。`githive log` のようにイベント列そのものを必要とする読み手は近道を使わない。
 
 **チェックポイントは fold の対象ではない**。
 和集合マージと状態再計算では常に無視し、線形履歴の読み出し高速化（自分より前のイベントがすべてチェーン上の祖先である場合の起点）にのみ使う。

@@ -166,10 +166,26 @@
     },
     "issue.checkpoint": {
       "type": "object",
-      "description": "読み出し起点。fold はこの kind を常に無視する（実体化結果には影響しない）。ADR-0013 参照。",
+      "description": "読み出し起点。fold はこの kind を常に無視する（実体化結果には影響しない）。ADR-0013 参照。state は {meta, collections, scratch} の 3 部構成（ADR-0016）。scratch と max_event_id は ADR-0016 で追加され、現行のツールは必ず書く。旧形式（両者を欠くもの）も妥当なデータとして受理するが、読み出しの近道には使えず全走査にフォールバックする。",
       "properties": {
         "state": {
-          "type": "object"
+          "type": "object",
+          "description": "この時点の完全な fold 状態。meta（null 可）、collections、scratch。",
+          "properties": {
+            "meta": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "collections": {
+              "type": "object"
+            },
+            "scratch": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": true
         },
         "event_count": {
           "type": "integer",
@@ -177,6 +193,11 @@
         },
         "head": {
           "type": "string"
+        },
+        "max_event_id": {
+          "type": "string",
+          "pattern": "^[0-9a-hjkmnp-tv-z]{26}$",
+          "description": "包含する全イベントの ID の最大値。読み出しの近道が成立するかの判定に使う（ADR-0016）。"
         }
       },
       "required": [

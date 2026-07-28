@@ -16,70 +16,128 @@
       "type": "object",
       "description": "ユーザーの作成または上書き（LWW）。",
       "properties": {
-        "username": { "$ref": "#/$defs/username" },
+        "username": {
+          "$ref": "#/$defs/username"
+        },
         "fields": {
           "type": "object",
           "description": "users/<name>.json の一部または全部のフィールド。",
           "properties": {
-            "display": { "type": "string" },
-            "kind": { "type": "string", "enum": ["human", "agent"] },
+            "display": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "human",
+                "agent"
+              ]
+            },
             "emails": {
               "type": "array",
-              "items": { "type": "string", "format": "email" }
+              "items": {
+                "type": "string",
+                "format": "email"
+              }
             },
-            "status": { "type": "string", "enum": ["active", "suspended"] },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "suspended"
+              ]
+            },
             "roles": {
               "type": "array",
-              "items": { "type": "string", "enum": ["admin", "member", "reader"] }
+              "items": {
+                "type": "string",
+                "enum": [
+                  "admin",
+                  "member",
+                  "reader"
+                ]
+              }
             }
           },
           "additionalProperties": true
         }
       },
-      "required": ["username", "fields"],
+      "required": [
+        "username",
+        "fields"
+      ],
       "additionalProperties": true
     },
     "users.key_add": {
       "type": "object",
       "description": "鍵を追加する。",
       "properties": {
-        "username": { "$ref": "#/$defs/username" },
-        "pub": { "type": "string", "minLength": 1 }
+        "username": {
+          "$ref": "#/$defs/username"
+        },
+        "pub": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "required": ["username", "pub"],
+      "required": [
+        "username",
+        "pub"
+      ],
       "additionalProperties": true
     },
     "users.key_revoke": {
       "type": "object",
       "description": "該当鍵の revoked_at を設定する（削除しない）。",
       "properties": {
-        "username": { "$ref": "#/$defs/username" },
-        "pub": { "type": "string", "minLength": 1 }
+        "username": {
+          "$ref": "#/$defs/username"
+        },
+        "pub": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "required": ["username", "pub"],
+      "required": [
+        "username",
+        "pub"
+      ],
       "additionalProperties": true
     },
     "users.group_set": {
       "type": "object",
       "description": "グループの作成または置換。",
       "properties": {
-        "name": { "$ref": "#/$defs/groupname" },
+        "name": {
+          "$ref": "#/$defs/groupname"
+        },
         "members": {
           "type": "array",
-          "items": { "$ref": "#/$defs/username" }
+          "items": {
+            "$ref": "#/$defs/username"
+          }
         },
-        "description": { "type": "string" }
+        "description": {
+          "type": "string"
+        }
       },
-      "required": ["name", "members"],
+      "required": [
+        "name",
+        "members"
+      ],
       "additionalProperties": true
     },
     "users.group_remove": {
       "type": "object",
       "description": "グループを削除する。",
       "properties": {
-        "name": { "$ref": "#/$defs/groupname" }
+        "name": {
+          "$ref": "#/$defs/groupname"
+        }
       },
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": true
     },
     "users.policy_set": {
@@ -91,34 +149,91 @@
           "items": {
             "type": "object",
             "properties": {
-              "refs": { "type": "string" },
+              "refs": {
+                "type": "string"
+              },
               "allow": {
                 "type": "array",
-                "items": { "type": "string" }
+                "items": {
+                  "type": "string"
+                }
               },
               "actions": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["push", "create", "delete", "force"] }
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "push",
+                    "create",
+                    "delete",
+                    "force"
+                  ]
+                }
               }
             },
-            "required": ["refs", "allow", "actions"],
+            "required": [
+              "refs",
+              "allow",
+              "actions"
+            ],
             "additionalProperties": true
           }
         },
-        "default": { "type": "string", "enum": ["allow", "deny"] }
+        "default": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ]
+        }
       },
-      "required": ["rules", "default"],
+      "required": [
+        "rules",
+        "default"
+      ],
       "additionalProperties": true
     },
     "users.checkpoint": {
       "type": "object",
-      "description": "読み出し起点。fold はこの kind を常に無視する。ADR-0013 参照。",
+      "description": "読み出し起点。fold はこの kind を常に無視する（実体化結果には影響しない）。ADR-0013 参照。state は {meta, collections, scratch} の 3 部構成（ADR-0016）。scratch と max_event_id は ADR-0016 で追加され、現行のツールは必ず書く。旧形式（両者を欠くもの）も妥当なデータとして受理するが、読み出しの近道には使えず全走査にフォールバックする。",
       "properties": {
-        "state": { "type": "object" },
-        "event_count": { "type": "integer", "minimum": 0 },
-        "head": { "type": "string" }
+        "state": {
+          "type": "object",
+          "description": "この時点の完全な fold 状態。meta（null 可）、collections、scratch。",
+          "properties": {
+            "meta": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "collections": {
+              "type": "object"
+            },
+            "scratch": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": true
+        },
+        "event_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "head": {
+          "type": "string"
+        },
+        "max_event_id": {
+          "type": "string",
+          "pattern": "^[0-9a-hjkmnp-tv-z]{26}$",
+          "description": "包含する全イベントの ID の最大値。読み出しの近道が成立するかの判定に使う（ADR-0016）。"
+        }
       },
-      "required": ["state", "event_count", "head"],
+      "required": [
+        "state",
+        "event_count",
+        "head"
+      ],
       "additionalProperties": true
     }
   }

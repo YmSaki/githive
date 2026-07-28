@@ -63,7 +63,7 @@ event: 01j8xq4d3nbz9k7w2m5e8h1t6a
 | issue.label | add[], remove[] | ラベル集合に適用（remove を先に、add を後に） |
 | issue.assign | add[], remove[] | 担当者集合に適用 |
 | issue.link | rel, id, remove? | links 集合に適用。rel は task / issue / chat |
-| issue.checkpoint | state（meta/collections/scratch）, event_count, head | 読み出し起点（[03](../03-sync-and-concurrency.md)、[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
+| issue.checkpoint | state（meta/collections/scratch）, event_count, head, max_event_id | 読み出し起点（[03](../03-sync-and-concurrency.md)、[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
 ## CLI（対応コマンドの要約、正式仕様は [10](../10-cli-spec.md)）
 
