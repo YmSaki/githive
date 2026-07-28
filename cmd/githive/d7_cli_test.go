@@ -202,3 +202,20 @@ func TestCLITaskNewIssueAndLink(t *testing.T) {
 	}
 	assertTaskLinks(map[string]any{"rel": "issue", "id": issueID})
 }
+
+// TestCLIFsckAndDoctorStillWork is a light regression check that adding the
+// fsck/doctor MCP tools (mcp.go) did not disturb the existing CLI commands
+// they mirror.
+func TestCLIFsckAndDoctorStillWork(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+
+	if res := runCLI(t, dir, "fsck", "--json"); res.code != 0 {
+		t.Fatalf("fsck failed: code=%d stderr=%s", res.code, res.stderr)
+	}
+	if res := runCLI(t, dir, "doctor", "--json"); res.code != 0 && res.code != 5 {
+		t.Fatalf("doctor exited unexpectedly: code=%d stderr=%s", res.code, res.stderr)
+	}
+}

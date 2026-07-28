@@ -27,6 +27,7 @@ AI Agent（Claude、Codex 等）向けの高速路として MCP を提供する�
   この対応を守ることで、「MCP が使えない Agent は CLI --json を使えば同じことができる」という等価性（[00](00-vision.md) の人間と Agent の対等）を保つ。
 - 読み取り系ツールにはページングと絞り込みを持たせ、Agent のコンテキストを浪費させない。
 - リソースとして `githive://issue/<id>` 等の URI を公開し、wiki の `githive:` リンク（[features/wiki.md](features/wiki.md)）と対応させる。
+- 例外：`githive init` は MCP ツールとして公開しない。bootstrap（fetch refspec の追加、meta/config の初期化）は人間が明示的に行う一度きりの操作であり、Agent が自動で叩いてよい操作ではないため（`doctor`・`fsck` は読み取り／保守で安全なため公開する）。
 
 ### 配布形態
 

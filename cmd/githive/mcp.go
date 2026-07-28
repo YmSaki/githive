@@ -47,6 +47,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
+	"github.com/ymsaki/githive/internal/app/doctorapp"
+	"github.com/ymsaki/githive/internal/app/fsckapp"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/logapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
@@ -54,6 +56,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/app/verifyapp"
+	"github.com/ymsaki/githive/internal/app/wikiapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/identity"
@@ -174,6 +177,8 @@ func registerMcpTools(server *mcp.Server, dir string) {
 	registerUsersTools(server, dir)
 	registerVerifyAndWhoamiTools(server, dir)
 	registerSyncAndStatusTools(server, dir)
+	registerWikiTools(server, dir)
+	registerFsckAndDoctorTools(server, dir)
 }
 
 // ---- issue ----
@@ -1066,6 +1071,101 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 				"unpushed_refs":  anyUnpushed,
 				"unread_notify":  len(unread),
 				"my_doing_tasks": doingItems,
+			}, nil
+		})
+}
+
+// ---- wiki ----
+//
+// wiki is read-only over MCP (issue #55): `githive wiki edit`/`save` drive an
+// interactive worktree + $EDITOR flow that has no meaning over an MCP stdio
+// transport (mirroring users_policy_set's rationale for replacing `users
+// policy edit`), so only show/log - the read side - get tools here.
+
+type wikiShowParams struct {
+	Path string `json:"path" jsonschema:"wiki page path, e.g. Home.md"`
+}
+
+type wikiLogParams struct {
+	Path string `json:"path,omitempty" jsonschema:"only history for this path; omit for the whole wiki"`
+}
+
+func registerWikiTools(server *mcp.Server, dir string) {
+	mcp.AddTool(server, &mcp.Tool{Name: "wiki_show", Description: "Show a wiki page (git show refs/projects/wiki/main:<path>)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args wikiShowParams) (*mcp.CallToolResult, map[string]any, error) {
+			content, err := wikiapp.New(dir).Show(ctx, args.Path)
+			if err != nil {
+				return nil, nil, err
+			}
+			// Calls the exact same helper the CLI's `githive wiki show
+			// --json` uses (cmd/githive/wiki.go's wikiShowJSON) so the two
+			// clients render identical output for both valid-UTF-8 pages
+			// (content) and non-UTF-8 ones (content_base64, issue #53) -
+			// not two independent implementations of the same split.
+			return nil, wikiShowJSON(args.Path, content), nil
+		})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "wiki_log", Description: "Show the wiki commit history (git log refs/projects/wiki/main)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args wikiLogParams) (*mcp.CallToolResult, map[string]any, error) {
+			entries, err := wikiapp.New(dir).Log(ctx, args.Path)
+			if err != nil {
+				return nil, nil, err
+			}
+			// Matches the CLI's `githive wiki log --json` data shape
+			// exactly (cliout.PrintList): {"items": [...], "total": n}.
+			// Not paginated like issue/task/chat/notify/log's *_list tools -
+			// wiki history has no "id" field to page on (entries are keyed
+			// by commit hash, newest first), and CLI parity is issue #55's
+			// explicit acceptance condition here.
+			return nil, cliout.ItemsMap(entries, len(entries)), nil
+		})
+}
+
+// ---- fsck / doctor ----
+
+type fsckParams struct {
+	Compact bool `json:"compact,omitempty" jsonschema:"append a checkpoint to entity chains past the 500-event / 90-day threshold"`
+}
+
+type doctorParams struct {
+	Remote string `json:"remote,omitempty" jsonschema:"remote name to check for clock skew against (default origin)"`
+}
+
+func registerFsckAndDoctorTools(server *mcp.Server, dir string) {
+	// Like `verify`'s tool (see this file's top-of-file comment), fsck's
+	// result always reports success (ok:true) at the MCP protocol level even
+	// when findings exist (ok:false in the data) - the CLI's exit-code-4 path
+	// has no MCP equivalent, so pass/fail is represented in the structured
+	// data instead.
+	mcp.AddTool(server, &mcp.Tool{Name: "fsck", Description: "Validate event schemas and (with compact) create checkpoints"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args fsckParams) (*mcp.CallToolResult, map[string]any, error) {
+			report, err := fsckapp.New(dir).Run(ctx, fsckapp.Options{Compact: args.Compact})
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{
+				"ok":          report.OK(),
+				"findings":    findingsToAny(report.Findings),
+				"checkpoints": checkpointsToAny(report.Checkpoints),
+			}, nil
+		})
+
+	// doctor is not init (docs/15-clients.md「MCP サーバー」: init is
+	// deliberately not an MCP tool). doctor is a read-only diagnosis, safe to
+	// automate; init is a one-time bootstrap step a human runs deliberately.
+	mcp.AddTool(server, &mcp.Tool{Name: "doctor", Description: "Diagnose the environment: git version, refspec, clock, identity, signing"},
+		func(ctx context.Context, req *mcp.CallToolRequest, args doctorParams) (*mcp.CallToolResult, map[string]any, error) {
+			remote := args.Remote
+			if remote == "" {
+				remote = "origin"
+			}
+			report, err := doctorapp.New(dir).Diagnose(ctx, remote)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, map[string]any{
+				"ok":     !report.HasError(),
+				"checks": checksToAny(report.Checks),
 			}, nil
 		})
 }
