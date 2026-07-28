@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -27,6 +28,28 @@ import (
 
 // DefaultRetries matches githive.sync.retries' default (docs/10-cli-spec.md).
 const DefaultRetries = 5
+
+// retriesConfigKey is the git config key that overrides DefaultRetries
+// (docs/10-cli-spec.md「設定（git config）」: githive.sync.retries, 既定 5).
+const retriesConfigKey = "githive.sync.retries"
+
+// RetriesFromConfig reads githive.sync.retries from dir's git config and
+// returns it, falling back to DefaultRetries when the key is unset or does
+// not parse as a non-negative integer (docs/10-cli-spec.md「設定（git
+// config）」). Callers (cmd/githive) use this instead of importing
+// internal/core/gitx directly, keeping the cmd -> app -> core layering
+// one-way (.claude/rules/go-layering.md).
+func RetriesFromConfig(ctx context.Context, dir string) int {
+	v, err := gitx.New(dir).ConfigGet(ctx, retriesConfigKey)
+	if err != nil || v == "" {
+		return DefaultRetries
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n < 0 {
+		return DefaultRetries
+	}
+	return n
+}
 
 // Action classifies what Sync did for one ref.
 type Action string

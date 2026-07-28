@@ -11,6 +11,33 @@ import (
 // handful of independent small CLI fixes each verified end-to-end against
 // the real binary, the way p4_cli_test.go does for P4.
 
+// TestCLISyncRetriesConfigDoesNotBreakWrites is item 2's CLI-level check:
+// root.go's syncIfEnabled now reads githive.sync.retries (via
+// syncapp.RetriesFromConfig) instead of ignoring it entirely, and an unset
+// remote (a hard sync failure, not a retryable race) still degrades to a
+// warning rather than failing the write - for every retries value, valid or
+// not (docs/10-cli-spec.md「設定（git config）」「エラー処理方針」). The
+// parsing rules themselves (unset/invalid -> DefaultRetries) are unit-tested
+// in internal/app/syncapp/syncapp_test.go's TestRetriesFromConfig; this only
+// proves the CLI actually wires the config value through instead of
+// silently always using the hardcoded default.
+func TestCLISyncRetriesConfigDoesNotBreakWrites(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	dir := newCLITestRepo(t)
+
+	for _, v := range []string{"2", "0", "not-a-number"} {
+		if out, err := exec.Command("git", "-C", dir, "config", "githive.sync.retries", v).CombinedOutput(); err != nil {
+			t.Fatalf("git config githive.sync.retries %q: %v\n%s", v, err, out)
+		}
+		res := runCLI(t, dir, "issue", "new", "--title", "t-"+v, "--json")
+		if res.code != 0 {
+			t.Fatalf("githive.sync.retries=%q: issue new should still exit 0 (sync failure is a warning), got code=%d stdout=%s stderr=%s", v, res.code, res.stdout, res.stderr)
+		}
+	}
+}
+
 // TestCLIIssueListExcludesArchivedByDefault is item 1's CLI-level check: an
 // archived issue is dropped from `issue list`'s default output (both text
 // and --json), and only reappears when `--status archived` is given

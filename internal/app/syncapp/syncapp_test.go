@@ -258,3 +258,47 @@ func TestSyncUpToDate(t *testing.T) {
 		t.Errorf("expected up-to-date on second sync, got %s", results[0].Action)
 	}
 }
+
+// TestRetriesFromConfig verifies githive.sync.retries wiring
+// (docs/10-cli-spec.md「設定（git config）」: 既定 5, 0 以上の整数のみ受理):
+// unset, negative, and unparsable values all fall back to DefaultRetries,
+// while a valid non-negative integer (including 0) overrides it.
+func TestRetriesFromConfig(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "--quiet", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	ctx := context.Background()
+
+	if got := RetriesFromConfig(ctx, dir); got != DefaultRetries {
+		t.Errorf("unset config: got %d, want DefaultRetries (%d)", got, DefaultRetries)
+	}
+
+	setConfig := func(v string) {
+		t.Helper()
+		if out, err := exec.Command("git", "-C", dir, "config", "githive.sync.retries", v).CombinedOutput(); err != nil {
+			t.Fatalf("git config githive.sync.retries %q: %v\n%s", v, err, out)
+		}
+	}
+
+	setConfig("3")
+	if got := RetriesFromConfig(ctx, dir); got != 3 {
+		t.Errorf("githive.sync.retries=3: got %d, want 3", got)
+	}
+
+	setConfig("0")
+	if got := RetriesFromConfig(ctx, dir); got != 0 {
+		t.Errorf("githive.sync.retries=0: got %d, want 0 (0 is a valid non-negative integer)", got)
+	}
+
+	setConfig("-1")
+	if got := RetriesFromConfig(ctx, dir); got != DefaultRetries {
+		t.Errorf("githive.sync.retries=-1 (negative): got %d, want DefaultRetries (%d)", got, DefaultRetries)
+	}
+
+	setConfig("not-a-number")
+	if got := RetriesFromConfig(ctx, dir); got != DefaultRetries {
+		t.Errorf("githive.sync.retries=not-a-number (unparsable): got %d, want DefaultRetries (%d)", got, DefaultRetries)
+	}
+}

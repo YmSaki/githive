@@ -22,11 +22,13 @@ func newSyncCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			refs, err := refsToSync(context.Background(), dir, flags.remote, kinds)
+			ctx := context.Background()
+			refs, err := refsToSync(ctx, dir, flags.remote, kinds)
 			if err != nil {
 				return err
 			}
-			results, err := syncapp.Sync(context.Background(), dir, flags.remote, refs, syncapp.DefaultRetries)
+			retries := syncapp.RetriesFromConfig(ctx, dir)
+			results, err := syncapp.Sync(ctx, dir, flags.remote, refs, retries)
 			if err != nil {
 				return err
 			}

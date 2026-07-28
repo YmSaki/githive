@@ -216,7 +216,9 @@ func syncIfEnabled(dir, ref string) []cliout.Warning {
 	if flags.noSync {
 		return nil
 	}
-	if _, err := syncapp.Sync(context.Background(), dir, flags.remote, []string{ref}, syncapp.DefaultRetries); err != nil {
+	ctx := context.Background()
+	retries := syncapp.RetriesFromConfig(ctx, dir)
+	if _, err := syncapp.Sync(ctx, dir, flags.remote, []string{ref}, retries); err != nil {
 		return []cliout.Warning{{Code: "sync_failed", Message: err.Error()}}
 	}
 	return nil
