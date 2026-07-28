@@ -3,7 +3,6 @@ package taskapp
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
@@ -23,17 +22,6 @@ var ErrNotFound = errors.New("taskapp: task not found")
 // ErrRetriesExhausted means a local CAS write kept losing to concurrent
 // writers (docs/03-sync-and-concurrency.md「クラッシュ安全性とローカル競合」).
 var ErrRetriesExhausted = entitychain.ErrRetriesExhausted
-
-// AmbiguousIDError is returned when a short ID prefix matches more than one
-// task (docs/10-cli-spec.md「ID の入力解決」).
-type AmbiguousIDError struct {
-	Prefix     string
-	Candidates []string
-}
-
-func (e *AmbiguousIDError) Error() string {
-	return fmt.Sprintf("taskapp: ambiguous id prefix %q matches %d tasks", e.Prefix, len(e.Candidates))
-}
 
 // Meta is a convenience alias for the fold's meta.json-shaped map.
 type Meta = map[string]any
