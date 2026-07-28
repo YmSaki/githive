@@ -56,7 +56,7 @@ wiki を除く各 ref は、**イベントソーシング**で管理する（[AD
 commit 9f3ab2...
     issue.status: open -> in_progress
 
-    {"v":1,"kind":"issue.status","id":"01j8xq4d3nbz9k7w2m5e8h1t6a", ...}
+    {"v":2,"kind":"issue.status","id":"01j8xq4d3nbz9k7w2m5e8h1t6a", ...}
 
 tree:
     meta.json
@@ -77,7 +77,7 @@ wiki だけは通常の git ブランチと同じ運用（自由なツリー編�
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "kind": "issue.comment",
   "id": "01j8xq4d3nbz9k7w2m5e8h1t6a",
   "ts": "2026-07-04T12:34:56.789Z",
