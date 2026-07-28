@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
@@ -48,6 +49,15 @@ type Result struct {
 // remote update after Retries attempts. Local state is left as-is; sync can
 // simply be re-run.
 var ErrRetriesExhausted = errors.New("syncapp: push retries exhausted")
+
+// ErrPushRejected is returned when the remote rejects a push for a reason
+// other than a non-fast-forward race - a pre-receive hook, a permission
+// error, and so on - so retrying the same push cannot succeed (exit code 1
+// at the CLI layer, `error.code` "push_rejected", docs/10-cli-spec.md
+// 「終了コード」). Contrast with ErrRetriesExhausted, which means a *real*
+// concurrent-update race outlasted the retry budget and simply re-running
+// sync is expected to converge.
+var ErrPushRejected = errors.New("syncapp: push rejected")
 
 // SupportedFeatures lists the features sync can fetch/merge/push today:
 // issue/task/chat (per-entity refs), notify (the single notify/stream ref),
@@ -137,14 +147,13 @@ func syncOne(ctx context.Context, dir, remote, ref string, retries int) (Result,
 
 		if remoteOID == "" {
 			// Remote has never seen this ref: plain push.
-			ok, err := push(ctx, r, remote, ref)
-			if err != nil {
+			if err := push(ctx, r, remote, ref); err != nil {
+				if errors.Is(err, gitx.ErrNonFastForward) {
+					continue // remote moved between fetch and push; retry
+				}
 				return Result{}, err
 			}
-			if ok {
-				return Result{Ref: ref, Action: ActionFastForwardOut}, nil
-			}
-			continue // remote moved between fetch and push; retry
+			return Result{Ref: ref, Action: ActionFastForwardOut}, nil
 		}
 
 		if localOID == "" {
@@ -170,14 +179,13 @@ func syncOne(ctx context.Context, dir, remote, ref string, retries int) (Result,
 			return Result{}, err
 		}
 		if remoteIsAncestor {
-			ok, err := push(ctx, r, remote, ref)
-			if err != nil {
+			if err := push(ctx, r, remote, ref); err != nil {
+				if errors.Is(err, gitx.ErrNonFastForward) {
+					continue // remote moved between fetch and push; retry
+				}
 				return Result{}, err
 			}
-			if ok {
-				return Result{Ref: ref, Action: ActionFastForwardOut}, nil
-			}
-			continue
+			return Result{Ref: ref, Action: ActionFastForwardOut}, nil
 		}
 
 		// Diverged: event-union merge (docs/03-sync-and-concurrency.md
@@ -185,29 +193,60 @@ func syncOne(ctx context.Context, dir, remote, ref string, retries int) (Result,
 		if err := mergeAndAdvance(ctx, dir, ref, parsed.Feature, localOID, remoteOID); err != nil {
 			return Result{}, err
 		}
-		ok, err := push(ctx, r, remote, ref)
-		if err != nil {
+		if err := push(ctx, r, remote, ref); err != nil {
+			if errors.Is(err, gitx.ErrNonFastForward) {
+				continue // remote advanced again during our merge; refetch and redo
+			}
 			return Result{}, err
 		}
-		if ok {
-			return Result{Ref: ref, Action: ActionMerged}, nil
-		}
-		// Remote advanced again during our merge; refetch and redo.
+		return Result{Ref: ref, Action: ActionMerged}, nil
 	}
 	return Result{}, ErrRetriesExhausted
 }
 
-func push(ctx context.Context, r *gitx.Runner, remote, ref string) (bool, error) {
+// push runs a plain (non-forced) push of ref and classifies the outcome:
+// nil on success, gitx.ErrNonFastForward when the remote rejected it for a
+// reason a fetch->merge->push retry can resolve (the remote moved between
+// our fetch and this push), or ErrPushRejected - wrapping git's rejection
+// reason verbatim - for every other rejection, which syncOne must not retry
+// (docs/10-cli-spec.md「終了コード」).
+func push(ctx context.Context, r *gitx.Runner, remote, ref string) error {
 	results, err := r.Push(ctx, remote, fmt.Sprintf("%s:%s", ref, ref))
 	if err != nil {
-		return false, err
+		return err
 	}
 	for _, res := range results {
 		if res.OK {
-			return true, nil
+			return nil
 		}
 	}
-	return false, nil
+	reason := ""
+	if len(results) > 0 {
+		reason = results[0].Reason
+	}
+	return classifyPushRejection(reason)
+}
+
+// classifyPushRejection maps the reason field of a rejected `git push
+// --porcelain` refspec (its second tab-separated field, e.g.
+// "[rejected] (non-fast-forward)") to gitx.ErrNonFastForward for races a
+// fetch->merge->push retry can resolve (non-fast-forward / fetch-first /
+// stale-info), or to ErrPushRejected - carrying reason verbatim - for every
+// other rejection (pre-receive hook, permission denied, ...), which no
+// amount of retrying fixes. Git's exact wording can vary by version, so this
+// is a best-effort substring match; per docs/10-cli-spec.md, a rejection
+// reason it does not recognize is deliberately classified as ErrPushRejected
+// (permanent) rather than ErrNonFastForward (infinitely retried) - an
+// unnecessary immediate failure is safer than a retry loop that can never
+// succeed.
+func classifyPushRejection(reason string) error {
+	lower := strings.ToLower(reason)
+	for _, s := range []string{"non-fast-forward", "fetch first", "stale info"} {
+		if strings.Contains(lower, s) {
+			return gitx.ErrNonFastForward
+		}
+	}
+	return fmt.Errorf("%w: %s", ErrPushRejected, reason)
 }
 
 func mergeAndAdvance(ctx context.Context, dir, ref string, feature refspace.Feature, localOID, remoteOID string) error {

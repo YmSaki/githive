@@ -178,6 +178,12 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "not_found", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrRetriesExhausted), errors.Is(err, syncapp.ErrRetriesExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "conflict_retry_exhausted", Message: err.Error(), Retryable: true}
+	case errors.Is(err, syncapp.ErrPushRejected):
+		// A permanent push rejection (pre-receive hook, permission error,
+		// ...), not a non-fast-forward race - retrying will not help, so
+		// this is exit 1 (general error) rather than exit 3
+		// (docs/10-cli-spec.md「終了コード」).
+		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "push_rejected", Message: err.Error(), Retryable: false}
 	case errors.As(err, &wikiValidation):
 		items := make([]any, len(wikiValidation.Violations))
 		for i, v := range wikiValidation.Violations {
