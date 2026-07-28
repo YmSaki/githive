@@ -49,7 +49,7 @@ event: 01j8xq4d3nbz9k7w2m5e8h1t6a
 
 `open -> in_progress -> resolved -> closed` を基本とし、`archived` 以外の任意の状態から `closed` と `open`（再オープン）へ遷移できる。
 `archived` は closed の後にのみ遷移でき、一覧の既定表示から外れる。
-`archived` からの遷移は `open`（復活）のみ許す。
+`archived` は終端であり、復活はできない。
 不正な遷移イベントは fold 時に無視する（エラーにせず、検証コマンドで警告する）。
 
 ## イベント定義
