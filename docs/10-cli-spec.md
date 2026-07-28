@@ -94,6 +94,7 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 | キー | 既定 | 意味 |
 |------|------|------|
 | githive.notify.auto | true | 操作に伴う自動 notify.post（[features/notify.md](features/notify.md)） |
+| githive.notify.mentions | true | chat 本文の `@username` / `@group` に伴う自動 notify.post（[features/chat.md](features/chat.md)） |
 | githive.sync.retries | 5 | push 競合の再試行回数 |
 | githive.trust.root | （なし） | users 台帳の信頼の根の pin（[11](11-security.md)） |
 

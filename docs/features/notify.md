@@ -49,9 +49,11 @@ fold は `events/<yyyy-mm>.jsonl` の各レコードに、上記の data フィ�
 
 ## 自動通知
 
-issue や task の操作が通知を「自動生成」する仕組みは、コア層には置かない。
-CLI の書き込みコマンドが、設定（`githive.notify.auto = true`、既定 true）に応じて notify.post を併発する。
-自動生成する契機は次に限る：issue.assign（新規担当者宛て）、task.reassign（新 owner 宛て）、issue.comment の reply_to（返信先の author 宛て）、task.status の done 遷移（task の created_by 宛て）。
+issue や task の操作が通知を「自動生成」する仕組みは、コア層（fold）には置かない。
+**app 層の共通ヘルパ**（`internal/app/notifyapp` の `NotifyAssigned` / `NotifyReplied` / `NotifyDone`）が、設定（`githive.notify.auto = true`、既定 true）に応じて書き込み成功後に notify.post を併発し、CLI と MCP はそれを呼ぶだけにする。
+判定条件（自己通知の抑止、既存担当者の再通知抑止）と通知の文言はこのヘルパ 1 箇所にのみ存在する。クライアントごとに実装すると、同じ操作でも CLI と MCP で違う通知が出る（[15](../15-clients.md)「全クライアントは機能の意味論を再実装しない」に反する）。
+なお通知の併発と、書き込み後の自動 sync は分離する。MCP は自動 sync しない（[ADR-0011](../adr/0011-mcp-no-auto-sync.md)）ため、両者を app 層で束ねてはならない。
+自動生成する契機は次に限る：issue.assign（新規担当者宛て）、task.reassign（新 owner 宛て）、issue.comment の reply_to（返信先の author 宛て）、task.status の done 遷移（task の created_by 宛て）、chat のメンション（[chat.md](chat.md)「メンションと通知」）。
 すべての変更を通知にすると流量が実用に耐えないため、明示的な宛先が存在する操作だけを対象とする。
 
 ## 未読の判定
