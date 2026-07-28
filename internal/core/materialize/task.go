@@ -18,6 +18,11 @@ var taskAllowedTransitions = map[[2]string]bool{
 	{"blocked", "doing"}: true,
 }
 
+// taskTerminalStatuses are the states docs/features/task.md calls 終端.
+// Only 再開 (a transition to todo) leaves them; in particular cancelling an
+// already-terminal task is an invalid transition (ADR-0015).
+var taskTerminalStatuses = map[string]bool{"done": true, "cancelled": true}
+
 func taskValidTransition(from string, hasFrom bool, to string) bool {
 	if !taskStatuses[to] {
 		return false
@@ -26,7 +31,9 @@ func taskValidTransition(from string, hasFrom bool, to string) bool {
 		return true
 	}
 	if to == "cancelled" {
-		return true
+		// 非終端の任意の状態 -> cancelled は許可し、終端からは無視する
+		// (ADR-0015, docs/features/task.md「ステータス機械」).
+		return !taskTerminalStatuses[from]
 	}
 	if to == "todo" {
 		return from != "todo"

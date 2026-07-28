@@ -1,0 +1,118 @@
+{
+  "name": "05-terminal-cancelled-ignored",
+  "description": "終端（done / cancelled）からの cancelled は不正遷移として無視する（ADR-0015）。旧意味論（任意 -> cancelled を常に許可）では status が cancelled になり status_history が伸びるため FAIL する、新旧の差分を固定するベクタ。封筒は v:2 で書き、既知バージョン範囲の受理も同時に確認する。",
+  "events": [
+    {
+      "v": 2,
+      "kind": "task.create",
+      "id": "01k1b2c3d4e5f6g7h8j9k0m1n2",
+      "ts": "2026-07-28T09:00:00.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "01k1b2c3d4e5f6g7h8j9k0m1n2",
+      "data": {
+        "title": "終端遷移の扱いを固定する",
+        "owner": "yuumiya@example.com"
+      }
+    },
+    {
+      "v": 2,
+      "kind": "task.status",
+      "id": "01k1b2c3d4e5f6g7h8j9k0m1n3",
+      "ts": "2026-07-28T09:00:01.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "01k1b2c3d4e5f6g7h8j9k0m1n2",
+      "data": {
+        "from": "todo",
+        "to": "doing"
+      }
+    },
+    {
+      "v": 2,
+      "kind": "task.status",
+      "id": "01k1b2c3d4e5f6g7h8j9k0m1n4",
+      "ts": "2026-07-28T09:00:02.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "01k1b2c3d4e5f6g7h8j9k0m1n2",
+      "data": {
+        "from": "doing",
+        "to": "review"
+      }
+    },
+    {
+      "v": 2,
+      "kind": "task.status",
+      "id": "01k1b2c3d4e5f6g7h8j9k0m1n5",
+      "ts": "2026-07-28T09:00:03.000Z",
+      "actor": "yuumiya@example.com",
+      "entity": "01k1b2c3d4e5f6g7h8j9k0m1n2",
+      "data": {
+        "from": "review",
+        "to": "done"
+      }
+    },
+    {
+      "v": 2,
+      "kind": "task.status",
+      "id": "01k1b2c3d4e5f6g7h8j9k0m1n6",
+      "ts": "2026-07-28T09:00:04.000Z",
+      "actor": "kaede@example.com",
+      "entity": "01k1b2c3d4e5f6g7h8j9k0m1n2",
+      "data": {
+        "from": "done",
+        "to": "cancelled",
+        "note": "終端からの取り消しは無視されるので、この note も記録されない"
+      }
+    },
+    {
+      "v": 2,
+      "kind": "task.note",
+      "id": "01k1b2c3d4e5f6g7h8j9k0m1n7",
+      "ts": "2026-07-28T09:00:05.000Z",
+      "actor": "kaede@example.com",
+      "entity": "01k1b2c3d4e5f6g7h8j9k0m1n2",
+      "data": {
+        "body": "無視された遷移の後も通常のイベントは通る"
+      }
+    }
+  ],
+  "expected_meta": {
+    "id": "01k1b2c3d4e5f6g7h8j9k0m1n2",
+    "title": "終端遷移の扱いを固定する",
+    "status": "done",
+    "owner": "yuumiya@example.com",
+    "created_by": "yuumiya@example.com",
+    "created_at": "2026-07-28T09:00:00.000Z",
+    "updated_at": "2026-07-28T09:00:05.000Z",
+    "status_history": [
+      {
+        "to": "todo",
+        "by": "yuumiya@example.com",
+        "ts": "2026-07-28T09:00:00.000Z"
+      },
+      {
+        "to": "doing",
+        "by": "yuumiya@example.com",
+        "ts": "2026-07-28T09:00:01.000Z"
+      },
+      {
+        "to": "review",
+        "by": "yuumiya@example.com",
+        "ts": "2026-07-28T09:00:02.000Z"
+      },
+      {
+        "to": "done",
+        "by": "yuumiya@example.com",
+        "ts": "2026-07-28T09:00:03.000Z"
+      }
+    ],
+    "links": []
+  },
+  "expected_notes": {
+    "01k1b2c3d4e5f6g7h8j9k0m1n7": {
+      "id": "01k1b2c3d4e5f6g7h8j9k0m1n7",
+      "author": "kaede@example.com",
+      "ts": "2026-07-28T09:00:05.000Z",
+      "body": "無視された遷移の後も通常のイベントは通る"
+    }
+  }
+}
