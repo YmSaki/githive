@@ -177,8 +177,11 @@ func installRejectingHook(t *testing.T, bareDir string) {
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	counter := filepath.Join(bareDir, "pre-receive-hits")
-	script := "#!/bin/sh\necho hit >> " + counter + "\nexit 1\n"
+	// The counter path is relative on purpose: git runs a pre-receive hook
+	// with the bare repository as its working directory, and embedding an
+	// absolute path here breaks on Windows, where the backslashes in the
+	// path are escapes to the /bin/sh that Git for Windows runs hooks with.
+	script := "#!/bin/sh\necho hit >> pre-receive-hits\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(hooksDir, "pre-receive"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
