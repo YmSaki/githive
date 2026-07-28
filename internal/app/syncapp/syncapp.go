@@ -104,151 +104,242 @@ func registryAndWriter(feature refspace.Feature) (*materialize.Registry, func(*m
 	}
 }
 
-// Sync runs the fetch/merge/push algorithm for every ref in refs, against
-// remote, retrying rejected pushes up to retries times.
-func Sync(ctx context.Context, dir, remote string, refs []string, retries int) ([]Result, error) {
+// Option customizes a Sync run.
+type Option func(*syncOptions)
+
+type syncOptions struct {
+	skipInitialFetch bool
+}
+
+// SkipInitialFetch tells Sync that the caller has already fetched the
+// refs/projects/ namespace in this operation - which DiscoverRefs does - so
+// the first round can work from what is already in refs/githive-remote/*
+// instead of repeating the round trip. Retry rounds still fetch, since a
+// retry exists precisely because the remote moved.
+func SkipInitialFetch() Option {
+	return func(o *syncOptions) { o.skipInitialFetch = true }
+}
+
+// Sync runs the fetch/merge/push algorithm for refs against remote.
+//
+// Work is batched per round rather than per ref
+// (docs/03-sync-and-concurrency.md「全 ref 一括の sync は、fetch を 1 回の
+// ワイルドカード fetch に、push を複数 refspec の 1 回の git push にまとめる。
+// git は ref ごとに受理・拒否を返すため、拒否された ref だけを再試行する」):
+// one wildcard fetch, then every ref that needs one is pushed in a single
+// `git push` with several refspecs, and only the refs git rejected for a
+// racing reason go into the next round. A ref rejected permanently (a
+// pre-receive hook, a permission error) drops out immediately and does not
+// hold up the others.
+//
+// Refs that completed are returned in the order they were given, even when
+// other refs failed; the error aggregates every per-ref failure
+// (docs/01-architecture.md「部分的成功は正常系として報告する」).
+func Sync(ctx context.Context, dir, remote string, refs []string, retries int, opts ...Option) ([]Result, error) {
 	if retries <= 0 {
 		retries = DefaultRetries
 	}
-	results := make([]Result, 0, len(refs))
-	for _, ref := range refs {
-		res, err := syncOne(ctx, dir, remote, ref, retries)
-		if err != nil {
-			return results, err
-		}
-		results = append(results, res)
+	var o syncOptions
+	for _, apply := range opts {
+		apply(&o)
 	}
-	return results, nil
+
+	r := gitx.New(dir)
+	done := make(map[string]Result, len(refs))
+	var failures []error
+
+	pending := append([]string(nil), refs...)
+	for round := 0; round < retries && len(pending) > 0; round++ {
+		if round > 0 || !o.skipInitialFetch {
+			if err := fetchNamespace(ctx, r, remote); err != nil {
+				return orderedResults(refs, done), errors.Join(append(failures, err)...)
+			}
+		}
+
+		var toPush []*pushPlan
+		for _, ref := range pending {
+			plan, res, err := planRef(ctx, dir, r, ref)
+			switch {
+			case err != nil:
+				failures = append(failures, err)
+			case plan != nil:
+				toPush = append(toPush, plan)
+			default:
+				done[ref] = res
+			}
+		}
+		if len(toPush) == 0 {
+			pending = nil
+			break
+		}
+
+		retryable, err := pushBatch(ctx, r, remote, toPush, done, &failures)
+		if err != nil {
+			return orderedResults(refs, done), errors.Join(append(failures, err)...)
+		}
+		pending = retryable
+	}
+
+	if len(pending) > 0 {
+		failures = append(failures, fmt.Errorf("%w: %s", ErrRetriesExhausted, strings.Join(pending, ", ")))
+	}
+	return orderedResults(refs, done), errors.Join(failures...)
 }
 
-func syncOne(ctx context.Context, dir, remote, ref string, retries int) (Result, error) {
-	r := gitx.New(dir)
+// pushPlan is a ref that needs pushing, plus what to report once it lands.
+type pushPlan struct {
+	ref     string
+	action  Action
+	warning string
+}
+
+// fetchNamespace pulls the whole refs/projects/ namespace in one wildcard
+// refspec. A wildcard rather than a specific ref because it tolerates the
+// remote not having a given ref yet (no error) and covers every ref of the
+// round in one round trip.
+func fetchNamespace(ctx context.Context, r *gitx.Runner, remote string) error {
+	return r.Fetch(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot))
+}
+
+// planRef decides what one ref needs, doing any purely local work (a
+// fast-forward of the local ref, an event-union merge, a trust-root
+// resolution) immediately. It returns exactly one of: a plan to push, a
+// finished Result, or a permanent error for this ref.
+func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*pushPlan, Result, error) {
 	trackingRef, err := refspace.RemoteTrackingRef(ref)
 	if err != nil {
-		return Result{}, err
+		return nil, Result{}, err
 	}
 	parsed, err := refspace.Parse(ref)
 	if err != nil {
-		return Result{}, err
+		return nil, Result{}, err
+	}
+	localOID, err := r.RevParse(ctx, ref)
+	if err != nil {
+		return nil, Result{}, err
+	}
+	remoteOID, err := r.RevParse(ctx, trackingRef)
+	if err != nil {
+		return nil, Result{}, err
 	}
 
-	for attempt := 0; attempt < retries; attempt++ {
-		// Fetch the whole refs/projects/ namespace as one wildcard
-		// refspec rather than this single ref: unlike a specific-ref
-		// refspec, a wildcard tolerates the remote not having this ref yet
-		// (no error), and batches all refs into one round trip when Sync
-		// is called for many refs
-		// (docs/03-sync-and-concurrency.md「sync のアルゴリズム」).
-		if err := r.Fetch(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot)); err != nil {
-			return Result{}, err
-		}
-		localOID, err := r.RevParse(ctx, ref)
-		if err != nil {
-			return Result{}, err
-		}
-		remoteOID, err := r.RevParse(ctx, trackingRef)
-		if err != nil {
-			return Result{}, err
-		}
-
-		if localOID == remoteOID {
-			return Result{Ref: ref, Action: ActionUpToDate}, nil
-		}
-
-		if remoteOID == "" {
-			// Remote has never seen this ref: plain push.
-			if err := push(ctx, r, remote, ref); err != nil {
-				if errors.Is(err, gitx.ErrNonFastForward) {
-					continue // remote moved between fetch and push; retry
-				}
-				return Result{}, err
-			}
-			return Result{Ref: ref, Action: ActionFastForwardOut}, nil
-		}
-
-		if localOID == "" {
-			if err := chain.AdvanceRef(dir, plumbing.ReferenceName(ref), plumbing.NewHash(remoteOID), gitx.ZeroOID); err != nil {
-				return Result{}, err
-			}
-			return Result{Ref: ref, Action: ActionFastForwardIn}, nil
-		}
-
-		localIsAncestor, err := r.IsAncestor(ctx, localOID, remoteOID)
-		if err != nil {
-			return Result{}, err
-		}
-		if localIsAncestor {
-			if err := chain.AdvanceRef(dir, plumbing.ReferenceName(ref), plumbing.NewHash(remoteOID), localOID); err != nil {
-				return Result{}, err
-			}
-			return Result{Ref: ref, Action: ActionFastForwardIn}, nil
-		}
-
-		remoteIsAncestor, err := r.IsAncestor(ctx, remoteOID, localOID)
-		if err != nil {
-			return Result{}, err
-		}
-		if remoteIsAncestor {
-			if err := push(ctx, r, remote, ref); err != nil {
-				if errors.Is(err, gitx.ErrNonFastForward) {
-					continue // remote moved between fetch and push; retry
-				}
-				return Result{}, err
-			}
-			return Result{Ref: ref, Action: ActionFastForwardOut}, nil
-		}
-
-		// Diverged. For users/registry only, a divergence with no common
-		// ancestor is not an ordinary conflict but two competing trust
-		// roots, which must never be merged automatically
-		// (docs/03-sync-and-concurrency.md「共通祖先が無い場合」).
-		if parsed.Feature == refspace.FeatureUsers {
-			res, handled, err := resolveTrustRoots(ctx, dir, r, ref, localOID, remoteOID)
-			if err != nil {
-				return Result{}, err
-			}
-			if handled {
-				return res, nil
-			}
-		}
-
-		// event-union merge (docs/03-sync-and-concurrency.md
-		// 「event-union マージ」), then CAS-advance local and push.
-		if err := mergeAndAdvance(ctx, dir, ref, parsed.Feature, localOID, remoteOID); err != nil {
-			return Result{}, err
-		}
-		if err := push(ctx, r, remote, ref); err != nil {
-			if errors.Is(err, gitx.ErrNonFastForward) {
-				continue // remote advanced again during our merge; refetch and redo
-			}
-			return Result{}, err
-		}
-		return Result{Ref: ref, Action: ActionMerged}, nil
+	if localOID == remoteOID {
+		return nil, Result{Ref: ref, Action: ActionUpToDate}, nil
 	}
-	return Result{}, ErrRetriesExhausted
+
+	if remoteOID == "" {
+		// Remote has never seen this ref: plain push.
+		return &pushPlan{ref: ref, action: ActionFastForwardOut}, Result{}, nil
+	}
+
+	if localOID == "" {
+		if err := chain.AdvanceRef(dir, plumbing.ReferenceName(ref), plumbing.NewHash(remoteOID), gitx.ZeroOID); err != nil {
+			return nil, Result{}, err
+		}
+		return nil, Result{Ref: ref, Action: ActionFastForwardIn}, nil
+	}
+
+	localIsAncestor, err := r.IsAncestor(ctx, localOID, remoteOID)
+	if err != nil {
+		return nil, Result{}, err
+	}
+	if localIsAncestor {
+		if err := chain.AdvanceRef(dir, plumbing.ReferenceName(ref), plumbing.NewHash(remoteOID), localOID); err != nil {
+			return nil, Result{}, err
+		}
+		return nil, Result{Ref: ref, Action: ActionFastForwardIn}, nil
+	}
+
+	remoteIsAncestor, err := r.IsAncestor(ctx, remoteOID, localOID)
+	if err != nil {
+		return nil, Result{}, err
+	}
+	if remoteIsAncestor {
+		return &pushPlan{ref: ref, action: ActionFastForwardOut}, Result{}, nil
+	}
+
+	// Diverged. For users/registry only, a divergence with no common
+	// ancestor is not an ordinary conflict but two competing trust roots,
+	// which must never be merged automatically
+	// (docs/03-sync-and-concurrency.md「共通祖先が無い場合」).
+	if parsed.Feature == refspace.FeatureUsers {
+		res, handled, err := resolveTrustRoots(ctx, dir, r, ref, localOID, remoteOID)
+		if err != nil {
+			return nil, Result{}, err
+		}
+		if handled {
+			return nil, res, nil
+		}
+	}
+
+	// event-union merge (docs/03-sync-and-concurrency.md「event-union マージ」),
+	// then CAS-advance local; the push happens with the rest of the batch.
+	if err := mergeAndAdvance(ctx, dir, ref, parsed.Feature, localOID, remoteOID); err != nil {
+		return nil, Result{}, err
+	}
+	return &pushPlan{ref: ref, action: ActionMerged}, Result{}, nil
 }
 
-// push runs a plain (non-forced) push of ref and classifies the outcome:
-// nil on success, gitx.ErrNonFastForward when the remote rejected it for a
-// reason a fetch->merge->push retry can resolve (the remote moved between
-// our fetch and this push), or ErrPushRejected - wrapping git's rejection
-// reason verbatim - for every other rejection, which syncOne must not retry
-// (docs/10-cli-spec.md「終了コード」).
-func push(ctx context.Context, r *gitx.Runner, remote, ref string) error {
-	results, err := r.Push(ctx, remote, fmt.Sprintf("%s:%s", ref, ref))
-	if err != nil {
-		return err
+// pushBatch pushes every planned ref in one `git push`, records the ones that
+// landed in done, appends permanent rejections to failures, and returns the
+// refs whose rejection a further fetch->merge->push round can resolve.
+func pushBatch(ctx context.Context, r *gitx.Runner, remote string, plans []*pushPlan, done map[string]Result, failures *[]error) ([]string, error) {
+	refspecs := make([]string, len(plans))
+	for i, p := range plans {
+		refspecs[i] = fmt.Sprintf("%s:%s", p.ref, p.ref)
 	}
+	results, err := r.Push(ctx, remote, refspecs...)
+	if err != nil {
+		return nil, err
+	}
+
+	byRef := make(map[string]gitx.PushResult, len(results))
 	for _, res := range results {
-		if res.OK {
-			return nil
+		byRef[localRefOfRefspec(res.Refspec)] = res
+	}
+
+	var retryable []string
+	for _, p := range plans {
+		res, ok := byRef[p.ref]
+		switch {
+		case !ok:
+			// git reported nothing for this refspec. Rather than assume it
+			// succeeded, treat an unexplained silence as a permanent failure
+			// - the safe side, per A4's rule that an unclassifiable rejection
+			// must not be retried forever.
+			*failures = append(*failures, fmt.Errorf("%w: %s: git push reported no result for this ref", ErrPushRejected, p.ref))
+		case res.OK:
+			done[p.ref] = Result{Ref: p.ref, Action: p.action, Warning: p.warning}
+		default:
+			if rejection := classifyPushRejection(res.Reason); errors.Is(rejection, gitx.ErrNonFastForward) {
+				retryable = append(retryable, p.ref)
+			} else {
+				*failures = append(*failures, fmt.Errorf("%s: %w", p.ref, rejection))
+			}
 		}
 	}
-	reason := ""
-	if len(results) > 0 {
-		reason = results[0].Reason
+	return retryable, nil
+}
+
+// localRefOfRefspec extracts the local side of a `<from>:<to>` refspec as
+// `git push --porcelain` echoes it back.
+func localRefOfRefspec(refspec string) string {
+	if from, _, ok := strings.Cut(refspec, ":"); ok {
+		return from
 	}
-	return classifyPushRejection(reason)
+	return refspec
+}
+
+// orderedResults returns the finished results in the order refs were given,
+// skipping refs that did not complete.
+func orderedResults(refs []string, done map[string]Result) []Result {
+	out := make([]Result, 0, len(done))
+	for _, ref := range refs {
+		if res, ok := done[ref]; ok {
+			out = append(out, res)
+		}
+	}
+	return out
 }
 
 // classifyPushRejection maps the reason field of a rejected `git push
@@ -265,7 +356,14 @@ func push(ctx context.Context, r *gitx.Runner, remote, ref string) error {
 // succeed.
 func classifyPushRejection(reason string) error {
 	lower := strings.ToLower(reason)
-	for _, s := range []string{"non-fast-forward", "fetch first", "stale info"} {
+	// "failed to update ref" is receive-pack's answer when the ref moved
+	// between the advertisement our push negotiated against and the update it
+	// tried to apply - i.e. another client pushed in the window. It reads
+	// like a permanent failure but is exactly the race a fetch->merge->push
+	// retry resolves, and it is what a genuine concurrent push produces over
+	// the local transport (where the client never sees a stale-enough
+	// advertisement to call it non-fast-forward itself).
+	for _, s := range []string{"non-fast-forward", "fetch first", "stale info", "failed to update ref"} {
 		if strings.Contains(lower, s) {
 			return gitx.ErrNonFastForward
 		}
