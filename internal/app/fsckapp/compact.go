@@ -65,19 +65,6 @@ func (s *Service) maybeCheckpoint(ctx context.Context, repo *git.Repository, ref
 		return nil, nil, nil
 	}
 
-	// Fold the snapshot to embed the current state in the checkpoint's data
-	// (docs/03-sync-and-concurrency.md「data に … 完全な状態 …」). The commit's
-	// tree is rendered independently by the Writer from the freshly re-read
-	// chain, so this snapshot never decides the materialized bytes - but it
-	// IS what readers restart their fold from (ADR-0016), so it must be a
-	// faithful, fully restorable copy of the fold state.
-	state := fw.registry.Fold(events)
-	eventCount := countNonCheckpoint(events)
-	data, err := checkpointData(state, eventCount, oid, maxEventID(events))
-	if err != nil {
-		return nil, nil, err
-	}
-
 	w := &entitychain.Writer{
 		Dir:       s.Dir,
 		RefFor:    func(string) plumbing.ReferenceName { return plumbing.ReferenceName(ref) },
@@ -85,8 +72,32 @@ func (s *Service) maybeCheckpoint(ctx context.Context, repo *git.Repository, ref
 		TreeFiles: fw.treeFiles,
 	}
 
+	// The snapshot is taken inside the build callback, from the exact parent
+	// this attempt appends to, and taken again on every CAS retry. oid above
+	// only decided whether a checkpoint is due: a write that lands between
+	// that read and the append would otherwise sit under a checkpoint whose
+	// state never saw it, and readers restarting from the checkpoint would
+	// drop it (issue #95, ADR-0016 条件 4).
 	var cpEventID, cpEntity string
-	if _, err := w.Append(ctx, parsed.ID, func() (*event.Envelope, string) {
+	var eventCount int
+	if _, err := w.AppendOnto(ctx, parsed.ID, func(parent string) (*event.Envelope, string, error) {
+		events, err := chain.WalkChain(repo, plumbing.NewHash(parent))
+		if err != nil {
+			return nil, "", err
+		}
+		// Embed the fold state in the checkpoint's data
+		// (docs/03-sync-and-concurrency.md「data に … 完全な状態 …」). The
+		// commit's tree is rendered by the Writer, so this snapshot never
+		// decides the materialized bytes - but it IS what readers restart
+		// their fold from (ADR-0016), so it must be a faithful, fully
+		// restorable copy of the fold state at parent.
+		state := fw.registry.Fold(events)
+		eventCount = countNonCheckpoint(events)
+		data, err := checkpointData(state, eventCount, parent, maxEventID(events))
+		if err != nil {
+			return nil, "", err
+		}
+
 		eid, ts := idgen.NewWithTimestamp()
 		cpEventID = eid
 		if fw.perEntity {
@@ -103,7 +114,7 @@ func (s *Service) maybeCheckpoint(ctx context.Context, repo *git.Repository, ref
 			Entity: cpEntity,
 			Data:   data,
 			Extra:  map[string]any{},
-		}, kind
+		}, kind, nil
 	}); err != nil {
 		return nil, nil, err
 	}
