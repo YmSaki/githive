@@ -73,9 +73,14 @@ func newWikiSaveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if flags.json {
-				return cliout.PrintSuccess(map[string]any{"hash": res.CommitHash, "pushed": res.Pushed}, nil)
+			var warnings []cliout.Warning
+			if res.Warning != "" {
+				warnings = append(warnings, cliout.Warning{Code: "wiki_sync_failed", Message: res.Warning})
 			}
+			if flags.json {
+				return cliout.PrintSuccess(map[string]any{"hash": res.CommitHash, "pushed": res.Pushed}, warnings)
+			}
+			printWarnings(warnings)
 			if res.Pushed {
 				fmt.Printf("saved and pushed %s\n", res.CommitHash)
 			} else {
