@@ -1000,16 +1000,36 @@ func registerVerifyAndWhoamiTools(server *mcp.Server, dir string) {
 // ---- sync / status ----
 
 type syncParams struct {
-	Remote string   `json:"remote,omitempty" jsonschema:"sync remote name (default origin)"`
+	Remote string   `json:"remote,omitempty" jsonschema:"sync remote name; must be the remote this server was started with (mcp serve --remote, default origin)"`
 	Kinds  []string `json:"kinds,omitempty" jsonschema:"feature list to sync (default: every supported feature)"`
+}
+
+// errMcpRemoteNotAllowed means an MCP tool asked for a remote other than
+// the one `mcp serve` was started with.
+var errMcpRemoteNotAllowed = errors.New("mcp: remote not allowed")
+
+// mcpRemote pins MCP tools to the remote chosen by whoever started the
+// server (`githive mcp serve --remote`, default origin). Tool arguments are
+// assembled by an Agent that may have read attacker-controlled text, so
+// they must not be able to point git at an arbitrary remote/URL (#99);
+// gitx.ValidateRemote still checks the configured value itself.
+func mcpRemote(requested string) (string, error) {
+	allowed := flags.remote
+	if allowed == "" {
+		allowed = "origin"
+	}
+	if requested == "" || requested == allowed {
+		return allowed, nil
+	}
+	return "", fmt.Errorf("%w: %q (this server only talks to %q; restart with `githive mcp serve --remote <name>` to change it)", errMcpRemoteNotAllowed, requested, allowed)
 }
 
 func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "sync", Description: "fetch -> merge -> push every githive ref (or a kinds subset)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args syncParams) (*mcp.CallToolResult, map[string]any, error) {
-			remote := args.Remote
-			if remote == "" {
-				remote = "origin"
+			remote, err := mcpRemote(args.Remote)
+			if err != nil {
+				return nil, nil, err
 			}
 			refs, err := syncapp.DiscoverRefs(ctx, dir, remote, args.Kinds)
 			if err != nil {
@@ -1114,7 +1134,7 @@ type fsckParams struct {
 }
 
 type doctorParams struct {
-	Remote string `json:"remote,omitempty" jsonschema:"remote name to check for clock skew against (default origin)"`
+	Remote string `json:"remote,omitempty" jsonschema:"remote name to check; must be the remote this server was started with (mcp serve --remote, default origin)"`
 }
 
 func registerFsckAndDoctorTools(server *mcp.Server, dir string) {
@@ -1141,9 +1161,9 @@ func registerFsckAndDoctorTools(server *mcp.Server, dir string) {
 	// automate; init is a one-time bootstrap step a human runs deliberately.
 	mcp.AddTool(server, &mcp.Tool{Name: "doctor", Description: "Diagnose the environment: git version, refspec, clock, identity, signing"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args doctorParams) (*mcp.CallToolResult, map[string]any, error) {
-			remote := args.Remote
-			if remote == "" {
-				remote = "origin"
+			remote, err := mcpRemote(args.Remote)
+			if err != nil {
+				return nil, nil, err
 			}
 			report, err := doctorapp.New(dir).Diagnose(ctx, remote)
 			if err != nil {

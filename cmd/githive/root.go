@@ -17,6 +17,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/app/wikiapp"
 	"github.com/ymsaki/githive/internal/cliout"
+	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/sign"
 )
@@ -192,6 +193,10 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		}
 	case errors.Is(err, usersapp.ErrInvalidName):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_name", Message: err.Error()}
+	case errors.Is(err, gitx.ErrInvalidRemote), errors.Is(err, errMcpRemoteNotAllowed):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_remote", Message: err.Error()}
+	case errors.Is(err, gitx.ErrInvalidRef):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_ref", Message: err.Error()}
 	case errors.Is(err, usersapp.ErrPrivateKey):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "private_key_rejected", Message: err.Error()}
 	case errors.Is(err, usersapp.ErrInvalidKey):
