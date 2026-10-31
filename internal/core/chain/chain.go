@@ -13,6 +13,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -102,15 +103,31 @@ func attachSignature(commit *object.Commit, signer Signer) error {
 }
 
 // buildMessage renders the two-part commit message: a human summary line
-// (truncated to 72 runes) followed by a blank line and the event's canonical
-// JSON (docs/02-data-model.md「コミットの規約」「イベント封筒」).
+// (normalized to one line, then truncated to 72 runes) followed by a blank
+// line and the event's canonical JSON (docs/02-data-model.md「コミットの規
+// 約」「イベント封筒」).
 func buildMessage(summary string, env *event.Envelope) (string, error) {
-	line := truncateSummary(summary)
+	line := truncateSummary(normalizeSummary(summary))
 	body, err := env.CanonicalJSON()
 	if err != nil {
 		return "", fmt.Errorf("chain: encode event: %w", err)
 	}
 	return line + "\n\n" + string(body), nil
+}
+
+// normalizeSummary turns every control character (CR and LF included) into
+// a space and trims surrounding ASCII spaces, so the summary is always a
+// single line. Summaries are built from user input (titles, comment
+// bodies), and a blank line inside one used to split the message in the
+// wrong place and make the whole chain undecodable (issue #78).
+func normalizeSummary(s string) string {
+	mapped := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	return strings.Trim(mapped, " ")
 }
 
 func truncateSummary(s string) string {
@@ -137,6 +154,9 @@ func AppendEvent(repo *git.Repository, parent plumbing.Hash, env *event.Envelope
 	}
 	msg, err := buildMessage(summary, env)
 	if err != nil {
+		return plumbing.ZeroHash, err
+	}
+	if err := verifyRoundTrip(msg, env); err != nil {
 		return plumbing.ZeroHash, err
 	}
 
@@ -195,19 +215,59 @@ func encodeCommit(repo *git.Repository, commit *object.Commit) (plumbing.Hash, e
 // "マージコミットのメッセージは merge: event-union とし、イベントを含まない")
 // have no event body and ExtractEnvelope returns (nil, nil) for them.
 func ExtractEnvelope(commit *object.Commit) (*event.Envelope, error) {
-	idx := strings.Index(commit.Message, "\n\n")
-	if idx < 0 {
-		return nil, nil
-	}
-	body := commit.Message[idx+2:]
-	if strings.TrimSpace(body) == "" {
-		return nil, nil
-	}
-	env, err := event.Decode([]byte(body))
+	env, err := envelopeFromMessage(commit.Message)
 	if err != nil {
 		return nil, fmt.Errorf("chain: commit %s: %w", commit.Hash, err)
 	}
 	return env, nil
+}
+
+// envelopeFromMessage locates the event JSON as the text after the *last*
+// "\n\n{". Canonical JSON never contains a blank line (newlines inside
+// strings are escaped) and always starts with "{", so that is the body even
+// when the summary itself carries blank lines - as commits written before
+// summaries were normalized can (issue #78). A message without "\n\n{"
+// falls back to splitting at the first blank line.
+func envelopeFromMessage(msg string) (*event.Envelope, error) {
+	var body string
+	if idx := strings.LastIndex(msg, "\n\n{"); idx >= 0 {
+		body = msg[idx+2:]
+	} else {
+		idx := strings.Index(msg, "\n\n")
+		if idx < 0 {
+			return nil, nil
+		}
+		body = msg[idx+2:]
+	}
+	if strings.TrimSpace(body) == "" {
+		return nil, nil
+	}
+	return event.Decode([]byte(body))
+}
+
+// verifyRoundTrip checks, before anything is committed, that msg decodes
+// back to exactly env. A write that could not be read back would leave an
+// append-only chain permanently broken and spread to every clone on sync.
+func verifyRoundTrip(msg string, env *event.Envelope) error {
+	got, err := envelopeFromMessage(msg)
+	if err != nil {
+		return fmt.Errorf("chain: commit message does not decode back: %w", err)
+	}
+	if got == nil {
+		return fmt.Errorf("chain: commit message has no event body")
+	}
+	want, err := env.CanonicalJSON()
+	if err != nil {
+		return fmt.Errorf("chain: encode event: %w", err)
+	}
+	have, err := got.CanonicalJSON()
+	if err != nil {
+		return fmt.Errorf("chain: encode decoded event: %w", err)
+	}
+	if string(have) != string(want) {
+		return fmt.Errorf("chain: commit message decodes to a different event")
+	}
+	return nil
 }
 
 // walkDFS is the shared traversal behind WalkChain, WalkChainSince, and
