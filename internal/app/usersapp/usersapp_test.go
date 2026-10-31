@@ -45,7 +45,7 @@ func TestAddUserAndKeyLifecycle(t *testing.T) {
 		t.Errorf("unexpected display: %v", user["display"])
 	}
 
-	pub := "ssh-ed25519 AAAA yuumiya@main"
+	pub := testPub + " yuumiya@main"
 	if err := svc.KeyAdd(ctx, "yuumiya", pub); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestKeyOpsOnUnknownUserFail(t *testing.T) {
 	requireGit(t)
 	svc := newTestRepo(t)
 	ctx := context.Background()
-	if err := svc.KeyAdd(ctx, "ghost", "ssh-ed25519 AAAA"); err != ErrUserNotFound {
+	if err := svc.KeyAdd(ctx, "ghost", testPub); err != ErrUserNotFound {
 		t.Errorf("expected ErrUserNotFound, got %v", err)
 	}
 }

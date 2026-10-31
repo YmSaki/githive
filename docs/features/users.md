@@ -135,6 +135,9 @@ githive whoami                     # 自分のユーザー特定結果と鍵の�
 ```
 
 - `--kind`：`human` または `agent`（`--agent` を使わず直接指定する場合）。
+- `--email`：docs/02 の actor 規則（空白を含まない、`@` を含む、320 byte 以下）に加え、allowed_signers の principal パターンで特別な意味を持つ文字（`,` `*` `?` `!` `"`）を拒否する（`invalid_email`、exit 2）。
+- `--pub`：公開鍵 1 行（`<type> <base64> [comment]`）か、その内容を持つファイルのパス。秘密鍵（`-----BEGIN` や `PRIVATE KEY` を含む入力）は `private_key_rejected`、存在しないパスや鍵の形をしない文字列は `invalid_key` で拒否する（exit 2）。台帳の履歴は消せないため、書き込む前に止める。MCP の `users_key_add` / `users_key_revoke` はファイルパスを受け付けず、鍵の行だけを受け付ける。
+- 鍵の同一性は「型 + base64」（コメントを除いた先頭 2 フィールド）で判定する。`key add` は同じ鍵材が登録済み（失効済みを含む）なら `already_exists` で拒否する。`key revoke` はコメントが違っても同じ鍵材の有効な鍵を失効させ、該当する有効な鍵が無ければ `not_found` を返す。fold の照合は従来どおり pub 文字列の完全一致なので、app 層が登録済みの文字列そのものを key_revoke イベントに書く（fold 意味論は変えない）。
 - `--agent`：Agent 用の identity・鍵ペアを一括生成する（「Agent のセットアップ」参照）。`--project` は鋳造する email のプロジェクト名部分（省略時は meta/config から読む）、`--key-dir` は鍵ペアの出力先（省略時は `~/.ssh`）を指定する。
 
 ## 素の git での読み方

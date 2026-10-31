@@ -30,7 +30,9 @@ func BuildAllowedSigners(entries []materialize.SignerEntry) []byte {
 	var b strings.Builder
 	for _, e := range entries {
 		keyField := firstTwoFields(e.Pub)
-		if keyField == "" {
+		if keyField == "" || !safePrincipal(e.Email) || !safeKeyField(keyField) {
+			// 台帳に不正な値が入っていても allowed_signers の行として解釈
+			// させない（空白入りの email は options 欄として読まれる）。
 			continue
 		}
 		fmt.Fprintf(&b, "%s %s\n", e.Email, keyField)
@@ -49,6 +51,39 @@ func firstTwoFields(pub string) string {
 		return ""
 	}
 	return fields[0] + " " + fields[1]
+}
+
+// safePrincipal reports whether email can be written as an allowed_signers
+// principal without being reinterpreted: no whitespace or control
+// characters (which would split it into an options field), none of the
+// principal-pattern metacharacters `,*?!"`, and an '@' (docs/02 actor 規則).
+func safePrincipal(email string) bool {
+	if !strings.Contains(email, "@") {
+		return false
+	}
+	for _, r := range email {
+		if r <= ' ' || r == 0x7f || strings.ContainsRune(`,*?!"`, r) {
+			return false
+		}
+	}
+	return true
+}
+
+// safeKeyField reports whether "<type> <base64>" has a plain type token
+// and base64-only key data.
+func safeKeyField(keyField string) bool {
+	typ, data, _ := strings.Cut(keyField, " ")
+	if typ == "" || data == "" || strings.HasPrefix(typ, "-") {
+		return false
+	}
+	for _, r := range data {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '+', r == '/', r == '=':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // WriteAllowedSignersTempFile writes body to a new temp file and returns

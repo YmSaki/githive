@@ -837,7 +837,7 @@ type usersAddParams struct {
 
 type usersKeyParams struct {
 	Name string `json:"name" jsonschema:"username (required)"`
-	Pub  string `json:"pub" jsonschema:"public key, literal or a path to a file readable by the server"`
+	Pub  string `json:"pub" jsonschema:"literal SSH public key line (\"<type> <base64-data> [comment]\"); file paths are not accepted"`
 }
 
 type usersGroupSetParams struct {
@@ -900,11 +900,12 @@ func registerUsersTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "users_key_add", Description: "Register an SSH public key for a user"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args usersKeyParams) (*mcp.CallToolResult, map[string]any, error) {
 			// Unlike the CLI's --pub (which also accepts a file path),
-			// pub here must be a literal key line - see
-			// looksLikeSSHPublicKey's doc comment for why.
-			if !looksLikeSSHPublicKey(args.Pub) {
-				return nil, nil, fmt.Errorf("users_key_add: pub must be a literal SSH public key line (\"<type> <base64-data> [comment]\"), not a file path")
-			}
+			// pub here is only ever a literal key line: an MCP caller is
+			// an Agent, not the operator at the keyboard, and letting a
+			// tool argument drive a server-side file read is an indirect
+			// file-exfiltration path (point pub at ~/.ssh/id_ed25519, read
+			// it back via users_list). KeyAdd's ValidatePublicKey rejects
+			// anything that is not a key line, including a path.
 			if err := usersapp.New(dir).KeyAdd(ctx, args.Name, args.Pub); err != nil {
 				return nil, nil, err
 			}
@@ -913,9 +914,6 @@ func registerUsersTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "users_key_revoke", Description: "Revoke a user's SSH public key"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args usersKeyParams) (*mcp.CallToolResult, map[string]any, error) {
-			if !looksLikeSSHPublicKey(args.Pub) {
-				return nil, nil, fmt.Errorf("users_key_revoke: pub must be a literal SSH public key line (\"<type> <base64-data> [comment]\"), not a file path")
-			}
 			if err := usersapp.New(dir).KeyRevoke(ctx, args.Name, args.Pub); err != nil {
 				return nil, nil, err
 			}

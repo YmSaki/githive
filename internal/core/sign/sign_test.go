@@ -22,6 +22,24 @@ func TestBuildAllowedSignersDropsCommentIncludesRevoked(t *testing.T) {
 	}
 }
 
+// TestBuildAllowedSignersSkipsUnsafeLines: a malformed registry value must
+// never become an allowed_signers line that ssh-keygen would read
+// differently (a space in the email turns the rest into an options field)
+// (#127).
+func TestBuildAllowedSignersSkipsUnsafeLines(t *testing.T) {
+	entries := []materialize.SignerEntry{
+		{Email: "carol smith@example.com", Pub: "ssh-ed25519 AAAA"},
+		{Email: "noat.example.com", Pub: "ssh-ed25519 AAAA"},
+		{Email: "*@example.com", Pub: "ssh-ed25519 AAAA"},
+		{Email: "d@example.com", Pub: "-----BEGIN OPENSSH PRIVATE KEY-----"},
+		{Email: "e@example.com", Pub: "ssh-ed25519 not!base64"},
+		{Email: "ok@example.com", Pub: "ssh-ed25519 AAAA c"},
+	}
+	if got, want := string(BuildAllowedSigners(entries)), "ok@example.com ssh-ed25519 AAAA\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestFirstTwoFields(t *testing.T) {
 	cases := map[string]string{
 		"ssh-ed25519 AAAA comment here": "ssh-ed25519 AAAA",
