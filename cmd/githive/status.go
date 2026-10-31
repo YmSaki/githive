@@ -36,7 +36,7 @@ func newStatusCmd() *cobra.Command {
 				return err
 			}
 
-			unread, err := notifyapp.New(dir).List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+			unread, err := notifyapp.New(dir).List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: membershipResolver(dir)})
 			if err != nil {
 				return err
 			}

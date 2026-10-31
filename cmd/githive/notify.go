@@ -107,6 +107,7 @@ func newNotifyListCmd() *cobra.Command {
 					return err
 				}
 				filter.ActorEmail = sig.Email
+				filter.Membership = membershipResolver(dir)
 			}
 			svc := notifyapp.New(dir)
 			items, err := svc.List(ctx, filter)
@@ -145,7 +146,7 @@ func newNotifyAckCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: membershipResolver(dir)})
 				if err != nil {
 					return err
 				}

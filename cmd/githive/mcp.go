@@ -755,6 +755,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 					return nil, nil, err
 				}
 				filter.ActorEmail = sig.Email
+				filter.Membership = membershipResolver(dir)
 			}
 			items, err := notifyapp.New(dir).List(ctx, filter)
 			if err != nil {
@@ -772,7 +773,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 				if err != nil {
 					return nil, nil, err
 				}
-				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: membershipResolver(dir)})
 				if err != nil {
 					return nil, nil, err
 				}
@@ -1057,7 +1058,7 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			unread, err := notifyapp.New(dir).List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+			unread, err := notifyapp.New(dir).List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: membershipResolver(dir)})
 			if err != nil {
 				return nil, nil, err
 			}
