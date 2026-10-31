@@ -143,3 +143,46 @@ func TestCLIVerifyRegistryDemotionKeepsPastChangesValid(t *testing.T) {
 		t.Fatalf("code=%d issues=%+v", code, issues)
 	}
 }
+
+// TestCLIVerifyUnregisteredKeySignatureRejected: with keyed, otherwise
+// clean history, a commit signed by a key the registry doesn't know is the
+// only thing reported - so the test fails if verify ever accepts an
+// invalid signature, not because of some unrelated setup gap.
+func TestCLIVerifyUnregisteredKeySignatureRejected(t *testing.T) {
+	dir := setupSignedAdmin(t)
+	if code, issues := registryIssues(t, dir); code != 0 || len(issues) != 0 {
+		t.Fatalf("baseline must be clean: code=%d issues=%+v", code, issues)
+	}
+	adminKey, err := exec.Command("git", "-C", dir, "config", "user.signingkey").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	actAs(t, dir, "signer@example.com", genSigningKey(t, "rogue"))
+	mustRunCLI(t, dir, "users", "add", "bob", "--email", "bob@example.com", "--no-sync", "--json")
+	actAs(t, dir, "signer@example.com", string(adminKey[:len(adminKey)-1]))
+
+	code, issues := registryIssues(t, dir)
+	if code != 4 || len(issues) != 1 || issues[0].Code != "invalid_or_missing_signature" {
+		t.Fatalf("want exactly one invalid_or_missing_signature, got code=%d issues=%+v", code, issues)
+	}
+}
+
+// TestCLIVerifyTrustRootPinMismatch: a pin naming some other commit is
+// reported as trust_root_mismatch on an otherwise clean, keyed registry.
+// The unpinned root then also loses its rule-4 exemption, so it is the
+// only commit reported.
+func TestCLIVerifyTrustRootPinMismatch(t *testing.T) {
+	dir := setupSignedAdmin(t)
+	if out, err := exec.Command("git", "-C", dir, "config", "githive.trust.root", "0123456789abcdef0123456789abcdef01234567").CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	code, issues := registryIssues(t, dir)
+	if code != 4 || countCode(issues, "trust_root_mismatch") != 1 {
+		t.Fatalf("want trust_root_mismatch, got code=%d issues=%+v", code, issues)
+	}
+	for _, i := range issues {
+		if i.Commit != issues[0].Commit {
+			t.Fatalf("only the root commit should be reported, got %+v", issues)
+		}
+	}
+}
