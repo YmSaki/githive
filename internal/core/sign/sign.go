@@ -8,6 +8,8 @@ package sign
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"regexp"
@@ -22,10 +24,9 @@ import (
 // are included (docs/11-security.md「鍵のローテーション」: 過去の署名は
 // 有効なまま) - see materialize.AllowedSigners for why they aren't
 // dropped. The revocation timestamp itself is not encoded in this file;
-// VerifyCommit's caller (Verify in this package) checks it separately
-// after establishing cryptographic validity, since this package cannot
-// assume ssh-keygen's optional valid-before support is present/consistent
-// across git/ssh versions.
+// VerifyCommit checks it per signing key after establishing cryptographic
+// validity, since this package cannot assume ssh-keygen's optional
+// valid-before support is present/consistent across git/ssh versions.
 func BuildAllowedSigners(entries []materialize.SignerEntry) []byte {
 	var b strings.Builder
 	for _, e := range entries {
@@ -136,16 +137,17 @@ func ParsePrincipal(output string) string {
 //  1. the signature must be cryptographically valid against some
 //     registered key (any key ever registered, active or revoked, is
 //     accepted for this step - see BuildAllowedSigners);
-//  2. the matched principal (email) must actually be one of commitEmail's
-//     registered emails (checked by the caller comparing to the commit's
-//     own committer email, docs/11-security.md 検証規則 2 already requires
-//     actor==committer email, enforced at write time);
-//  3. if every one of that email's keys is revoked as of commitTime, the
-//     signature is rejected even though step 1 succeeded (approximates
-//     "signature time must be before the specific key's revocation" at the
-//     granularity of "this email has at least one key that was valid at
-//     commitTime", since git's verify-commit --raw output does not expose
-//     enough to match back to one specific registered key entry).
+//  2. the matched principal (email) must be commitEmail;
+//  3. the signing key itself must not have been revoked at or before
+//     commitTime (「署名時刻が鍵の revoked_at より前であること」). The key is
+//     identified by the "SHA256:<fp>" fingerprint git prints for SSH
+//     signatures ("Good "git" signature for <email> with ED25519 key
+//     SHA256:..."), matched against each registered key's fingerprint
+//     (unpadded base64 of SHA-256 over the decoded key blob - a hash, not a
+//     signature check, so 暗号処理を自前実装しない still holds). If the
+//     fingerprint cannot be parsed from git's output, the check falls back
+//     to the conservative rule that every key registered for commitEmail
+//     must be valid at commitTime.
 func VerifyCommit(ctx context.Context, dir string, commitHash string, state *materialize.State, commitEmail, commitTime string) (Result, error) {
 	entries := materialize.AllowedSigners(state)
 	body := BuildAllowedSigners(entries)
@@ -169,23 +171,58 @@ func VerifyCommit(ctx context.Context, dir string, commitHash string, state *mat
 		return Result{Valid: false, Principal: principal, Output: raw.Output}, nil
 	}
 
-	if !hasUnrevokedOrTimelyKey(entries, commitEmail, commitTime) {
+	if !signingKeyValidAt(entries, commitEmail, ParseFingerprint(raw.Output), commitTime) {
 		return Result{Valid: false, Principal: commitEmail, Output: raw.Output}, nil
 	}
 	return Result{Valid: true, Principal: commitEmail, Output: raw.Output}, nil
 }
 
-// hasUnrevokedOrTimelyKey reports whether email has at least one key that
-// either is still active, or was revoked strictly after commitTime
-// (docs/11-security.md: 過去の署名は有効なまま).
-func hasUnrevokedOrTimelyKey(entries []materialize.SignerEntry, email, commitTime string) bool {
+var fingerprintRe = regexp.MustCompile(`key (SHA256:[A-Za-z0-9+/]+)`)
+
+// ParseFingerprint extracts the "SHA256:<base64>" fingerprint of the
+// signing key from `git verify-commit --raw`'s SSH output, or "" if absent.
+func ParseFingerprint(output string) string {
+	m := fingerprintRe.FindStringSubmatch(output)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+// Fingerprint returns OpenSSH's "SHA256:<unpadded base64>" fingerprint of
+// a public key line ("<type> <base64> [comment]"), or "" if the key data
+// is not valid base64.
+func Fingerprint(pub string) string {
+	fields := strings.Fields(pub)
+	if len(fields) < 2 {
+		return ""
+	}
+	blob, err := base64.StdEncoding.DecodeString(fields[1])
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(blob)
+	return "SHA256:" + base64.RawStdEncoding.EncodeToString(sum[:])
+}
+
+// signingKeyValidAt applies 検証規則 3 per key. Every registry entry for
+// email whose fingerprint equals fp is the signing key (the same key
+// material may appear under several comments); it is valid only if none of
+// those entries was revoked at or before commitTime. With no fingerprint,
+// every key of email must be valid at commitTime.
+func signingKeyValidAt(entries []materialize.SignerEntry, email, fp, commitTime string) bool {
+	found := false
 	for _, e := range entries {
 		if e.Email != email {
 			continue
 		}
-		if e.RevokedAt == "" || commitTime < e.RevokedAt {
-			return true
+		if fp != "" && Fingerprint(e.Pub) != fp {
+			continue
+		}
+		found = true
+		if e.RevokedAt != "" && commitTime >= e.RevokedAt {
+			return false
 		}
 	}
-	return false
+	return found
 }
