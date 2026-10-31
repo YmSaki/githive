@@ -68,3 +68,10 @@ SQLite は cgo 不要のドライバを使い、`go build` だけでクロスコ
   - pre-receive で、隔離領域（`GIT_OBJECT_DIRECTORY` と `GIT_ALTERNATE_OBJECT_DIRECTORIES`）にある未受理のオブジェクトをどう読むか。go-git はこれらの環境変数を解釈しないため、system git 経由で読むか go-git に alternates を明示的に渡すかを、ADR-0002 の線引きとあわせて決める。あわせて、ref ではなく `old..new` の範囲を検証する API を `core`/`app` に設ける。
   - forge の HTTP API・LFS batch API・WebHook ペイロードで使う通常の JSON の扱い。`scripts/check-canonical-json.sh` は現状 `internal/core/event` 以外での `encoding/json` を禁止している。イベントのエンコードは引き続き `event.Encode` に限ったうえで、forge の HTTP 境界に限って許可リストを設ける方向で検討する。WebHook に入れるイベント封筒は再エンコードせず、チェーンから読んだ canonical バイト列をそのまま埋め込む。
 - pre-receive の署名・スキーマ・ツリー照合（[12](../12-forge-server.md)「push パイプライン」の 3〜5）は CLI の `verify` と同じ検証を使うので、監査で見つかった検証側の不具合（#78、#109、#110、#113、#115、#156 など）が直るまで着手しない。名前空間（1）と fast-forward（6）の強制、受け口（SSH・smart HTTP）、Web UI の骨組みは先行できる。
+
+## 退けた代替案
+
+- **別リポジトリ**（[13](../13-roadmap.md) の旧記述）：core を公開 API として切り出す必要があり、検証ロジックの変更が forge に届くまでに依存更新の手間と時差が生じる。「検証は core に置き、pre-receive はそれを呼ぶだけ」という P8 の構造要件を import で保証できなくなる。
+- **同じリポジトリ内の別 Go モジュール（go.work）**：`internal/` を越境 import できない点は別リポジトリと同じで、core の公開化が必要になる。依存の分離という利点は、バイナリを分ければ単一モジュールでも得られる。
+- **CLI と forge を 1 本のバイナリにする**：CLI 利用者が SQLite や埋め込み UI などサーバー側の依存とサイズを背負う。配布物を 1 つにする利点は、forge 側のサブコマンド集約（決定 2）で十分得られる。
+- **SSR を伴うフロントエンド（Next.js 等）**：forge に Node の実行時依存を持ち込み、[12](../12-forge-server.md)「デプロイ形態」の単一バイナリ配布と矛盾する。
