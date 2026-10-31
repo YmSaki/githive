@@ -32,7 +32,7 @@ githive は 4 つの層で構成する。
 githive/
   cmd/
     githive/            # CLI エントリポイント（MCP はサブコマンドとして同梱。TUI は未着手）
-    githive-forge/      # forge サーバー（後続フェーズ）
+    githive-forge/      # forge サーバー（後続フェーズ。ADR-0019）
   internal/
     core/
       refspace/         # ref 名の構築・解決・列挙
@@ -54,15 +54,18 @@ githive/
       fsckapp/          # githive fsck --compact（チェックポイント作成）
       logapp/           # githive log（横断タイムライン）
     cliout/             # human/JSON 出力の整形
+    # forge/ は未着手（Horizon 4、P8〜。クライアント層。ADR-0019）
     # tui/ は未着手（P6/P7 と同じく Horizon 3。存在しない）
   clients/
     plugins/            # Claude plugin / Codex plugin のマニフェストとテンプレート
     # vscode/ は未着手（Horizon 3、P7）。存在しない
+  # web/ は未着手（forge の Web UI。React ソースと go:embed 用パッケージ。ADR-0019）
   docs/
 ```
 
 MCP サーバーは現状 `cmd/githive/mcp.go` に実装されており、独立パッケージ（`internal/mcpserv` 等への分離）にはなっていない。分離は将来のリファクタ候補であり、コミットメントではない。
 `internal/tui/` と `clients/vscode/` は Horizon 3（P6/P7）に対応し、現時点では未着手（ディレクトリ自体が存在しない）。
+`internal/forge/` と `web/` は Horizon 4（P8〜）に対応し、同じ Go モジュールに置く（[ADR-0019](adr/0019-forge-in-monorepo.md)）。`internal/forge` はクライアント層に属し、`core`・`app` から import してはならない。
 
 ## 依存規則
 

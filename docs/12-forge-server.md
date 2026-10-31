@@ -169,6 +169,6 @@ forge は **forge 署名鍵**でコミットに署名し、イベントの actor
 
 ## デプロイ形態
 
-- 単一バイナリ + 設定ファイル（TOML）。systemd unit の例を同梱する。
+- 単一バイナリ + 設定ファイル（TOML）。systemd unit の例を同梱する。全体構成の図の `githive-shell` は別バイナリではなく `githive-forge shell` サブコマンドとする（[ADR-0019](adr/0019-forge-in-monorepo.md)）。
 - 必須依存は system git と OpenSSH のみ。SQLite は埋め込み。
 - バックアップ対象は bare リポジトリ群と LFS ストア。jobs DB は消えても運用が継続できる。
