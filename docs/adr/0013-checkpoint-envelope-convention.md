@@ -36,4 +36,4 @@ issue #50 は `githive fsck --compact` を実装するものである。[03-sync
 - チェックポイント追記は、CAS 再試行付き追記の共通実装 `internal/app/entitychain.Writer` にそのまま乗る（[go-layering ルール](../../.claude/rules/go-layering.md)「CAS 再試行付き追記は internal/app/entitychain を使う」）。`fsckapp` は per-機能の `Registry` と `TreeFiles` を Writer に渡すだけでよい。
 - entity の規約が per-entity とシングルトンで分岐することを `fsckapp` の `featureWriter.perEntity` が表現する。将来チェックポイントの entity を fold が参照するようになる設計変更（現状は無関係）を入れる場合は、本 ADR を昇格・改訂する。
 - チェックポイント透過性（有無で fold 結果が変わらないこと）は `internal/app/fsckapp` のプロパティテストと、追記前後の実体化状態一致テストで機械的に守る（determinism ルール「checkpoint 透過性」に準拠）。
-- schema_version（`Envelope.SchemaVersion`）の昇格は不要である。チェックポイントは新しい fold 意味論を導入せず、既存の一律スキップ規則に乗るだけで、同一イベント集合の実体化結果を変えないため（determinism ルール「fold 意味論を変える変更は schema_version の昇格が必須」の対象外）。
+- 封筒 v（`event.SchemaVersion`）とリポジトリ schema_version（`initapp.SchemaVersion`）の昇格は、どちらも不要である（用語は [ADR-0018](0018-schema-version-bump-rule.md)）。チェックポイントは新しい fold 意味論を導入せず、既存の一律スキップ規則に乗るだけで、同一イベント集合の実体化結果を変えないため（determinism ルール「fold 意味論を変える変更は schema_version の昇格が必須」の対象外）。
