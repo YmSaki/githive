@@ -995,19 +995,7 @@ func registerVerifyAndWhoamiTools(server *mcp.Server, dir string) {
 				return nil, nil, err
 			}
 			user, keys := matchRegistryUser(ctx, dir, sig.Email)
-			data := map[string]any{"name": sig.Name, "email": sig.Email}
-			if user != nil {
-				data["username"] = user["username"]
-				data["registered"] = true
-				anyKeys := make([]any, len(keys))
-				for i, k := range keys {
-					anyKeys[i] = k
-				}
-				data["keys"] = anyKeys
-			} else {
-				data["registered"] = false
-			}
-			return nil, data, nil
+			return nil, whoamiData(sig.Name, sig.Email, user, keys), nil
 		})
 }
 

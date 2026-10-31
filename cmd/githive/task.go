@@ -71,8 +71,7 @@ func newTaskNewCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, taskRef(id))
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"id": id}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
 			fmt.Println(id)
 			printWarnings(warnings)
@@ -115,8 +114,7 @@ func newTaskListCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				cliout.PrintList(items, nil)
-				return nil
+				return cliout.PrintList(items, nil)
 			}
 			fmt.Printf("%-10s %-10s %-40s %s\n", "ID", "STATUS", "TITLE", "OWNER")
 			for _, m := range items {
@@ -156,8 +154,7 @@ func newTaskShowCmd() *cobra.Command {
 				for i, n := range show.Notes {
 					notes[i] = n
 				}
-				cliout.PrintSuccess(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, nil)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, nil)
 			}
 			fmt.Printf("%v  %v  %v  owner=%v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"], show.Meta["owner"])
 			if show.Body != "" {
@@ -202,8 +199,7 @@ func newTaskStatusCmd() *cobra.Command {
 			}
 			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"applied": ok}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"applied": ok}, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -242,8 +238,7 @@ func newTaskNoteCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, taskRef(id))
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -299,8 +294,7 @@ func newTaskReassignCmd() *cobra.Command {
 			}
 			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -334,8 +328,7 @@ func newTaskLinkCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, taskRef(id))
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil

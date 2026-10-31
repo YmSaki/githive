@@ -49,13 +49,12 @@ func newUsersAddCmd() *cobra.Command {
 				}
 				warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 				if flags.json {
-					cliout.PrintSuccess(map[string]any{
+					return cliout.PrintSuccess(map[string]any{
 						"username":   setup.Username,
 						"email":      setup.Email,
 						"public_key": setup.PublicKey,
 						"pub_line":   setup.PubLine,
 					}, warnings)
-					return nil
 				}
 				fmt.Printf("created agent %s <%s>\n", setup.Username, setup.Email)
 				fmt.Println(setup.ConfigSnippet)
@@ -68,8 +67,7 @@ func newUsersAddCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -112,8 +110,7 @@ func newUsersListCmd() *cobra.Command {
 				if policy != nil {
 					policyAny = policy
 				}
-				cliout.PrintSuccess(map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, nil)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, nil)
 			}
 			for _, u := range users {
 				fmt.Printf("user  %-20v %-8v %v\n", u["username"], u["kind"], u["emails"])
@@ -155,8 +152,7 @@ func newUsersKeyAddCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -189,8 +185,7 @@ func newUsersKeyRevokeCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -226,8 +221,7 @@ func newUsersGroupSetCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -255,8 +249,7 @@ func newUsersGroupRemoveCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -340,8 +333,7 @@ func newUsersPolicyEditCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil

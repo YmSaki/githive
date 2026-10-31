@@ -51,12 +51,11 @@ func newStatusCmd() *cobra.Command {
 				for i, m := range doing {
 					doingItems[i] = m
 				}
-				cliout.PrintSuccess(map[string]any{
+				return cliout.PrintSuccess(map[string]any{
 					"unpushed_refs":  unpushed,
 					"unread_notify":  len(unread),
 					"my_doing_tasks": doingItems,
 				}, nil)
-				return nil
 			}
 
 			fmt.Printf("unpushed refs: %d\n", len(unpushed))
