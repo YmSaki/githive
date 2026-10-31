@@ -272,7 +272,26 @@ func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*push
 		return &pushPlan{ref: ref, action: ActionFastForwardOut}, Result{}, nil
 	}
 
+	// users/registry: whatever we are about to adopt from the remote
+	// (first fetch, fast-forward or merge) must not carry a root commit the
+	// local side doesn't trust (#113). Diverged-with-no-merge-base is
+	// resolveTrustRoots' case below and is skipped here.
+	if parsed.Feature == refspace.FeatureUsers && localOID != "" {
+		if _, err := r.MergeBase(ctx, localOID, remoteOID); err == nil {
+			if err := checkIncomingRegistryRoots(ctx, dir, r, ref, localOID, remoteOID); err != nil {
+				return nil, Result{}, err
+			}
+		} else if !errors.Is(err, gitx.ErrNoMergeBase) {
+			return nil, Result{}, err
+		}
+	}
+
 	if localOID == "" {
+		if parsed.Feature == refspace.FeatureUsers {
+			if err := checkIncomingRegistryRoots(ctx, dir, r, ref, "", remoteOID); err != nil {
+				return nil, Result{}, err
+			}
+		}
 		if err := chain.AdvanceRef(dir, plumbing.ReferenceName(ref), plumbing.NewHash(remoteOID), gitx.ZeroOID); err != nil {
 			return nil, Result{}, err
 		}
