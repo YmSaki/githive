@@ -44,8 +44,7 @@ func newWikiEditCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"worktree": wt}, nil)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"worktree": wt}, nil)
 			}
 			fmt.Println(wt)
 			return nil
@@ -74,10 +73,14 @@ func newWikiSaveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if flags.json {
-				cliout.PrintSuccess(map[string]any{"hash": res.CommitHash, "pushed": res.Pushed}, nil)
-				return nil
+			var warnings []cliout.Warning
+			if res.Warning != "" {
+				warnings = append(warnings, cliout.Warning{Code: "wiki_sync_failed", Message: res.Warning})
 			}
+			if flags.json {
+				return cliout.PrintSuccess(map[string]any{"hash": res.CommitHash, "pushed": res.Pushed}, warnings)
+			}
+			printWarnings(warnings)
 			if res.Pushed {
 				fmt.Printf("saved and pushed %s\n", res.CommitHash)
 			} else {
@@ -106,8 +109,7 @@ func newWikiShowCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				cliout.PrintSuccess(wikiShowJSON(args[0], content), nil)
-				return nil
+				return cliout.PrintSuccess(wikiShowJSON(args[0], content), nil)
 			}
 			if _, err := os.Stdout.Write(content); err != nil {
 				return err
@@ -136,8 +138,7 @@ func newWikiLogCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				cliout.PrintList(entries, nil)
-				return nil
+				return cliout.PrintList(entries, nil)
 			}
 			for _, e := range entries {
 				fmt.Printf("%s  %s  %-24v %v\n", shortHash(e["hash"]), e["date"], e["author"], e["subject"])

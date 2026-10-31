@@ -66,8 +66,7 @@ func newIssueNewCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, issueRef(id))
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"id": id}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
 			fmt.Println(id)
 			printWarnings(warnings)
@@ -99,8 +98,7 @@ func newIssueListCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				cliout.PrintList(items, nil)
-				return nil
+				return cliout.PrintList(items, nil)
 			}
 			fmt.Printf("%-10s %-12s %-40s %s\n", "ID", "STATUS", "TITLE", "ASSIGNEE")
 			for _, m := range items {
@@ -140,8 +138,7 @@ func newIssueShowCmd() *cobra.Command {
 				for i, c := range show.Comments {
 					comments[i] = c
 				}
-				cliout.PrintSuccess(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, nil)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, nil)
 			}
 			fmt.Printf("%v  %v  %v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"])
 			if show.Body != "" {
@@ -188,8 +185,7 @@ func newIssueCommentCmd() *cobra.Command {
 			warnings := syncIfEnabled(dir, issueRef(id))
 			warnings = append(warnings, notifyWarnings(warnStrings)...)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -228,8 +224,7 @@ func newIssueStatusCmd() *cobra.Command {
 			}
 			warnings = append(warnings, syncIfEnabled(dir, issueRef(id))...)
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"applied": ok}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"applied": ok}, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -268,8 +263,7 @@ func newIssueEditCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, issueRef(id))
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -355,8 +349,7 @@ func newIssueAssignCmd() *cobra.Command {
 			}
 			warnings = append(warnings, syncIfEnabled(dir, issueRef(id))...)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -385,8 +378,7 @@ func runSetOp(idArg string, add, remove []string, op func(*issueapp.Service, con
 	}
 	warnings := syncIfEnabled(dir, issueRef(id))
 	if flags.json {
-		cliout.PrintSuccess(nil, warnings)
-		return nil
+		return cliout.PrintSuccess(nil, warnings)
 	}
 	printWarnings(warnings)
 	return nil
@@ -415,8 +407,7 @@ func newIssueLinkCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, issueRef(id))
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil

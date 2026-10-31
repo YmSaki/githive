@@ -6,11 +6,17 @@ package verifyapp
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
+	"strings"
 	"time"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/ymsaki/githive/internal/core/chain"
+	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/materialize"
@@ -51,9 +57,13 @@ func (r RefReport) OK() bool { return len(r.Issues) == 0 }
 //     whether that's acceptable is a policy decision for the caller/CLI,
 //     not this package.
 //
-// trustRootPin, if non-empty, is compared against the ref's root commit
-// hash (only meaningful for refs/projects/users/registry,
-// docs/11-security.md「信頼の根」); a mismatch is reported as an issue.
+// For refs/projects/users/registry it additionally checks
+// (docs/11-security.md「信頼の根」, 検証規則 4):
+//   - every non-root registry change is by a user holding role:admin in the
+//     registry as of its parent commit(s), not as of HEAD (#109);
+//   - the history has a single root: every root other than trustRootPin
+//     (all of them, if no pin is set) is reported as multiple_trust_roots,
+//     and a pin matching no root as trust_root_mismatch (#113).
 func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefReport, error) {
 	r := gitx.New(dir)
 	oid, err := r.RevParse(ctx, ref)
@@ -83,11 +93,28 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 
 	isRegistry := ref == refspace.UsersRegistryRef
 
+	var roots []string
 	for _, commit := range commits {
 		if len(commit.ParentHashes) == 0 {
-			report.TrustRootHash = commit.Hash.String()
+			roots = append(roots, commit.Hash.String())
 		}
+	}
+	sort.Strings(roots)
+	trustRoot := ""
+	switch {
+	case trustRootPin != "":
+		trustRoot = trustRootPin
+	case len(roots) == 1:
+		trustRoot = roots[0]
+	}
+	if len(roots) > 0 {
+		report.TrustRootHash = roots[0]
+		if slices.Contains(roots, trustRoot) {
+			report.TrustRootHash = trustRoot
+		}
+	}
 
+	for _, commit := range commits {
 		committerEmail := commit.Committer.Email
 		commitTime := formatGitTime(commit.Committer.When)
 
@@ -117,21 +144,50 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 				Message:    fmt.Sprintf("event actor %q does not match committer email %q", env.Actor, committerEmail),
 			})
 		}
-		if isRegistry && !materialize.IsAdmin(registryState, env.Actor) {
-			report.Issues = append(report.Issues, Issue{
-				CommitHash: commit.Hash.String(),
-				Code:       "registry_change_without_admin",
-				Message:    fmt.Sprintf("registry change by %q who does not currently hold role:admin", env.Actor),
-			})
+		if isRegistry {
+			// 規則 4 は変更時点（= 親までのイベントを fold した台帳）で判定する。
+			// 信頼の根のルートコミットだけは、台帳が空の時点で admin を
+			// 自己登録する唯一の正当な書き込みなので対象外とする。
+			if commit.Hash.String() == trustRoot && len(commit.ParentHashes) == 0 {
+				continue
+			}
+			before, err := registryStateBefore(repo, commit)
+			if err != nil {
+				return nil, err
+			}
+			if !materialize.IsAdmin(before, env.Actor) {
+				report.Issues = append(report.Issues, Issue{
+					CommitHash: commit.Hash.String(),
+					Code:       "registry_change_without_admin",
+					Message:    fmt.Sprintf("registry change by %q who did not hold role:admin in the registry as of its parent commit(s)", env.Actor),
+				})
+			}
 		}
 	}
 
-	if isRegistry && trustRootPin != "" && report.TrustRootHash != "" && trustRootPin != report.TrustRootHash {
-		report.Issues = append(report.Issues, Issue{
-			CommitHash: report.TrustRootHash,
-			Code:       "trust_root_mismatch",
-			Message:    fmt.Sprintf("root commit %s does not match githive.trust.root pin %s", report.TrustRootHash, trustRootPin),
-		})
+	if isRegistry {
+		if trustRootPin != "" && len(roots) > 0 && !slices.Contains(roots, trustRootPin) {
+			report.Issues = append(report.Issues, Issue{
+				CommitHash: roots[0],
+				Code:       "trust_root_mismatch",
+				Message:    fmt.Sprintf("root commit(s) %s do not match githive.trust.root pin %s", strings.Join(roots, ", "), trustRootPin),
+			})
+		}
+		// docs/11「信頼の根」: registry が無関係な複数のルートを持つことは
+		// 正常系に存在しない（sync は無関係な台帳を合流させない）。pin 以外の
+		// ルートはすべて、pin が無ければ全ルートを報告する。
+		if len(roots) > 1 {
+			for _, root := range roots {
+				if root == trustRootPin {
+					continue
+				}
+				report.Issues = append(report.Issues, Issue{
+					CommitHash: root,
+					Code:       "multiple_trust_roots",
+					Message:    fmt.Sprintf("registry history has %d root commits (%s); %s is not the pinned trust root", len(roots), strings.Join(roots, ", "), root),
+				})
+			}
+		}
 	}
 
 	return report, nil
@@ -182,6 +238,29 @@ func loadRegistryState(ctx context.Context, dir string) (*materialize.State, err
 	events, err := chain.WalkChain(repo, plumbing.NewHash(oid))
 	if err != nil {
 		return nil, err
+	}
+	return materialize.UsersRegistry.Fold(events), nil
+}
+
+// registryStateBefore folds every registry event reachable from commit's
+// parents: the registry "as of" the moment commit was written
+// (docs/11-security.md 検証規則 4「変更時点の台帳」). A root commit gets the
+// empty state. This re-walks the ancestry per commit (quadratic in the
+// registry's length), which is acceptable for a ledger of users/keys.
+func registryStateBefore(repo *git.Repository, commit *object.Commit) (*materialize.State, error) {
+	seen := map[string]bool{}
+	var events []*event.Envelope
+	for _, parent := range commit.ParentHashes {
+		envs, err := chain.WalkChain(repo, parent)
+		if err != nil {
+			return nil, err
+		}
+		for _, env := range envs {
+			if !seen[env.ID] {
+				seen[env.ID] = true
+				events = append(events, env)
+			}
+		}
 	}
 	return materialize.UsersRegistry.Fold(events), nil
 }

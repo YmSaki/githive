@@ -28,8 +28,7 @@ func newLogCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				cliout.PrintList(entries, nil)
-				return nil
+				return cliout.PrintList(entries, nil)
 			}
 			for _, e := range entries {
 				fmt.Printf("%s  %-8v %-16v %-8s %v\n", e["ts"], e["feature"], e["kind"], shortID(e["entity"]), e["actor"])

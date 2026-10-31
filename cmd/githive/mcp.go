@@ -755,6 +755,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 					return nil, nil, err
 				}
 				filter.ActorEmail = sig.Email
+				filter.Membership = membershipResolver(dir)
 			}
 			items, err := notifyapp.New(dir).List(ctx, filter)
 			if err != nil {
@@ -772,7 +773,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 				if err != nil {
 					return nil, nil, err
 				}
-				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: membershipResolver(dir)})
 				if err != nil {
 					return nil, nil, err
 				}
@@ -837,7 +838,7 @@ type usersAddParams struct {
 
 type usersKeyParams struct {
 	Name string `json:"name" jsonschema:"username (required)"`
-	Pub  string `json:"pub" jsonschema:"public key, literal or a path to a file readable by the server"`
+	Pub  string `json:"pub" jsonschema:"literal SSH public key line (\"<type> <base64-data> [comment]\"); file paths are not accepted"`
 }
 
 type usersGroupSetParams struct {
@@ -900,11 +901,12 @@ func registerUsersTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "users_key_add", Description: "Register an SSH public key for a user"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args usersKeyParams) (*mcp.CallToolResult, map[string]any, error) {
 			// Unlike the CLI's --pub (which also accepts a file path),
-			// pub here must be a literal key line - see
-			// looksLikeSSHPublicKey's doc comment for why.
-			if !looksLikeSSHPublicKey(args.Pub) {
-				return nil, nil, fmt.Errorf("users_key_add: pub must be a literal SSH public key line (\"<type> <base64-data> [comment]\"), not a file path")
-			}
+			// pub here is only ever a literal key line: an MCP caller is
+			// an Agent, not the operator at the keyboard, and letting a
+			// tool argument drive a server-side file read is an indirect
+			// file-exfiltration path (point pub at ~/.ssh/id_ed25519, read
+			// it back via users_list). KeyAdd's ValidatePublicKey rejects
+			// anything that is not a key line, including a path.
 			if err := usersapp.New(dir).KeyAdd(ctx, args.Name, args.Pub); err != nil {
 				return nil, nil, err
 			}
@@ -913,9 +915,6 @@ func registerUsersTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "users_key_revoke", Description: "Revoke a user's SSH public key"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args usersKeyParams) (*mcp.CallToolResult, map[string]any, error) {
-			if !looksLikeSSHPublicKey(args.Pub) {
-				return nil, nil, fmt.Errorf("users_key_revoke: pub must be a literal SSH public key line (\"<type> <base64-data> [comment]\"), not a file path")
-			}
 			if err := usersapp.New(dir).KeyRevoke(ctx, args.Name, args.Pub); err != nil {
 				return nil, nil, err
 			}
@@ -995,35 +994,43 @@ func registerVerifyAndWhoamiTools(server *mcp.Server, dir string) {
 				return nil, nil, err
 			}
 			user, keys := matchRegistryUser(ctx, dir, sig.Email)
-			data := map[string]any{"name": sig.Name, "email": sig.Email}
-			if user != nil {
-				data["username"] = user["username"]
-				data["registered"] = true
-				anyKeys := make([]any, len(keys))
-				for i, k := range keys {
-					anyKeys[i] = k
-				}
-				data["keys"] = anyKeys
-			} else {
-				data["registered"] = false
-			}
-			return nil, data, nil
+			return nil, whoamiData(sig.Name, sig.Email, user, keys), nil
 		})
 }
 
 // ---- sync / status ----
 
 type syncParams struct {
-	Remote string   `json:"remote,omitempty" jsonschema:"sync remote name (default origin)"`
+	Remote string   `json:"remote,omitempty" jsonschema:"sync remote name; must be the remote this server was started with (mcp serve --remote, default origin)"`
 	Kinds  []string `json:"kinds,omitempty" jsonschema:"feature list to sync (default: every supported feature)"`
+}
+
+// errMcpRemoteNotAllowed means an MCP tool asked for a remote other than
+// the one `mcp serve` was started with.
+var errMcpRemoteNotAllowed = errors.New("mcp: remote not allowed")
+
+// mcpRemote pins MCP tools to the remote chosen by whoever started the
+// server (`githive mcp serve --remote`, default origin). Tool arguments are
+// assembled by an Agent that may have read attacker-controlled text, so
+// they must not be able to point git at an arbitrary remote/URL (#99);
+// gitx.ValidateRemote still checks the configured value itself.
+func mcpRemote(requested string) (string, error) {
+	allowed := flags.remote
+	if allowed == "" {
+		allowed = "origin"
+	}
+	if requested == "" || requested == allowed {
+		return allowed, nil
+	}
+	return "", fmt.Errorf("%w: %q (this server only talks to %q; restart with `githive mcp serve --remote <name>` to change it)", errMcpRemoteNotAllowed, requested, allowed)
 }
 
 func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "sync", Description: "fetch -> merge -> push every githive ref (or a kinds subset)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args syncParams) (*mcp.CallToolResult, map[string]any, error) {
-			remote := args.Remote
-			if remote == "" {
-				remote = "origin"
+			remote, err := mcpRemote(args.Remote)
+			if err != nil {
+				return nil, nil, err
 			}
 			refs, err := syncapp.DiscoverRefs(ctx, dir, remote, args.Kinds)
 			if err != nil {
@@ -1051,7 +1058,7 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			unread, err := notifyapp.New(dir).List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+			unread, err := notifyapp.New(dir).List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: membershipResolver(dir)})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -1128,7 +1135,7 @@ type fsckParams struct {
 }
 
 type doctorParams struct {
-	Remote string `json:"remote,omitempty" jsonschema:"remote name to check for clock skew against (default origin)"`
+	Remote string `json:"remote,omitempty" jsonschema:"remote name to check; must be the remote this server was started with (mcp serve --remote, default origin)"`
 }
 
 func registerFsckAndDoctorTools(server *mcp.Server, dir string) {
@@ -1155,9 +1162,9 @@ func registerFsckAndDoctorTools(server *mcp.Server, dir string) {
 	// automate; init is a one-time bootstrap step a human runs deliberately.
 	mcp.AddTool(server, &mcp.Tool{Name: "doctor", Description: "Diagnose the environment: git version, refspec, clock, identity, signing"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args doctorParams) (*mcp.CallToolResult, map[string]any, error) {
-			remote := args.Remote
-			if remote == "" {
-				remote = "origin"
+			remote, err := mcpRemote(args.Remote)
+			if err != nil {
+				return nil, nil, err
 			}
 			report, err := doctorapp.New(dir).Diagnose(ctx, remote)
 			if err != nil {

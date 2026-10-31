@@ -29,12 +29,11 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{
+				return cliout.PrintSuccess(map[string]any{
 					"refspec_added":       result.RefspecAdded,
 					"log_all_ref_updates": result.LogAllRefUpdates,
 					"meta_config_made":    result.MetaConfigMade,
 				}, nil)
-				return nil
 			}
 			if result.MetaConfigMade {
 				fmt.Println("initialized githive project:", project)
