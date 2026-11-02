@@ -83,6 +83,9 @@ func TestFoldOrderInvariance(t *testing.T) {
 	// The winner under last-write-wins-by-ID is always the max ID, regardless
 	// of the order events are handed to Fold in.
 	want := r.Fold(events).Meta["last_event"]
+	if want != ids[len(ids)-1] {
+		t.Fatalf("last-write-wins picked %v, want the max ID %s", want, ids[len(ids)-1])
+	}
 
 	rng := rand.New(rand.NewSource(1))
 	for trial := 0; trial < 20; trial++ {
@@ -97,6 +100,13 @@ func TestFoldOrderInvariance(t *testing.T) {
 
 func TestFoldCheckpointTransparency(t *testing.T) {
 	r := newDummyRegistry()
+	// Register a reducer for the checkpoint kind that would clobber the
+	// state if it ever ran. Without it the checkpoint is dropped merely as
+	// an unknown kind, and the test would pass even if Fold stopped
+	// skipping "*.checkpoint" (docs/02-data-model.md, ADR-0013).
+	r.Register("dummy.checkpoint", func(s *State, env *event.Envelope) {
+		s.Meta = map[string]any{"value": env.Data["bogus_state"]}
+	})
 	base := []*event.Envelope{
 		dummyEnvelope("01j8xq4d3nbz9k7w2m5e8h1t61", "a"),
 		dummyEnvelope("01j8xq4d3nbz9k7w2m5e8h1t62", "b"),
@@ -105,8 +115,8 @@ func TestFoldCheckpointTransparency(t *testing.T) {
 
 	stateWithout := r.Fold(base)
 	stateWith := r.Fold(withCheckpoint)
-	if stateWithout.Meta["value"] != stateWith.Meta["value"] {
-		t.Errorf("checkpoint changed fold result: without=%v with=%v", stateWithout.Meta, stateWith.Meta)
+	if got, want := canonicalStateSignature(t, stateWith), canonicalStateSignature(t, stateWithout); got != want {
+		t.Errorf("checkpoint changed fold result:\n without: %s\n with:    %s", want, got)
 	}
 }
 
