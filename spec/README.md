@@ -60,6 +60,7 @@ canonical-compact/ は同じく入力値と圧縮形（encode_compact_line、doc
 ordering/ は ULID の辞書順ソートに関するケースを持つ。events_common.sort_events（の ID 抽出版）で再検証する。
 fold-issue/・fold-task/・fold-chat/・fold-notify/・fold-users/ は、イベント列と期待される fold 結果（上の対応表を参照）のペアを持つ。
 イベント順をシャッフルしても同じ結果になることを、これらのベクタで確認できる。
+schema-negative/ は、スキーマが拒否すべき不正イベントを 1 件ずつ持つ（description と event）。validate.py は、各イベントが envelope か kind のスキーマのどちらかで拒否されることを確認する。正しいイベントを通す検証だけでは、スキーマが何も拒否しなくなっても PASS してしまうためである。
 meta-events/ は fold ベクタではない。実際に `githive init` を実行して得た `meta.init` イベント実例を events 配列 1 件だけ持ち、run_schema_validation の対象として envelope + meta.schema.json による検証のみを受ける（fold が無いため run_fold_validation の対象外）。
 
 ## validate.py の実行方法
