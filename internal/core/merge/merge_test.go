@@ -37,10 +37,26 @@ func issueLabelEvent(entity string, seq int, add string) *event.Envelope {
 	}
 }
 
+func issueEditEvent(entity string, seq int, title string) *event.Envelope {
+	return &event.Envelope{
+		V: 1, Kind: "issue.edit", ID: newULID(seq), TS: "2026-07-04T00:00:00.000Z",
+		Actor: "a@example.com", Entity: entity,
+		Data: map[string]any{"title": title}, Extra: map[string]any{},
+	}
+}
+
+// genEventSet mixes set-like label adds with last-write-wins title edits, so
+// that a merge which loses or reorders events changes the folded title, not
+// just a commutative label set.
 func genEventSet(rng *rand.Rand, entity string, n int) []*event.Envelope {
 	events := []*event.Envelope{issueCreateEvent(entity, 0)}
 	for i := 1; i <= n; i++ {
-		events = append(events, issueLabelEvent(entity, i*1000+rng.Intn(999), fmt.Sprintf("l%d", i)))
+		seq := i*1000 + rng.Intn(999)
+		if i%2 == 0 {
+			events = append(events, issueEditEvent(entity, seq, fmt.Sprintf("title-%d", i)))
+		} else {
+			events = append(events, issueLabelEvent(entity, seq, fmt.Sprintf("l%d", i)))
+		}
 	}
 	return events
 }
