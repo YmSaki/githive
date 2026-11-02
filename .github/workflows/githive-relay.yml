@@ -1,0 +1,42 @@
+name: githive relay
+
+# refs/projects/* へ直接 push できない環境（Claude のクラウドセッションなど）から
+# 送られた git bundle を取り込み、githive sync でマージして push する（#176）。
+# 送る側は scripts/githive-relay-pack.sh の出力を入力 bundle に渡して起動する。
+on:
+  workflow_dispatch:
+    inputs:
+      bundle:
+        description: "scripts/githive-relay-pack.sh が出力した base64 の git bundle"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# 同時に 2 つ走るとどちらかの push が non-fast-forward になるので直列にする。
+concurrency:
+  group: githive-relay
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: build githive
+        run: go build -o "$RUNNER_TEMP/githive" ./cmd/githive
+
+      - name: apply bundle and sync
+        env:
+          GITHIVE: ${{ runner.temp }}/githive
+          GITHIVE_BUNDLE: ${{ inputs.bundle }}
+        run: |
+          git config user.name "githive-relay"
+          git config user.email "githive-relay@users.noreply.github.com"
+          bash scripts/githive-relay-apply.sh origin
