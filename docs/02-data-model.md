@@ -148,6 +148,8 @@ state = fold(sort_by_event_id(events))
 ただし、issue/task/chat の create より前の変更や、同一 entity の異なる複数 create は、無視や作成者の置換を見逃さないよう保存・受け入れ境界で拒否する（`event_order_violation`）。通常の変更追記も既知の最大イベント ID 以下なら `clock_skew` で保存前に拒否する。fold の順序・結果や既存の履歴を変更する規則ではない（[ADR-0026](adr/0026-reject-lossy-event-order.md)）。
 正確な因果順序（hybrid logical clock 等）は複雑さに見合わないため採用しない（[ADR-0004](adr/0004-merge-by-event-union.md) の代替案の節）。
 
+users の鍵操作についても、user_set と key_add が ID 順で先行しない key_revoke、登録済みと pub が一致しない失効、同じ鍵材の別 pub の追加を保存・受け入れ境界で拒否する。冪等な同一 pub の反復は維持し、fold の結果は変更しない（[ADR-0027](adr/0027-reject-ignored-users-key-events.md)）。
+
 **決定性の不変条件**：同じイベント集合からは、byte 単位で同一の実体化ツリーが得られなければならない。
 canonical JSON、ULID ファイル名、固定のツリー配置はすべてこの条件のためにある。
 この不変条件はプロパティテストで常時検証する（[14](14-testing.md)）。

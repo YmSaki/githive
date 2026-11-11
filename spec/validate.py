@@ -61,6 +61,7 @@ import fold_notify
 import fold_task
 import fold_users
 from events_common import sort_events, validate_event_ids
+from domain_validation import validate_users_key_order
 
 
 # ---------------------------------------------------------------------------
@@ -467,6 +468,27 @@ def run_event_identity_validation(results: Results) -> None:
             results.ok(name)
 
 
+def run_domain_validation(results: Results) -> None:
+    path = VECTORS_DIR / "domain-validation" / "01-users-key-order.json"
+    vector = json.loads(path.read_text(encoding="utf-8"))
+    for case in vector["cases"]:
+        name = f"domain-validation[{case['name']}]"
+        for events in (case["events"], list(reversed(case["events"]))):
+            try:
+                validate_users_key_order(events)
+                valid = True
+            except ValueError as error:
+                valid = False
+                if "event_order_violation" not in str(error):
+                    results.fail(name, str(error))
+                    break
+            if valid != case["valid"]:
+                results.fail(name, f"accepted={valid}, expected={case['valid']}")
+                break
+        else:
+            results.ok(name)
+
+
 def main() -> int:
     results = Results()
     run_schema_validation(results)
@@ -477,6 +499,7 @@ def main() -> int:
     run_ordering_validation(results)
     run_strict_json_validation(results)
     run_event_identity_validation(results)
+    run_domain_validation(results)
     return results.print_summary()
 
 

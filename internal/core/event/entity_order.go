@@ -10,7 +10,7 @@ import (
 // pre-create edits or let a distinct create replace its original identity.
 var ErrEventOrderViolation = errors.New("event: event_order_violation")
 
-// ValidateEntityOrder checks admission safety for issue/task/chat histories.
+// ValidateEntityOrder checks admission safety for entity and users key histories.
 // It does not change reducer ordering: create must be unique and sort before
 // every mutation of that entity. Checkpoints are outside the logical history.
 // Sets with no create are left to existing missing-entity checks. Callers
@@ -48,5 +48,5 @@ func ValidateEntityOrder(events []*Envelope) error {
 			return fmt.Errorf("%w: %s event %s sorts before create %s and would be ignored; inspect peer clocks and the original history", ErrEventOrderViolation, key, g.first, g.create)
 		}
 	}
-	return nil
+	return validateUsersKeyOrder(events)
 }

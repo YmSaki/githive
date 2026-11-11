@@ -158,3 +158,13 @@ git show refs/projects/users/registry:policy.json
 
 - ユーザーごとに ref を分ける案（`refs/projects/users/<name>`）は退けた。グループと policy が単一ビューを要求すること、hosted モードでは ref 分割しても書き込み制限にならないことが理由である。forge モードの書き込み制御は policy ルールで registry ref 全体を admin に限定すれば足りる。
 - メールアドレスは identity の突合（actor 解決）と通知配信に使う。本人性の証明は常に鍵で行い、email の自己申告は署名検証（actor と鍵の持ち主の一致、[11](../11-security.md)）で裏が取れる。
+
+## 生の鍵履歴の受け入れ検査
+
+完全なイベント集合を ID 順で検査し、key_add/key_revoke は同じ username の user_set の後、key_revoke は同じ username の matching key_add の後でなければ拒否する。生の revoke イベントの pub は登録済みの文字列と完全一致しなければならない。コメント・空白の違いで fold が失効を無視する履歴は受け入れない。通常の CLI/MCP は従来どおり鍵材で利用者の入力を解決し、登録済み pub をイベントへ書く。
+
+同じ username の同じ鍵材（型 + base64 token）を別 pub 文字列で追加することも拒否する。完全一致する key_add の反復、同じ ID と canonical 内容のコピー、完全一致する key_revoke の反復は冪等な履歴として受け入れる。user_set の更新で鍵の登録状態はリセットされず、checkpoint の state は依存関係の証拠にしない。異なる username 間での同じ鍵材の利用は既存のポリシーを維持する。
+
+違反は `event_order_violation`（exit 4）として read/sync/init で拒否し、fsck/verify にも表示する。署名が正しいだけでは、この検査を通らない台帳を信頼状態へ採用しない。元のイベントや fold 規則を変更するものではない（[ADR-0027](../adr/0027-reject-ignored-users-key-events.md)）。
+
+違反した既存履歴は診断対象として隔離し、元の ref/OID を監査用に保持する。`git log` / `git show` で最初に違反する操作と時計・pub の不一致を確認する。後から正常な revoke を追記しても過去の違反は消えないため、通常操作での自動修復・履歴の書き換えは行わず、監査可能な移行方針を別途決める。

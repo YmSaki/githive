@@ -76,3 +76,7 @@ issue 単位の閲覧制限（confidential issue）は提供しない。設計�
 
 
 JSON の厳格パースでは、単一値以外の末尾データ、escape 解決後の重複キー、不正 UTF-8、孤立 surrogate を拒否する。イベント入力はパース前に256 KiB、JSONの配列・オブジェクトは最大128段を上限とする。エンコードにも同じUnicode・深さ検査を適用し、任意のGo値からの書き込みにも制限を効かせる（[ADR-0021](adr/0021-strict-json-and-event-bounds.md)）。
+
+### 台帳の鍵依存順序
+
+users の署名を信頼判定へ使う前に、完全な履歴に対して user_set → key_add → key_revoke の依存順序と pub の一致を検査する。登録前の revoke、未知の鍵、コメント違いで無視される revoke、同じ鍵材の別 pub の追加は、署名が正しくても `event_order_violation` とする。verify は問題を報告し、他の ref の署名検証にもその台帳を使わない。sync/init も正常なローカル registry ref へ採用しない（[ADR-0027](adr/0027-reject-ignored-users-key-events.md)）。
