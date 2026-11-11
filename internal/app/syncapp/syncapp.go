@@ -87,8 +87,8 @@ type Result struct {
 
 // ErrRetriesExhausted is returned (exit code 3 at the CLI layer,
 // docs/10-cli-spec.md「終了コード」) when push kept losing to a concurrent
-// remote update after Retries attempts. Local state is left as-is; sync can
-// simply be re-run.
+// remote update after the initial attempt and Retries retries. Local state is
+// left as-is; sync can simply be re-run.
 var ErrRetriesExhausted = errors.New("syncapp: push retries exhausted")
 
 // ErrPushRejected is returned when the remote rejects a push for a reason
@@ -155,7 +155,9 @@ func SkipInitialFetch() Option {
 	return func(o *syncOptions) { o.skipInitialFetch = true }
 }
 
-// Sync runs the fetch/merge/push algorithm for refs against remote.
+// Sync runs the fetch/merge/push algorithm for refs against remote. retries is
+// the retry budget after the initial attempt; zero disables retries, and a
+// negative value selects DefaultRetries.
 //
 // Work is batched per round rather than per ref
 // (docs/03-sync-and-concurrency.md「全 ref 一括の sync は、fetch を 1 回の
@@ -171,7 +173,7 @@ func SkipInitialFetch() Option {
 // other refs failed; the error aggregates every per-ref failure
 // (docs/01-architecture.md「部分的成功は正常系として報告する」).
 func Sync(ctx context.Context, dir, remote string, refs []string, retries int, opts ...Option) ([]Result, error) {
-	if retries <= 0 {
+	if retries < 0 {
 		retries = DefaultRetries
 	}
 	var o syncOptions
@@ -184,7 +186,7 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 	var failures []error
 
 	pending := append([]string(nil), refs...)
-	for round := 0; round < retries && len(pending) > 0; round++ {
+	for round := 0; len(pending) > 0; round++ {
 		if round > 0 || !o.skipInitialFetch {
 			if err := fetchNamespace(ctx, r, remote); err != nil {
 				return orderedResults(refs, done), errors.Join(append(failures, err)...)
@@ -216,6 +218,9 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 			return orderedResults(refs, done), errors.Join(append(failures, err)...)
 		}
 		pending = retryable
+		if round == retries {
+			break
+		}
 	}
 
 	if len(pending) > 0 {
@@ -251,9 +256,10 @@ func checkSchemaBothSides(ctx context.Context, dir string) error {
 // fetchNamespace pulls the whole refs/projects/ namespace in one wildcard
 // refspec. A wildcard rather than a specific ref because it tolerates the
 // remote not having a given ref yet (no error) and covers every ref of the
-// round in one round trip.
+// round in one round trip. Pruning only the tracking namespace ensures a
+// deleted remote ref is re-pushed from the authoritative local ref.
 func fetchNamespace(ctx context.Context, r *gitx.Runner, remote string) error {
-	return r.Fetch(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot))
+	return r.FetchPruned(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot))
 }
 
 // planRef decides what one ref needs, doing any purely local work (a
