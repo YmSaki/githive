@@ -120,6 +120,13 @@ type SaveResult struct {
 // it the worktree is still the handoff between edit and save. keep is surfaced
 // so a future inline-editor integration can auto-remove a non-kept worktree.
 func (s *Service) Edit(ctx context.Context, keep bool) (string, error) {
+	return s.EditWithRemote(ctx, keep, "origin", false)
+}
+
+// EditWithRemote starts an edit using the selected remote's wiki when no
+// local wiki exists. noSync skips the initial fetch and uses cached refs.
+// An unavailable remote does not prevent offline editing.
+func (s *Service) EditWithRemote(ctx context.Context, keep bool, remote string, noSync bool) (string, error) {
 	r := gitx.New(s.Dir)
 
 	existing, err := r.ConfigGet(ctx, worktreeConfigKey)
@@ -140,6 +147,24 @@ func (s *Service) Edit(ctx context.Context, keep bool) (string, error) {
 		// worktree remove`) without going through `wiki save`; the recorded
 		// path is stale, so fall through and record a fresh worktree instead
 		// of deadlocking every future Edit on a path that no longer exists.
+	}
+
+	local, err := r.RevParse(ctx, refspace.WikiMainRef)
+	if err != nil {
+		return "", err
+	}
+	if local == "" && !noSync {
+		tracking, err := refspace.RemoteTrackingRef(refspace.WikiMainRef)
+		if err != nil {
+			return "", err
+		}
+		// A plain clone does not fetch refs/projects. Fetch the explicit wiki
+		// ref before choosing an edit base, independent of remote HEAD.
+		// Missing/unreachable remotes keep the existing offline behavior.
+		_ = r.Fetch(ctx, remote, "+"+refspace.WikiMainRef+":"+tracking)
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 	}
 
 	dir, err := r.WorktreeAdd(ctx, refspace.WikiMainRef)

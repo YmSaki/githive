@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
 // MinVersion is the lowest system git version githive supports (SSH signing
@@ -609,6 +611,16 @@ func (r *Runner) WorktreeAdd(ctx context.Context, ref string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if base == "" && ref == refspace.WikiMainRef {
+		tracking, err := refspace.RemoteTrackingRef(ref)
+		if err != nil {
+			return "", err
+		}
+		base, err = r.RevParse(ctx, tracking)
+		if err != nil {
+			return "", err
+		}
+	}
 	if base == "" {
 		base, err = r.emptyRootCommit(ctx)
 		if err != nil {
@@ -643,7 +655,8 @@ func (r *Runner) WorktreeAdd(ctx context.Context, ref string) (string, error) {
 }
 
 // emptyRootCommit writes git's empty tree object (if absent) and returns a
-// fresh parentless commit of it, used as the base for a first-ever wiki save.
+// deterministic parentless commit of it, shared by independently created
+// first wiki edits so they can later use an ordinary 3-way merge.
 func (r *Runner) emptyRootCommit(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "hash-object", "-w", "-t", "tree", "--stdin")
 	cmd.Env = gitEnv()
@@ -655,9 +668,14 @@ func (r *Runner) emptyRootCommit(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("gitx: hash-object empty tree: %w: %s", err, strings.TrimSpace(errBuf.String()))
 	}
 	tree := strings.TrimSpace(out.String())
-	commit, err := r.run(ctx, "commit-tree", tree, "-m", "githive: wiki root")
+	root := exec.CommandContext(ctx, "git", "-C", r.Dir, "commit-tree", "--no-gpg-sign", tree, "-m", "githive: wiki root")
+	root.Env = append(gitEnv(),
+		"GIT_AUTHOR_NAME=githive", "GIT_AUTHOR_EMAIL=wiki@githive.invalid",
+		"GIT_COMMITTER_NAME=githive", "GIT_COMMITTER_EMAIL=wiki@githive.invalid",
+		"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE=2000-01-01T00:00:00Z")
+	commit, err := root.CombinedOutput()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("gitx: create wiki root: %w: %s", err, strings.TrimSpace(string(commit)))
 	}
 	return strings.TrimSpace(string(commit)), nil
 }

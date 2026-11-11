@@ -39,7 +39,7 @@ func newWikiEditCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			wt, err := wikiapp.New(dir).Edit(context.Background(), keep)
+			wt, err := wikiapp.New(dir).EditWithRemote(context.Background(), keep, flags.remote, flags.noSync)
 			if err != nil {
 				return err
 			}
