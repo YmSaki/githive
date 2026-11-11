@@ -258,3 +258,7 @@ scripts/CI補償は別紙 `scripts.md`。core/app/boundaries担当の完全なin
 ### 最終統合差分の注記
 
 `de420b0` の durable recovery ref と配送結果保持、`0cb7bf5` の本文/鍵正規化分離、`dfc4ebe` の Wiki 祖先確認は現行形式の不具合修正である。再設計提案の採用や実装完了とはしない。検証済み基点と最終CIの区別は [監査の再評価](README.md#統合後の再評価) に従う。
+
+### main に追加された relay の境界
+
+relayもGit輸送のadapterであり、queue保持/prune/bundleの到達性確認を除去対象としない。[追加監査](relay-main-addendum.md)の6ファイルはmain更新に伴って保持した。元の受入・署名・部分結果モデルの提案を変更するものではなく、relayの輸送成功を履歴の意味/権限検証済みへ昇格させない。

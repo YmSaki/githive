@@ -1,6 +1,6 @@
 # 統合候補のコミット来歴（実装固定スナップショット）
 
-Source: `dfc4ebe6ecf48c700d83bd54c9556db4bdf2b0e9`
+Source: `c1ec754d0db0e1a79538f0ccd78bd1ed6583a04b`
 Branch: `codex/product-quality-candidate`
 Base: `ff1ab6707ff9fea8fda3aea200f726f89012c798`
 Worktree: セッションの一時作業領域（公開配布物ではない）
@@ -119,3 +119,7 @@ Status: 第二波の独立レビュー・修正を含む実装固定スナップ
 | `dfc4ebe6ecf48c700d83bd54c9556db4bdf2b0e9` | wiki: 保存時に別 writer のローカル履歴を置換しない |
 
 独立した第一原理監査・領域別coverage・未採用の設計案は [監査報告](audits/2026-11-11/README.md)。この実装基点後に収録する文書自体は Source に含まれない。
+
+## main 更新との再統合
+
+main `7d09d0e3e69a31534c4510d9eac21211177c73db` の8件のsquashを `c1ec754` で取り込んだ。競合解消はHEADのより強い入力/履歴/設定/保存保護を保持し、Go全279ファイルは取り込み前とbyte同一。差分はrelayの3scripts、workflow、skill、Linux CI hookの6ファイル。初期スナップショットでは除外していた #179 はmain経由で含まれる状態へ変わった。#184修正もblob一致で既包含を確認済み。関連PRを既存mainから除去したり二重適用したりしていない。

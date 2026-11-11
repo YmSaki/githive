@@ -4,7 +4,7 @@
 
 ## 配布物と候補の区別
 
-インストール検証で `go install github.com/ymsaki/githive/cmd/githive@latest` が取得したのは `v0.0.0-20260728142753-ff1ab6707ff9`。確認した公開 main も `ff1ab6707ff9fea8fda3aea200f726f89012c798` で、候補の修正は含まれない。`@latest` は安定版やこの統合候補を意味しない。導入後は `go version -m` で実際の版を確認する（[導入手順](installation.md)）。
+インストール検証で `go install github.com/ymsaki/githive/cmd/githive@latest` が取得したのは `v0.0.0-20260728142753-ff1ab6707ff9`。最初に確認した公開 main は `ff1ab6707ff9fea8fda3aea200f726f89012c798` だった。その後 main は `7d09d0e3e69a31534c4510d9eac21211177c73db` へ更新され、8件の修正PRとrelayを取り込んだ。候補の追加保護を全て含む状態とは別である。`@latest` は安定版やこの統合候補を意味しない。導入後は `go version -m` で実際の版を確認する（[導入手順](installation.md)）。
 
 現在提供している方法は Go によるソースからのインストール。公開リリースのバイナリ・Homebrew・自動更新は未提供であり、CLI は `githive`、MCP 起動は `githive mcp serve` である。`git hive` 用の shim は同梱しない。README の Forge 列は将来のサーバー設計であり、サーバー配布・pre-receive の権限強制・push 時の通知配信を実装済みとは扱わない。
 
@@ -58,3 +58,5 @@
 候補は追加で、台帳の置換前 recovery ref、成功時の同期警告・部分配送結果、壊れた設定版の拒否、Wiki の別writer履歴を失わない祖先確認、本文ファイル末尾改行の保持を含む。最終 head の CI/配布物は PR #187 へ対象 SHA とともに記録する。
 
 [補償コード監査と再設計案](audits/2026-11-11/README.md) は現行の不具合修正と分離した未採用の提案である。実装しないままアーキテクチャ変更済みと数えない。
+
+mainの並行更新後はrelayも候補に含む。[relay追加監査](audits/2026-11-11/relay-main-addendum.md)に対象と実証済み範囲を記録する。新しいmainの既存内容は保持し、最終CIでLinux relay回帰も実行する。
