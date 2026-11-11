@@ -29,7 +29,7 @@ done
 if ! git config --get-all "remote.$remote.fetch" | grep -qxF '+refs/projects/*:refs/githive-remote/*'; then
   git config --add "remote.$remote.fetch" '+refs/projects/*:refs/githive-remote/*'
 fi
-git fetch -q "$remote" '+refs/projects/*:refs/githive-remote/*'
+git fetch --prune -q "$remote" '+refs/projects/*:refs/githive-remote/*'
 
 git bundle verify -q "$bundle"
 # ローカルの refs/projects/ は空の前提（CI の新しい checkout）。送られた tip をそのまま置く。
