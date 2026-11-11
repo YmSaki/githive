@@ -183,44 +183,71 @@ type Writer struct {
 // append; it participates in the shortcut's ordering check just like the
 // events already on the chain.
 func (w *Writer) foldInputs(ctx context.Context, id, newEventID string) (base *materialize.State, events []*event.Envelope, oid string, err error) {
-	r := gitx.New(w.Dir)
-	ref := w.RefFor(id)
-	oid, err = r.RevParse(ctx, ref.String())
+	oid, err = w.headOID(ctx, id)
 	if err != nil {
 		return nil, nil, "", err
 	}
+	base, events, err = w.foldInputsAt(oid, newEventID)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return base, events, oid, nil
+}
+
+// headOID returns id's ref OID, or gitx.ZeroOID when the ref does not exist.
+func (w *Writer) headOID(ctx context.Context, id string) (string, error) {
+	oid, err := gitx.New(w.Dir).RevParse(ctx, w.RefFor(id).String())
+	if err != nil {
+		return "", err
+	}
 	if oid == "" {
-		return nil, nil, gitx.ZeroOID, nil
+		return gitx.ZeroOID, nil
+	}
+	return oid, nil
+}
+
+// foldInputsAt is foldInputs for a head OID the caller has already read, so
+// that everything one Append attempt computes refers to the same commit.
+func (w *Writer) foldInputsAt(oid, newEventID string) (base *materialize.State, events []*event.Envelope, err error) {
+	if oid == gitx.ZeroOID {
+		return nil, nil, nil
 	}
 	repo, err := chain.OpenRepository(w.Dir)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
 	head := plumbing.NewHash(oid)
 
 	start, err := chain.FindCheckpointStart(repo, head)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
 	if start != nil {
 		if base, ok := w.checkpointBase(start, newEventID); ok {
-			return base, start.After, oid, nil
+			return base, start.After, nil
 		}
 	}
 
 	events, err = chain.WalkChain(repo, head)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
-	return nil, events, oid, nil
+	return nil, events, nil
 }
 
 // checkpointBase restores start's snapshot if it is safe to fold from
-// (ADR-0016 条件 2・3). Any doubt - an older checkpoint format, a snapshot
-// this tool cannot decode, or an event after the checkpoint that would sort
-// before something the checkpoint already subsumed - answers "no", and the
-// caller falls back to walking the whole chain.
+// (ADR-0016 条件 2・3・4). Any doubt - an older checkpoint format, a snapshot
+// this tool cannot decode, a snapshot taken at a different commit than the
+// one the checkpoint actually sits on, or an event after the checkpoint
+// that would sort before something the checkpoint already subsumed -
+// answers "no", and the caller falls back to walking the whole chain.
 func (w *Writer) checkpointBase(start *chain.CheckpointStart, newEventID string) (*materialize.State, bool) {
+	// Condition 4: the snapshot must describe exactly the checkpoint's
+	// parent. A checkpoint written from a stale read (issue #95) sits on a
+	// commit holding events its state never saw.
+	if head, ok := start.Checkpoint.Data["head"].(string); !ok || head != start.Parent.String() {
+		return nil, false
+	}
 	maxID, ok := start.Checkpoint.Data["max_event_id"].(string)
 	if !ok || !event.IsValidULID(maxID) {
 		return nil, false
@@ -281,6 +308,18 @@ func (w *Writer) CurrentEvents(ctx context.Context, id string) (events []*event.
 // the resulting fold state so callers can detect no-op writes (e.g. an
 // invalid status transition, which fold silently ignores).
 func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*event.Envelope, string)) (*materialize.State, error) {
+	return w.AppendOnto(ctx, id, func(string) (*event.Envelope, string, error) {
+		env, summary := buildEvent()
+		return env, summary, nil
+	})
+}
+
+// AppendOnto is Append for events whose content depends on the exact commit
+// they will be appended to. buildEvent receives the parent OID of this
+// attempt (gitx.ZeroOID for a new chain) and is called again on every CAS
+// retry, so it always describes the commit the event really lands on. fsck
+// --compact uses it to snapshot the chain it is checkpointing (issue #95).
+func (w *Writer) AppendOnto(ctx context.Context, id string, buildEvent func(parentOID string) (*event.Envelope, string, error)) (*materialize.State, error) {
 	mu := lockFor(w.Dir)
 	mu.Lock()
 	defer mu.Unlock()
@@ -309,9 +348,16 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 	ref := w.RefFor(id)
 
 	for attempt := 0; attempt < defaultRetries; attempt++ {
-		env, summary := buildEvent()
+		oid, err := w.headOID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		env, summary, err := buildEvent(oid)
+		if err != nil {
+			return nil, err
+		}
 		env.Actor = sig.Email
-		base, existingEvents, oid, err := w.foldInputs(ctx, id, env.ID)
+		base, existingEvents, err := w.foldInputsAt(oid, env.ID)
 		if err != nil {
 			return nil, err
 		}
