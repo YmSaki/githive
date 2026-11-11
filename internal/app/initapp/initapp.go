@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
+
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
@@ -175,6 +177,15 @@ func adoptRemoteOnlyRefs(ctx context.Context, r *gitx.Runner) ([]string, error) 
 		}
 		if oid != "" {
 			continue
+		}
+		if local == refspace.UsersRegistryRef {
+			repo, err := chain.OpenRepository(r.Dir)
+			if err != nil {
+				return adopted, err
+			}
+			if _, err := chain.WalkChain(repo, plumbing.NewHash(e.OID)); err != nil {
+				return adopted, fmt.Errorf("initapp: refusing remote registry: %w", err)
+			}
 		}
 		if err := r.UpdateRef(ctx, local, e.OID, gitx.ZeroOID); err != nil {
 			if errors.Is(err, gitx.ErrRefCASMismatch) {

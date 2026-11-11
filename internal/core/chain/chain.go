@@ -224,6 +224,11 @@ func ExtractEnvelope(commit *object.Commit) (*event.Envelope, error) {
 	if env == nil && len(commit.ParentHashes) <= 1 {
 		return nil, fmt.Errorf("chain: commit %s: non-merge commit has no event envelope", commit.Hash)
 	}
+	if env != nil {
+		if err := event.ValidateStoredData(env); err != nil {
+			return nil, fmt.Errorf("chain: commit %s: %w", commit.Hash, err)
+		}
+	}
 	return env, nil
 }
 

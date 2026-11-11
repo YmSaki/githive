@@ -61,7 +61,9 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 
 issue/task/chat の新規作成・編集では、指定された空の title を拒否する。編集フィールドの省略は従来どおり受け付ける。status は各機能の既知の値だけを受け付ける。task の priority は low/normal/high、due はスキーマの `YYYY-MM-DD` パターンに従う（暦上の実在日の検査ではない）。issue/task の link は rel=task/issue/chat と完全な小文字 ULID を要求し、issue comment / chat post の reply_to・supersedes も指定時は完全な小文字 ULID を要求する。この検証は CLI と MCP が共有する app 書き込み経路で行い、不正な入力はイベントを追記せず拒否する。CLI は `invalid_input`、終了コード 2 を返す。
 
-未知の status と、既知の status 間の不正な遷移は区別する。後者は従来どおり監査イベントを記録し、fold が遷移を無視する（`applied:false` と警告）。読み取り・既存イベントの fold 規則は変えない。この入力検証は全 kind の JSON Schema 検証ではなく、notify 宛先や users、一覧フィルタなどは別の検証範囲である。
+notify は非空の title と宛先配列を要求し、宛先は `user:<email>`・`group:<有効なグループ名>`・`all` の形式に限る。source は指定時に kind 文字列と完全小文字 ULID の id を要求する。users の kind は human/agent、status は active/suspended、ユーザー・グループ名とグループのメンバー名はスキーマの名前規則に従う。これらも同じ app 書き込み経路で検証する（グループの存在確認や source.kind の列挙制約は追加しない）。
+
+未知の status と、既知の status 間の不正な遷移は区別する。後者は従来どおり監査イベントを記録し、fold が遷移を無視する（`applied:false` と警告）。既存イベントの fold 規則は変えない。読み取り境界では、ツリーのパスに使えない users の username/group name を含む履歴を破損データとして明示的に拒否し、無言の無視や補正は行わない。この入力検証は全 kind の JSON Schema 検証ではなく、users の他フィールドや一覧フィルタなどは別の検証範囲である。
 
 ### `githive log --since` の完全性について
 

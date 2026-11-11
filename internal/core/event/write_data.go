@@ -25,6 +25,12 @@ var dueDatePattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
 // with spec/schemas. This is not a full JSON Schema validator and does not
 // change decoding or fold: known but invalid transitions still get recorded.
 func ValidateWriteData(e *Envelope) error {
+	if err := validateUsersWriteData(e); err != nil {
+		return err
+	}
+	if err := validateNotifyWriteData(e); err != nil {
+		return err
+	}
 	requiredTitle := e.Kind == "issue.create" || e.Kind == "task.create" || e.Kind == "chat.create"
 	optionalTitle := e.Kind == "issue.edit" || e.Kind == "task.edit" || e.Kind == "chat.edit_meta"
 	if requiredTitle || optionalTitle {
