@@ -209,3 +209,40 @@ func TestUnknownKindRemainsAForwardCompatibleWarning(t *testing.T) {
 		t.Fatalf("futurekind rejected: %v", err)
 	}
 }
+
+func TestIgnoredStatusTransitionsAreWarningsWithoutChangingFold(t *testing.T) {
+	dir := newTestRepo(t)
+	ctx := context.Background()
+	svc := issueapp.New(dir)
+	id, err := svc.NewIssue(ctx, "valid", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := svc.Status(ctx, id, "archived")
+	if err != nil || accepted {
+		t.Fatalf("expected recorded-but-ignored transition: %v %v", accepted, err)
+	}
+	state, err := svc.Show(ctx, id)
+	if err != nil || state.Meta["status"] != "open" {
+		t.Fatalf("audit changed fold: %+v %v", state, err)
+	}
+	report, err := New(dir).Run(ctx, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings := findingsWithCode(report, "ignored_status_transition")
+	if len(findings) != 1 || findings[0].Severity != SeverityWarning || findings[0].Commit == "" || !report.OK() {
+		t.Fatalf("ignored transition silently hidden or made fatal: %+v", report)
+	}
+	verified, err := verifyapp.VerifyRef(ctx, dir, "refs/projects/issue/"+id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, warning := range verified.Warnings {
+		found = found || warning.Code == "ignored_status_transition"
+	}
+	if !found {
+		t.Fatalf("verify missing ignored transition warning: %+v", verified)
+	}
+}

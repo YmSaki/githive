@@ -255,6 +255,7 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 	}
 	var ids event.IDSet
 	var envelopes []*event.Envelope
+	commitByID := map[string]string{}
 	for _, c := range commits {
 		env, err := chain.ExtractEnvelope(c)
 		if err != nil {
@@ -269,6 +270,9 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 			continue
 		}
 		if env != nil {
+			if old := commitByID[env.ID]; old == "" || c.Hash.String() < old {
+				commitByID[env.ID] = c.Hash.String()
+			}
 			if known, err := event.ValidateDataSchema(env); err != nil {
 				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: "invalid_event_data", Message: err.Error()})
 			} else if !known {
@@ -299,6 +303,14 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 		for _, conflict := range materialize.EmailConflicts(materialize.UsersRegistry.Fold(envelopes)) {
 			findings = append(findings, Finding{Ref: ref, Feature: string(feature), Code: "ambiguous_email", Message: fmt.Sprintf("email %q belongs to multiple users: %s", conflict.Email, strings.Join(conflict.Usernames, ", "))})
 		}
+	}
+	for _, finding := range findings {
+		if finding.Severity != SeverityWarning {
+			return findings // do not infer transitions from contradictory/invalid data
+		}
+	}
+	for _, ignored := range materialize.IgnoredStatusTransitions(string(feature), envelopes) {
+		findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: commitByID[ignored.EventID], Code: "ignored_status_transition", Severity: SeverityWarning, Message: fmt.Sprintf("%s from %q to %q was ignored by the reducer", ignored.Kind, ignored.From, ignored.To)})
 	}
 	return findings
 }

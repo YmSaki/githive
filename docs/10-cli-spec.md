@@ -173,4 +173,4 @@ TUI と MCP サーバーは同一プロセス内で `app` を直接呼ぶため�
 
 sync / init は既知 kind の不正 data（`invalid_event_data`）や、kind と ref feature・entity と per-entity ref ID の不一致（`event_ref_mismatch`）を採用せず、終了コード4で検査を促す。fsck / verify にも対象コミットの診断を残す。users 台帳の data が検証できない場合、部分的な台帳で署名を正当化しない。
 
-未知 kind は `unknown_event_kind` 警告とし、既存の無視・保持の互換性を維持する。fsck は元のイベント本文の canonical bytes も照合し、`non_canonical_event` を報告する。未知フィールドの破棄、暦上の実在日の強制、opaque な source.kind の列挙追加は行わない（[ADR-0030](adr/0030-embedded-event-contract-validation.md)）。有効な enum でも状態遷移規則で無視されるイベントの完全な警告列挙は別の #116 残課題である。
+未知 kind は `unknown_event_kind` 警告とし、既存の無視・保持の互換性を維持する。fsck は元のイベント本文の canonical bytes も照合し、`non_canonical_event` を報告する。未知フィールドの破棄、暦上の実在日の強制、opaque な source.kind の列挙追加は行わない（[ADR-0030](adr/0030-embedded-event-contract-validation.md)）。issue/task の有効な enum でも規則上無効な status 遷移は、実際の reducer の判定を使い `ignored_status_transition` 警告として報告する。記録済みのイベントや状態は変更せず、意図された同値更新・集合の重複排除を一般的なエラーにはしない。

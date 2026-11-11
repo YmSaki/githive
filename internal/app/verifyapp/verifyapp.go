@@ -95,6 +95,7 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 
 	var ids event.IDSet
 	var envelopes []*event.Envelope
+	commitByID := map[string]string{}
 	parsed, parseErr := refspace.Parse(ref)
 	for _, commit := range commits {
 		env, err := chain.ExtractEnvelope(commit)
@@ -104,6 +105,9 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 		}
 		if env == nil {
 			continue
+		}
+		if old := commitByID[env.ID]; old == "" || commit.Hash.String() < old {
+			commitByID[env.ID] = commit.Hash.String()
 		}
 		if known, err := event.ValidateDataSchema(env); err != nil {
 			report.Issues = append(report.Issues, Issue{CommitHash: commit.Hash.String(), Code: "invalid_event_data", Message: err.Error()})
@@ -130,6 +134,11 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 	// A contradictory registry must not become authoritative for signatures.
 	if len(report.Issues) > 0 {
 		return report, nil
+	}
+	if parseErr == nil {
+		for _, ignored := range materialize.IgnoredStatusTransitions(string(parsed.Feature), envelopes) {
+			report.Warnings = append(report.Warnings, Issue{CommitHash: commitByID[ignored.EventID], Code: "ignored_status_transition", Message: fmt.Sprintf("%s from %q to %q was ignored by the reducer", ignored.Kind, ignored.From, ignored.To)})
+		}
 	}
 
 	registryState, err := loadRegistryState(ctx, dir)
