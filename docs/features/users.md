@@ -115,7 +115,7 @@ revoke された鍵による「revoke 時刻より後の」署名は無効と判
 
 1. identity の自動鋳造。既定は `<name>@agents.<プロジェクト名>.invalid`（RFC 6761 により実在しないことが保証されたドメイン。`--email` で上書き可）。
 2. Agent 専用の SSH 鍵ペアを生成し、公開鍵を台帳に登録する。
-3. Agent の実行環境に貼る git config スニペット（`user.name` / `user.email` / `user.signingkey` / `commit.gpgsign`）を出力する。
+3. Agent の実行環境の POSIX shell（sh/bash 等）へ貼る git config スニペット（`user.name` / `user.email` / `user.signingkey` / `commit.gpgsign`）を出力する。値はシェル展開されない引用形式にする。PowerShell 等ではこのスニペットを直接実行せず、JSON の `username`・`email`・`private_key` を使って各設定値をそのシェルの引用方法で渡す。
 
 人間と Agent が同じマシンを共有する場合も、Agent の実行環境（コンテナ、CI、エージェントセッション）には必ず専用の設定を与える。
 設定を怠ると Agent のイベントが人間の identity で記録され、kind による監査上の区別が壊れる。

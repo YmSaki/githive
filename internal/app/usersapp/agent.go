@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
@@ -28,8 +29,8 @@ type AgentSetup struct {
 	PrivateKey string // path to the generated private key
 	PublicKey  string // path to the generated .pub file
 	PubLine    string // the public key's authorized_keys-format line
-	// ConfigSnippet is ready to paste into the Agent's git config (or run
-	// as shell commands) to set user.name/user.email/user.signingkey/
+	// ConfigSnippet contains POSIX shell commands to set
+	// user.name/user.email/user.signingkey/
 	// commit.gpgsign/gpg.format.
 	ConfigSnippet string
 }
@@ -183,8 +184,8 @@ func AddAgentWithProfile(ctx context.Context, dir, username, project, email, key
 	}
 
 	snippet := fmt.Sprintf(
-		"git config user.name %q\ngit config user.email %q\ngit config user.signingkey %q\ngit config gpg.format ssh\ngit config commit.gpgsign true\n",
-		username, email, keyPath,
+		"git config user.name %s\ngit config user.email %s\ngit config user.signingkey %s\ngit config gpg.format ssh\ngit config commit.gpgsign true\n",
+		posixShellQuote(username), posixShellQuote(email), posixShellQuote(keyPath),
 	)
 
 	return &AgentSetup{
@@ -195,6 +196,10 @@ func AddAgentWithProfile(ctx context.Context, dir, username, project, email, key
 		PubLine:       pubLine,
 		ConfigSnippet: snippet,
 	}, nil
+}
+
+func posixShellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 var agentProjectRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)

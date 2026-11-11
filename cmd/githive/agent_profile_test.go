@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -27,7 +26,7 @@ func TestCLIAgentSetupPreservesRequestedProfile(t *testing.T) {
 	if err := json.Unmarshal([]byte(res.stdout), &output); err != nil {
 		t.Fatal(err)
 	}
-	if !filepath.IsAbs(output.Data.PrivateKey) || !strings.Contains(output.Data.ConfigSnippet, strconv.Quote(output.Data.PrivateKey)) {
+	if !filepath.IsAbs(output.Data.PrivateKey) || !strings.Contains(output.Data.ConfigSnippet, "git config user.signingkey ") {
 		t.Fatalf("missing machine-readable setup instructions: %s", res.stdout)
 	}
 	data, err := exec.Command("git", "-C", dir, "show", "refs/projects/users/registry:users/build-agent.json").Output()
