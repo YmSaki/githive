@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,30 +14,81 @@ import (
 // handful of independent small CLI fixes each verified end-to-end against
 // the real binary, the way p4_cli_test.go does for P4.
 
-// TestCLISyncRetriesConfigDoesNotBreakWrites is item 2's CLI-level check:
-// root.go's syncIfEnabled now reads githive.sync.retries (via
-// syncapp.RetriesFromConfig) instead of ignoring it entirely, and an unset
-// remote (a hard sync failure, not a retryable race) still degrades to a
-// warning rather than failing the write - for every retries value, valid or
-// not (docs/10-cli-spec.md「設定（git config）」「エラー処理方針」). The
-// parsing rules themselves (unset/invalid -> DefaultRetries) are unit-tested
-// in internal/app/syncapp/syncapp_test.go's TestRetriesFromConfig; this only
-// proves the CLI actually wires the config value through instead of
-// silently always using the hardcoded default.
+// TestCLISyncRetriesConfigDoesNotBreakWrites verifies the automatic sync path
+// passes the configured retry budget through and preserves a successful local
+// write when every push loses a race.
 func TestCLISyncRetriesConfigDoesNotBreakWrites(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git binary not available")
 	}
-	dir := newCLITestRepo(t)
-
-	for _, v := range []string{"2", "0", "not-a-number"} {
-		if out, err := exec.Command("git", "-C", dir, "config", "githive.sync.retries", v).CombinedOutput(); err != nil {
-			t.Fatalf("git config githive.sync.retries %q: %v\n%s", v, err, out)
-		}
-		res := runCLI(t, dir, "issue", "new", "--title", "t-"+v, "--json")
-		if res.code != 0 {
-			t.Fatalf("githive.sync.retries=%q: issue new should still exit 0 (sync failure is a warning), got code=%d stdout=%s stderr=%s", v, res.code, res.stdout, res.stderr)
-		}
+	for _, tc := range []struct {
+		value  string
+		pushes int
+	}{{"0", 1}, {"1", 2}, {"5", 6}, {"not-a-number", 6}} {
+		t.Run(tc.value, func(t *testing.T) {
+			dir := newCLITestRepo(t)
+			origin := filepath.Join(t.TempDir(), "origin")
+			git := func(args ...string) []byte {
+				t.Helper()
+				out, err := exec.Command("git", args...).CombinedOutput()
+				if err != nil {
+					t.Fatalf("git %v: %v: %s", args, err, out)
+				}
+				return out
+			}
+			git("init", "--bare", "--quiet", origin)
+			git("-C", dir, "remote", "add", "origin", origin)
+			created := runCLI(t, dir, "issue", "new", "--title", "seed", "--json")
+			if created.code != 0 {
+				t.Fatalf("seed: %+v", created)
+			}
+			var envelope struct {
+				Data struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal([]byte(created.stdout), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			ref := "refs/projects/issue/" + envelope.Data.ID
+			message := git("-C", dir, "log", "-1", "--format=%B", ref)
+			for name, data := range map[string][]byte{
+				"race-origin": []byte(filepath.ToSlash(origin)), "race-ref": []byte(ref), "race-message": message,
+			} {
+				if err := os.WriteFile(filepath.Join(dir, ".git", name), data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			script := `#!/bin/sh
+set -eu
+origin=$(cat .git/race-origin)
+ref=$(cat .git/race-ref)
+old=$(git -C "$origin" rev-parse "$ref")
+tree=$(git -C "$origin" rev-parse "$old^{tree}")
+new=$(git -C "$origin" -c user.name=Race -c user.email=race@example.com commit-tree "$tree" -p "$old" < .git/race-message)
+git -C "$origin" update-ref "$ref" "$new" "$old"
+echo hit >> .git/race-hits
+`
+			if err := os.WriteFile(filepath.Join(dir, ".git", "hooks", "pre-push"), []byte(script), 0755); err != nil {
+				t.Fatal(err)
+			}
+			git("-C", dir, "config", "githive.sync.retries", tc.value)
+			res := runCLI(t, dir, "issue", "label", envelope.Data.ID, "--add", "local", "--json")
+			if res.code != 0 {
+				t.Fatalf("local write must succeed: %+v", res)
+			}
+			hits, err := os.ReadFile(filepath.Join(dir, ".git", "race-hits"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Count(string(hits), "hit\n"); got != tc.pushes {
+				t.Fatalf("got %d pushes, want %d", got, tc.pushes)
+			}
+			shown := runCLI(t, dir, "issue", "show", envelope.Data.ID, "--json")
+			if shown.code != 0 || !strings.Contains(shown.stdout, `"local"`) {
+				t.Fatalf("local label lost: %+v", shown)
+			}
+		})
 	}
 }
 

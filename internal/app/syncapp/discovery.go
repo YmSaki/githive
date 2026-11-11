@@ -2,7 +2,6 @@ package syncapp
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/refspace"
@@ -26,7 +25,7 @@ import (
 // ADR-0008).
 func DiscoverRefs(ctx context.Context, dir, remote string, kinds []string) ([]string, error) {
 	r := gitx.New(dir)
-	if err := r.Fetch(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot)); err != nil {
+	if err := fetchNamespace(ctx, r, remote); err != nil {
 		return nil, err
 	}
 

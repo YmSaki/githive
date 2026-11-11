@@ -2,6 +2,8 @@ package syncapp
 
 import (
 	"context"
+	"fmt"
+	"os/exec"
 	"testing"
 
 	"github.com/ymsaki/githive/internal/app/issueapp"
@@ -136,4 +138,84 @@ func containsRef(refs []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// A remote deletion or migration must not be hidden by stale tracking refs.
+// Discovery updates status without deleting the authoritative local chain;
+// direct Sync must perform the same repair when discovery is not called.
+func TestSyncRepairsMissingRemoteRefs(t *testing.T) {
+	requireGit(t)
+	for _, discover := range []bool{false, true} {
+		for _, migrate := range []bool{false, true} {
+			t.Run(fmt.Sprintf("discover=%t/migrate=%t", discover, migrate), func(t *testing.T) {
+				ctx := context.Background()
+				origin := initBareOrigin(t)
+				dir := cloneRepo(t, origin, "a@example.com")
+				// Explicitly override a user's global setting: repair cannot depend on it.
+				if err := gitx.New(dir).ConfigSet(ctx, "fetch.prune", "false"); err != nil {
+					t.Fatal(err)
+				}
+				refs := seedIssues(t, dir, 2)
+				for i := 0; i < 2; i++ {
+					if _, err := Sync(ctx, dir, "origin", refs, 0); err != nil {
+						t.Fatal(err)
+					}
+				}
+				expected := map[string]string{}
+				for _, ref := range refs {
+					expected[ref] = mustRevParse(t, dir, ref)
+				}
+				if migrate {
+					origin = initBareOrigin(t)
+					out, err := exec.Command("git", "-C", dir, "remote", "set-url", "origin", origin).CombinedOutput()
+					if err != nil {
+						t.Fatalf("set-url: %v %s", err, out)
+					}
+				} else {
+					for _, ref := range refs {
+						if err := gitx.New(origin).DeleteRef(ctx, ref, expected[ref]); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				opts := []Option{}
+				if discover {
+					found, err := DiscoverRefs(ctx, dir, "origin", nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					unpushed, err := UnpushedRefs(ctx, dir)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, ref := range refs {
+						if !containsRef(found, ref) || !containsRef(unpushed, ref) {
+							t.Fatalf("missing local ref: found=%v unpushed=%v", found, unpushed)
+						}
+						if got := mustRevParse(t, dir, ref); got != expected[ref] {
+							t.Fatalf("local ref changed: got %s want %s", got, expected[ref])
+						}
+					}
+					opts = append(opts, SkipInitialFetch())
+				}
+				results, err := Sync(ctx, dir, "origin", refs, 0, opts...)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(results) != len(refs) {
+					t.Fatalf("results: %+v", results)
+				}
+				for _, res := range results {
+					if res.Action != ActionFastForwardOut {
+						t.Fatalf("expected re-push: %+v", res)
+					}
+				}
+				for _, ref := range refs {
+					if got := mustRevParse(t, origin, ref); got != expected[ref] {
+						t.Fatalf("remote ref %s: got %s want %s", ref, got, expected[ref])
+					}
+				}
+			})
+		}
+	}
 }
