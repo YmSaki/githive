@@ -71,6 +71,8 @@ CLI の入力では台帳の username も受け付け、書き込み時に email
 `githive task list --mine` は git の `user.email` で自分を特定する。
 Agent も同じ仕組みで自分の task を特定する。Agent 用ユーザーの扱いは [users.md](users.md) を参照。
 
+新しい status イベントの `from` は、追記に成功したコミットの親状態から求める。CAS 再試行時も再計算し、`note` は保持する。これは監査情報であり、fold の遷移規則や旧イベントの受理条件は変えない。
+
 ## CLI
 
 ```

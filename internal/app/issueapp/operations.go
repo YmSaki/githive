@@ -37,12 +37,16 @@ func (s *Service) Comment(ctx context.Context, id, body, replyTo, supersedes str
 // (docs/features/issue.md「ステータス機械」: 不正な遷移イベントは fold 時に
 // 無視する。エラーにせず検証コマンドで警告する).
 func (s *Service) Status(ctx context.Context, id, to string) (ok bool, err error) {
-	state, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
+	state, err := s.writer.AppendOnto(ctx, id, func(parentOID string) (*event.Envelope, string, error) {
+		from, err := s.statusAtParent(parentOID)
+		if err != nil {
+			return nil, "", err
+		}
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
 			V: event.SchemaVersion, Kind: "issue.status", ID: eid, TS: ts,
-			Entity: id, Data: map[string]any{"to": to}, Extra: map[string]any{},
-		}, "issue.status: -> " + to
+			Entity: id, Data: map[string]any{"from": from, "to": to}, Extra: map[string]any{},
+		}, "issue.status: " + from + " -> " + to, nil
 	})
 	if err != nil {
 		return false, err

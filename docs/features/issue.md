@@ -65,6 +65,8 @@ event: 01j8xq4d3nbz9k7w2m5e8h1t6a
 | issue.link | rel, id, remove? | links 集合に適用。rel は task / issue / chat |
 | issue.checkpoint | state（meta/collections/scratch）, event_count, head, max_event_id | 読み出し起点（[03](../03-sync-and-concurrency.md)、[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
+新しい status イベントは、追記に成功したコミットの親状態を読み、監査用の `from` と要求した `to` を記録する。CAS 競合の再試行時も親状態を読み直す。`from` は遷移の可否や fold の適用条件には使わず、旧イベントに無くても読み取れる。
+
 ## CLI（対応コマンドの要約、正式仕様は [10](../10-cli-spec.md)）
 
 ```

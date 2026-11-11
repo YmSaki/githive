@@ -22,16 +22,20 @@ func (s *Service) mutate(ctx context.Context, id, kind, summary string, data map
 // transition is invalid, the event is still recorded (for audit) but fold
 // ignores it and ok reports false (docs/features/task.md「ステータス機械」).
 func (s *Service) Status(ctx context.Context, id, to, note string) (ok bool, err error) {
-	data := map[string]any{"to": to}
-	if note != "" {
-		data["note"] = note
-	}
-	state, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
+	state, err := s.writer.AppendOnto(ctx, id, func(parentOID string) (*event.Envelope, string, error) {
+		from, err := s.statusAtParent(parentOID)
+		if err != nil {
+			return nil, "", err
+		}
+		data := map[string]any{"from": from, "to": to}
+		if note != "" {
+			data["note"] = note
+		}
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
 			V: event.SchemaVersion, Kind: "task.status", ID: eid, TS: ts,
 			Entity: id, Data: data, Extra: map[string]any{},
-		}, "task.status: -> " + to
+		}, "task.status: " + from + " -> " + to, nil
 	})
 	if err != nil {
 		return false, err
