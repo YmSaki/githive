@@ -204,7 +204,7 @@ front matter は人間の閲覧と grep のためであり、機械処理はイ�
   - `features`（string の配列）：有効機能一覧。現行のデフォルト（`initapp.DefaultFeatures`）は `["issue", "task", "notify", "users", "chat", "wiki"]`。
   - `created_at`（string）：init 実行時刻。RFC3339、UTC、ミリ秒精度（イベント封筒の `ts` と同値）。
 
-冪等性：`refs/projects/meta/config` が既に存在すれば `githive init` は何もしない。したがって `meta.init` イベントはチェーンに 1 個だけ、ルートコミットとしてのみ存在する（後続の meta.* イベント種別は現行実装には無い）。
+冪等性：`refs/projects/meta/config` が既に存在すれば `githive init` は何もしない。また `githive init` は meta/config を作る前にリモートを fetch し、リモートに meta/config があればローカル ref をそこへ合わせて、自分では作らない（[10](10-cli-spec.md)「`githive init` の手順」）。clone した後に init しても、第 2 のルートはできない。したがって `meta.init` イベントはチェーンに 1 個だけ、ルートコミットとしてのみ存在する（後続の meta.* イベント種別は現行実装には無い）。
 
 ## サイズと成長の制約
 
