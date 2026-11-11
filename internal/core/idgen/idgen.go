@@ -21,7 +21,8 @@ type Generator struct {
 	mu      sync.Mutex
 	now     func() time.Time
 	entropy io.Reader
-	lastMS  uint64
+	last    ulid.ULID
+	hasLast bool
 }
 
 // NewGenerator returns an independent generator using the supplied clock and
@@ -33,7 +34,7 @@ func NewGenerator(now func() time.Time, entropy io.Reader) *Generator {
 	if entropy == nil {
 		entropy = rand.Reader
 	}
-	return &Generator{now: now, entropy: ulid.Monotonic(entropy, 0)}
+	return &Generator{now: now, entropy: entropy}
 }
 
 var defaultGenerator = NewGenerator(nil, nil)
@@ -54,16 +55,32 @@ func NewWithTimestamp() (id string, ts string) {
 
 // NewWithTimestamp returns a fresh lowercase ULID and its encoded timestamp.
 // IDs increase strictly across calls, including when the clock moves backwards.
-// As with the package-level functions, entropy failures panic.
+// Entropy failures and exhaustion of the 80-bit counter panic, as with the
+// package-level functions.
 func (g *Generator) NewWithTimestamp() (id string, ts string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	now := ulid.Timestamp(g.now())
-	if now < g.lastMS {
-		now = g.lastMS
+	var u ulid.ULID
+	if g.hasLast && now <= g.last.Time() {
+		// Increment the full random field ourselves: ulid.Monotonic uses an
+		// all-zero field as an initialization sentinel and can repeat IDs
+		// when a valid entropy source returns zero bytes.
+		u = g.last
+		for i := len(u) - 1; i >= 6; i-- {
+			u[i]++
+			if u[i] != 0 {
+				break
+			}
+			if i == 6 {
+				panic(ulid.ErrMonotonicOverflow)
+			}
+		}
+	} else {
+		u = ulid.MustNew(now, g.entropy)
 	}
-	u := ulid.MustNew(now, g.entropy)
-	g.lastMS = now
+	g.last = u
+	g.hasLast = true
 	return strings.ToLower(u.String()), ulid.Time(u.Time()).UTC().Format("2006-01-02T15:04:05.000Z")
 }

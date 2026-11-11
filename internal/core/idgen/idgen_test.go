@@ -14,7 +14,7 @@ import (
 func TestGeneratorNewWithTimestampClockRollback(t *testing.T) {
 	base := time.Date(2026, 1, 2, 3, 4, 5, 678000000, time.UTC)
 	clock := base
-	g := NewGenerator(func() time.Time { return clock }, bytes.NewReader(bytes.Repeat([]byte{1}, 1024)))
+	g := NewGenerator(func() time.Time { return clock }, bytes.NewReader(make([]byte, 20)))
 	var previous string
 	for i, delta := range []time.Duration{0, 0, -time.Second, -2 * time.Second, 0, time.Millisecond} {
 		clock = base.Add(delta)
@@ -45,7 +45,7 @@ func TestGeneratorNewWithTimestampClockRollback(t *testing.T) {
 
 func TestGeneratorNewWithTimestampConcurrent(t *testing.T) {
 	clock := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	g := NewGenerator(func() time.Time { return clock }, bytes.NewReader(bytes.Repeat([]byte{1}, 16384)))
+	g := NewGenerator(func() time.Time { return clock }, bytes.NewReader(make([]byte, 10)))
 	const count = 256
 	ids := make([]string, count)
 	var wg sync.WaitGroup
@@ -63,4 +63,16 @@ func TestGeneratorNewWithTimestampConcurrent(t *testing.T) {
 			t.Fatalf("concurrent calls produced duplicate ID %s", ids[i])
 		}
 	}
+}
+
+func TestGeneratorNewWithTimestampCounterOverflow(t *testing.T) {
+	clock := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	g := NewGenerator(func() time.Time { return clock }, bytes.NewReader(bytes.Repeat([]byte{0xff}, 10)))
+	g.NewWithTimestamp()
+	defer func() {
+		if got := recover(); got != ulid.ErrMonotonicOverflow {
+			t.Fatalf("overflow panic = %v, want %v", got, ulid.ErrMonotonicOverflow)
+		}
+	}()
+	g.NewWithTimestamp()
 }
