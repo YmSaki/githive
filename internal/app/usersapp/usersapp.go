@@ -33,6 +33,10 @@ var (
 // ValidUsername/ValidGroupname.
 var ErrInvalidName = errors.New("usersapp: invalid name")
 
+// ErrNameExists means a requested creation would reuse an occupied registry
+// name. It is also an invalid-name usage error at the CLI boundary.
+var ErrNameExists = fmt.Errorf("%w: name already exists", ErrInvalidName)
+
 // ErrRetriesExhausted means a local CAS write kept losing to concurrent
 // writers.
 var ErrRetriesExhausted = entitychain.ErrRetriesExhausted
@@ -66,12 +70,27 @@ func New(dir string) *Service {
 }
 
 func (s *Service) mutate(ctx context.Context, kind, summary string, data map[string]any) error {
-	_, err := s.writer.Append(ctx, "", func() (*event.Envelope, string) {
+	return s.mutateChecked(ctx, kind, summary, data, nil)
+}
+
+// Recheck predicates inside every CAS attempt so a competing local writer
+// cannot claim the same namespace between a preflight read and the append.
+func (s *Service) mutateChecked(ctx context.Context, kind, summary string, data map[string]any, check func(*materialize.State) error) error {
+	_, err := s.writer.AppendOnto(ctx, "", func(string) (*event.Envelope, string, error) {
+		if check != nil {
+			state, err := s.writer.Fold(ctx, "")
+			if err != nil {
+				return nil, "", err
+			}
+			if err := check(state); err != nil {
+				return nil, "", err
+			}
+		}
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
 			V: event.SchemaVersion, Kind: kind, ID: eid, TS: ts,
 			Entity: eid, Data: data, Extra: map[string]any{},
-		}, summary
+		}, summary, nil
 	})
 	return err
 }
@@ -99,9 +118,14 @@ func (s *Service) AddUser(ctx context.Context, username, display, email, kind st
 	if len(roles) > 0 {
 		fields["roles"] = toAnySlice(roles)
 	}
-	return s.mutate(ctx, "users.user_set", "users.user_set: "+username, map[string]any{
+	return s.mutateChecked(ctx, "users.user_set", "users.user_set: "+username, map[string]any{
 		"username": username,
 		"fields":   fields,
+	}, func(state *materialize.State) error {
+		if _, exists := state.Collections["groups"][username]; exists {
+			return fmt.Errorf("%w: %q belongs to a group", ErrNameExists, username)
+		}
+		return nil
 	})
 }
 
@@ -192,12 +216,25 @@ func (s *Service) GroupSet(ctx context.Context, name string, members []string, d
 	if description != "" {
 		data["description"] = description
 	}
-	return s.mutate(ctx, "users.group_set", "users.group_set: "+name, data)
+	return s.mutateChecked(ctx, "users.group_set", "users.group_set: "+name, data, func(state *materialize.State) error {
+		if _, exists := state.Collections["users"][name]; exists {
+			return fmt.Errorf("%w: %q belongs to a user", ErrNameExists, name)
+		}
+		return nil
+	})
 }
 
 // GroupRemove deletes a group.
 func (s *Service) GroupRemove(ctx context.Context, name string) error {
-	return s.mutate(ctx, "users.group_remove", "users.group_remove: "+name, map[string]any{"name": name})
+	if !ValidGroupname(name) {
+		return fmt.Errorf("%w: group name %q", ErrInvalidName, name)
+	}
+	return s.mutateChecked(ctx, "users.group_remove", "users.group_remove: "+name, map[string]any{"name": name}, func(state *materialize.State) error {
+		if _, exists := state.Collections["groups"][name]; !exists {
+			return ErrGroupNotFound
+		}
+		return nil
+	})
 }
 
 // PolicySet replaces policy.json wholesale
