@@ -115,6 +115,9 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 	if err != nil {
 		return nil, err
 	}
+	for _, conflict := range materialize.EmailConflicts(registryState) {
+		report.Issues = append(report.Issues, Issue{Code: "ambiguous_email", Message: fmt.Sprintf("email %q belongs to multiple users: %s", conflict.Email, strings.Join(conflict.Usernames, ", "))})
+	}
 
 	isRegistry := ref == refspace.UsersRegistryRef
 

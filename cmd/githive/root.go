@@ -247,6 +247,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_key", Message: err.Error()}
 	case errors.Is(err, usersapp.ErrInvalidEmail):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_email", Message: err.Error()}
+	case errors.Is(err, usersapp.ErrEmailExists):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "email_exists", Message: err.Error()}
 	case errors.Is(err, usersapp.ErrKeyExists):
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "already_exists", Message: err.Error()}
 	case errors.Is(err, errInvalidNotifyPriority):

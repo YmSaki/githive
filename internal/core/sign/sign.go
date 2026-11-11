@@ -149,7 +149,20 @@ func ParsePrincipal(output string) string {
 //     to the conservative rule that every key registered for commitEmail
 //     must be valid at commitTime.
 func VerifyCommit(ctx context.Context, dir string, commitHash string, state *materialize.State, commitEmail, commitTime string) (Result, error) {
+	if owners := materialize.EmailOwners(state)[commitEmail]; len(owners) > 1 {
+		return Result{Valid: false, Output: fmt.Sprintf("ambiguous email %q belongs to users %s", commitEmail, strings.Join(owners, ", "))}, nil
+	}
 	entries := materialize.AllowedSigners(state)
+	// A key may legitimately belong to several aliases of one user. Ask Git
+	// to verify only the requested principal rather than whichever alias it
+	// encounters first in allowed_signers (#111).
+	matched := entries[:0]
+	for _, entry := range entries {
+		if entry.Email == commitEmail {
+			matched = append(matched, entry)
+		}
+	}
+	entries = matched
 	body := BuildAllowedSigners(entries)
 	path, cleanup, err := WriteAllowedSignersTempFile(body)
 	if err != nil {

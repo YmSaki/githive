@@ -40,6 +40,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -49,6 +50,7 @@ import (
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
+	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
@@ -262,6 +264,11 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 	}
 	if err := event.ValidateEntityOrder(envelopes); err != nil {
 		findings = append(findings, Finding{Ref: ref, Feature: string(feature), Code: "event_order_violation", Message: err.Error()})
+	}
+	if feature == refspace.FeatureUsers {
+		for _, conflict := range materialize.EmailConflicts(materialize.UsersRegistry.Fold(envelopes)) {
+			findings = append(findings, Finding{Ref: ref, Feature: string(feature), Code: "ambiguous_email", Message: fmt.Sprintf("email %q belongs to multiple users: %s", conflict.Email, strings.Join(conflict.Usernames, ", "))})
+		}
 	}
 	return findings
 }

@@ -75,7 +75,7 @@ func AddAgentWithProfile(ctx context.Context, dir, username, project, email, key
 				return fmt.Errorf("%w: %q is already registered", ErrNameExists, username)
 			}
 		}
-		return nil
+		return emailAvailable(state, username, email)
 	}
 	state, err := svc.writer.Fold(ctx, "")
 	if err != nil {

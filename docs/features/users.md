@@ -46,6 +46,7 @@ tree:
 - **kind**：`human` または `agent`。Agent はそれを運用する人間とは別ユーザーとして登録し、専用の鍵を持たせる。表示と監査で区別できることが目的で、権限体系は共通。
 - **status**：`active` / `suspended`。suspended のユーザーの新規イベントは検証で警告になる。
 - **emails**：identity の正であり、「email → username・表示名」のマップを成す。イベントの `actor`（= git の `user.email`）はこの配列との突合で台帳ユーザーに解決される。複数登録可（端末ごとの使い分け）。到達可能な受信箱である必要はなく、email 形式の識別子であればよい（[ADR-0009](../adr/0009-identity-user-email.md) の追記）。
+  同じ email を異なる username が所有する登録は拒否する。raw 履歴・並行更新から衝突した場合、fsck / verify は `ambiguous_email` を報告し、その email の鍵・admin 判定を許可しない。自動的に所有者を選んだり履歴を消したりはしない。一人のユーザーの複数 alias は引き続き正当であり、署名検証は対象コミットの email を principal とする（[ADR-0029](../adr/0029-unambiguous-email-ownership.md)）。email 追加・削除専用操作と全機能の alias 判定統一は #92 の残課題である。
 - **notify_email**：forge がメール配信に使う宛先（任意）。省略時は emails[] の先頭。noreply 系と `.invalid` ドメインは配信対象から除外される。
 - ユーザー名は `[a-z0-9][a-z0-9-]{1,38}` に制限する（ファイル名と target 指定に安全な範囲）。
 

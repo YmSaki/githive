@@ -125,7 +125,7 @@ func (s *Service) AddUser(ctx context.Context, username, display, email, kind st
 		if _, exists := state.Collections["groups"][username]; exists {
 			return fmt.Errorf("%w: %q belongs to a group", ErrNameExists, username)
 		}
-		return nil
+		return emailAvailable(state, username, email)
 	})
 }
 
