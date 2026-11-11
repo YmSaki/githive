@@ -96,7 +96,7 @@ wiki は全機能の中で最も「素の git」に近く、専用ツールな�
 
 - ページ間リンクは相対パスの markdown リンクとする。
 - ファイル名は OS 間の可搬性を守る範囲に制限する。Windows の予約名（CON、PRN、AUX、NUL 等）、大文字小文字だけが異なる同名ファイル、末尾のドットや空白は `githive wiki save` と fsck が拒否する（case-insensitive なファイルシステムでの checkout 事故防止）。
-- issue / task / chat への参照は `githive:issue/01j8xq4d` 形式の URI で書く。CLI / TUI / VSCode 拡張がこれを解決して表示する。素の閲覧では文字列のまま見えるが、ID から辿れる。
+- issue / task / chat への参照は `githive:issue/01j8xq4d` 形式のクライアント用リンクで書く。この本文リンクのジャンプ解決は CLI / TUI / VSCode 拡張とも未実装であり、現在は文字列として表示される。MCP の読み取り専用リソース URI `githive://issue/<id>`・`githive://wiki/<path>` とは別の記法である（[15](../15-clients.md)）。
 
 ## 設計判断
 

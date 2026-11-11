@@ -1187,6 +1187,7 @@ func registerFsckAndDoctorTools(server *mcp.Server, dir string) {
 // し、wiki の githive: リンクと対応させる」), each returning the same JSON
 // shape as its *_show tool.
 func registerMcpResources(server *mcp.Server, dir string) {
+	registerWikiResource(server, dir)
 	registerShowResource(server, dir, "issue", "githive://issue/{id}", issueapp.ErrNotFound, func(ctx context.Context, id string) (any, error) {
 		svc := issueapp.New(dir)
 		resolved, err := svc.ResolveID(ctx, id)
@@ -1247,7 +1248,7 @@ func registerShowResource(server *mcp.Server, dir, feature, uriTemplate string, 
 	prefix := "githive://" + feature + "/"
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
 		Name:        feature,
-		Description: "githive " + feature + " (meta + full content), by id",
+		Description: "githive " + feature + " full content, by identifier or path",
 		MIMEType:    "application/json",
 		URITemplate: uriTemplate,
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
