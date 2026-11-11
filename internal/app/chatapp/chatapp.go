@@ -32,8 +32,9 @@ type Message = map[string]any
 
 // Show is the full read result for githive chat show.
 type Show struct {
-	Meta     Meta
-	Messages []Message
+	ReadSource string
+	Meta       Meta
+	Messages   []Message
 }
 
 // Service operates on chat threads within a single repository directory.

@@ -32,9 +32,10 @@ type Comment = map[string]any
 
 // Show is the full read result for githive issue show.
 type Show struct {
-	Meta     Meta
-	Body     string
-	Comments []Comment
+	ReadSource string
+	Meta       Meta
+	Body       string
+	Comments   []Comment
 }
 
 // Service operates on issues within a single repository directory.

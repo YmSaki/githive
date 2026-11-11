@@ -21,6 +21,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/app/wikiapp"
 	"github.com/ymsaki/githive/internal/cliout"
+	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
@@ -145,6 +146,10 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 			info.Data[key] = value
 		}
 		return code, info
+	}
+	var shallow *chain.ShallowHistoryError
+	if errors.As(err, &shallow) {
+		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "shallow_history", Message: err.Error()}
 	}
 	if errors.Is(err, syncapp.ErrMetaConfigConflict) {
 		data := map[string]any{"ref": refspace.MetaConfigRef}

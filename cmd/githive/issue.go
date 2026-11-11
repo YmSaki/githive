@@ -93,12 +93,20 @@ func newIssueListCmd() *cobra.Command {
 				return err
 			}
 			svc := issueapp.New(dir)
-			items, err := svc.List(context.Background(), issueapp.ListFilter{Status: status, Label: label, Assignee: assignee})
+			resolvedAssignee, source, err := resolveUserRefView(context.Background(), dir, assignee)
 			if err != nil {
 				return err
 			}
+			items, ownSource, err := svc.ListView(context.Background(), issueapp.ListFilter{Status: status, Label: label, Assignee: resolvedAssignee})
+			if ownSource != "" {
+				source = ownSource
+			}
+			if err != nil {
+				return err
+			}
+			printViewSource(source)
 			if flags.json {
-				return cliout.PrintList(items, nil)
+				return cliout.PrintSuccess(viewList(items, source), nil)
 			}
 			fmt.Printf("%-10s %-12s %-40s %s\n", "ID", "STATUS", "TITLE", "ASSIGNEE")
 			for _, m := range items {
@@ -129,16 +137,17 @@ func newIssueShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return err
 			}
+			printViewSource(show.ReadSource)
 			if flags.json {
 				comments := make([]any, len(show.Comments))
 				for i, c := range show.Comments {
 					comments[i] = c
 				}
-				return cliout.PrintSuccess(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, nil)
+				return cliout.PrintSuccess(viewData(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, show.ReadSource), nil)
 			}
 			fmt.Printf("%v  %v  %v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"])
 			if show.Body != "" {

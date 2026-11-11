@@ -256,12 +256,18 @@ func registerIssueTools(server *mcp.Server, dir string) {
 			// their person args, so filtering by the username you just
 			// assigned someone with actually matches (leniently: an
 			// unknown name just filters to nothing, as it always did).
-			assignee := resolveUserRefLenient(ctx, dir, args.Assignee)
-			items, err := issueapp.New(dir).List(ctx, issueapp.ListFilter{Status: args.Status, Label: args.Label, Assignee: assignee})
+			assignee, source, err := resolveUserRefView(ctx, dir, args.Assignee)
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
+			items, ownSource, err := issueapp.New(dir).ListView(ctx, issueapp.ListFilter{Status: args.Status, Label: args.Label, Assignee: assignee})
+			if err != nil {
+				return nil, nil, err
+			}
+			if ownSource != "" {
+				source = ownSource
+			}
+			return nil, viewData(paginatedResult(items, args.Cursor, args.Limit), source), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "issue_show", Description: "Show an issue's meta, body, and comments"},
@@ -271,7 +277,7 @@ func registerIssueTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -279,10 +285,11 @@ func registerIssueTools(server *mcp.Server, dir string) {
 			for i, c := range show.Comments {
 				comments[i] = c
 			}
-			return nil, map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, nil
+			return nil, viewData(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, show.ReadSource), nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "issue_comment", Description: "Add a comment to an issue"},
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "issue_comment", Description: "Add a comment to an issue"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args issueCommentParams) (*mcp.CallToolResult, map[string]any, error) {
 			svc := issueapp.New(dir)
 			id, err := svc.ResolveID(ctx, args.ID)
@@ -481,7 +488,10 @@ func registerTaskTools(server *mcp.Server, dir string) {
 		func(ctx context.Context, req *mcp.CallToolRequest, args taskListParams) (*mcp.CallToolResult, map[string]any, error) {
 			// See issue_list's comment: resolve owner the same way task_new/
 			// task_reassign resolve it, leniently.
-			owner := resolveUserRefLenient(ctx, dir, args.Owner)
+			owner, source, err := resolveUserRefView(ctx, dir, args.Owner)
+			if err != nil {
+				return nil, nil, err
+			}
 			filter := taskapp.ListFilter{Status: args.Status, Owner: owner, Mine: args.Mine}
 			if args.Mine {
 				sig, err := identity.Resolve(ctx, dir)
@@ -490,11 +500,14 @@ func registerTaskTools(server *mcp.Server, dir string) {
 				}
 				filter.ActorEmail = sig.Email
 			}
-			items, err := taskapp.New(dir).List(ctx, filter)
+			items, ownSource, err := taskapp.New(dir).ListView(ctx, filter)
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
+			if ownSource != "" {
+				source = ownSource
+			}
+			return nil, viewData(paginatedResult(items, args.Cursor, args.Limit), source), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "task_show", Description: "Show a task's meta, body, and notes"},
@@ -504,7 +517,7 @@ func registerTaskTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -512,10 +525,11 @@ func registerTaskTools(server *mcp.Server, dir string) {
 			for i, n := range show.Notes {
 				notes[i] = n
 			}
-			return nil, map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, nil
+			return nil, viewData(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, show.ReadSource), nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "task_status", Description: "Transition a task's status"},
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "task_status", Description: "Transition a task's status"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args taskStatusParams) (*mcp.CallToolResult, map[string]any, error) {
 			svc := taskapp.New(dir)
 			id, err := svc.ResolveID(ctx, args.ID)
@@ -639,11 +653,11 @@ func registerChatTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "chat_list", Description: "List chat threads (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args chatListParams) (*mcp.CallToolResult, map[string]any, error) {
-			items, err := chatapp.New(dir).List(ctx, chatapp.ListFilter{Status: args.Status})
+			items, source, err := chatapp.New(dir).ListView(ctx, chatapp.ListFilter{Status: args.Status})
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
+			return nil, viewData(paginatedResult(items, args.Cursor, args.Limit), source), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "chat_show", Description: "Show a chat thread's meta and messages"},
@@ -653,7 +667,7 @@ func registerChatTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -661,10 +675,11 @@ func registerChatTools(server *mcp.Server, dir string) {
 			for i, m := range show.Messages {
 				messages[i] = m
 			}
-			return nil, map[string]any{"meta": show.Meta, "messages": messages}, nil
+			return nil, viewData(map[string]any{"meta": show.Meta, "messages": messages}, show.ReadSource), nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "chat_post", Description: "Post a message to a chat thread"},
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "chat_post", Description: "Post a message to a chat thread"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args chatPostParams) (*mcp.CallToolResult, map[string]any, error) {
 			svc := chatapp.New(dir)
 			id, err := svc.ResolveID(ctx, args.ID)
@@ -753,6 +768,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "notify_list", Description: "List notifications (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args notifyListParams) (*mcp.CallToolResult, map[string]any, error) {
+			source := ""
 			filter := notifyapp.ListFilter{UnreadOnly: args.Unread}
 			if args.Unread {
 				sig, err := identity.Resolve(ctx, dir)
@@ -760,13 +776,16 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 					return nil, nil, err
 				}
 				filter.ActorEmail = sig.Email
-				filter.Membership = membershipResolver(dir)
+				filter.Membership = viewMembershipResolver(dir, &source)
 			}
-			items, err := notifyapp.New(dir).List(ctx, filter)
+			items, ownSource, err := notifyapp.New(dir).ListView(ctx, filter)
+			if ownSource != "" {
+				source = ownSource
+			}
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
+			return nil, viewData(paginatedResult(items, args.Cursor, args.Limit), source), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "notify_ack", Description: "Acknowledge notifications"},
@@ -887,7 +906,7 @@ func registerUsersTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "users_list", Description: "List registry users, groups, and policy"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, map[string]any, error) {
-			users, groups, policy, err := usersapp.New(dir).List(ctx)
+			users, groups, policy, source, err := usersapp.New(dir).ListView(ctx)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -903,7 +922,7 @@ func registerUsersTools(server *mcp.Server, dir string) {
 			if policy != nil {
 				policyAny = policy
 			}
-			return nil, map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, nil
+			return nil, viewData(map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, source), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "users_key_add", Description: "Register an SSH public key for a user"},
@@ -1001,8 +1020,11 @@ func registerVerifyAndWhoamiTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			user, keys := matchRegistryUser(ctx, dir, sig.Email)
-			return nil, whoamiData(sig.Name, sig.Email, user, keys), nil
+			user, keys, source, err := matchRegistryUserView(ctx, dir, sig.Email)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, viewData(whoamiData(sig.Name, sig.Email, user, keys), source), nil
 		})
 }
 
@@ -1071,13 +1093,20 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			unread, err := notifyapp.New(dir).List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: membershipResolver(dir)})
+			source := ""
+			unread, ownSource, err := notifyapp.New(dir).ListView(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: viewMembershipResolver(dir, &source)})
 			if err != nil {
 				return nil, nil, err
 			}
-			doing, err := taskapp.New(dir).List(ctx, taskapp.ListFilter{Status: "doing", Mine: true, ActorEmail: sig.Email})
+			if ownSource != "" {
+				source = ownSource
+			}
+			doing, doingSource, err := taskapp.New(dir).ListView(ctx, taskapp.ListFilter{Status: "doing", Mine: true, ActorEmail: sig.Email})
 			if err != nil {
 				return nil, nil, err
+			}
+			if doingSource != "" {
+				source = doingSource
 			}
 			anyUnpushed := make([]any, len(unpushed))
 			for i, r := range unpushed {
@@ -1087,11 +1116,11 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			for i, m := range doing {
 				doingItems[i] = m
 			}
-			return nil, map[string]any{
+			return nil, viewData(map[string]any{
 				"unpushed_refs":  anyUnpushed,
 				"unread_notify":  len(unread),
 				"my_doing_tasks": doingItems,
-			}, nil
+			}, source), nil
 		})
 }
 
@@ -1202,7 +1231,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		if err != nil {
 			return nil, err
 		}
-		show, err := svc.Show(ctx, resolved)
+		show, err := svc.ShowView(ctx, resolved)
 		if err != nil {
 			return nil, err
 		}
@@ -1210,7 +1239,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		for i, c := range show.Comments {
 			comments[i] = c
 		}
-		return map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, nil
+		return viewData(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, show.ReadSource), nil
 	})
 	registerShowResource(server, dir, "task", "githive://task/{id}", taskapp.ErrNotFound, func(ctx context.Context, id string) (any, error) {
 		svc := taskapp.New(dir)
@@ -1218,7 +1247,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		if err != nil {
 			return nil, err
 		}
-		show, err := svc.Show(ctx, resolved)
+		show, err := svc.ShowView(ctx, resolved)
 		if err != nil {
 			return nil, err
 		}
@@ -1226,7 +1255,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		for i, n := range show.Notes {
 			notes[i] = n
 		}
-		return map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, nil
+		return viewData(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, show.ReadSource), nil
 	})
 	registerShowResource(server, dir, "chat", "githive://chat/{id}", chatapp.ErrNotFound, func(ctx context.Context, id string) (any, error) {
 		svc := chatapp.New(dir)
@@ -1234,7 +1263,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		if err != nil {
 			return nil, err
 		}
-		show, err := svc.Show(ctx, resolved)
+		show, err := svc.ShowView(ctx, resolved)
 		if err != nil {
 			return nil, err
 		}
@@ -1242,7 +1271,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		for i, m := range show.Messages {
 			messages[i] = m
 		}
-		return map[string]any{"meta": show.Meta, "messages": messages}, nil
+		return viewData(map[string]any{"meta": show.Meta, "messages": messages}, show.ReadSource), nil
 	})
 }
 

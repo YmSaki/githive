@@ -96,9 +96,13 @@ CRDT の用語では、イベント集合を grow-only set とする operation-b
 
 ## shallow / partial clone との関係
 
-- head のツリーを直接読む issue/task/chat の一覧は、`--depth 1` の fetch でも表示できる。**現在の Show 系・notify/users の一覧等は履歴 fold を使うため、完全なイベント履歴が必要**。depth 1 の issue Show は親オブジェクト不足で失敗することを確認しており、snapshot 閲覧への切り替えは未実装（[#87](https://github.com/YmSaki/githive/issues/87)）。浅い履歴で全閲覧が動くとは保証しない。
+- issue/task/chat の一覧・Show、notify/users の一覧、status、whoami は `--depth 1` でも head tree の読み取り専用 view を表示する。CLI/MCP の data は `read_source: "snapshot"`・`history_complete: false`・`verified: false` を明示し、人間向け CLI は警告する。これは履歴や署名の検証ではない（[ADR-0028](adr/0028-shallow-read-views.md)）。完全な履歴がある通常応答は変えない。
 - 履歴表示、検証（署名、チェーン整合）、分岐マージは深い履歴を要求する。必要時に `git fetch --deepen` で追加取得する。
-- 自動の shallow 検出・deepen と専用の復旧エラーは未実装の課題である（[#87](https://github.com/YmSaki/githive/issues/87)、[13-roadmap.md](13-roadmap.md) P4）。必要なイベント履歴を取得してから利用する。この記述の訂正は shallow 対応の実装完了や機能範囲からの削除を意味しない。
+- Markdown のコメント・ノート・メッセージは、元の本文の末尾に LF を補った投影であり、元が `x` と `x\n` のどちらかを区別できない。snapshot view は保存された本文を trim せず返し、各本文に `body_source: "rendered_markdown"` を付ける。元のイベント本文との byte 一致は保証しない。issue/task の body.md と JSON/JSONL の値はそのまま返す。ツリー形式や fold 規則は変更しない。
+
+- 参照解決・書き込み・署名・log・verify・fsck・merge は view を使わない。対象 project ref に到達可能な shallow 境界がある場合、`shallow_history`（CLI 終了5）と復旧案内を返す。書き込みは別の浅い registry にも依存させないため、project refs の履歴が不完全なら新規チェーンの作成も拒否する。ソースブランチだけが浅く project refs が完全な場合は阻害しない。
+
+- 自動 deepen・remote の推測・閲覧時の通信は行わない。必要に応じて、利用者が意図する設定済み remote を選び `git fetch --unshallow <remote> '+refs/projects/*:refs/projects/*'`（または `--deepen`）で履歴を補う。普通の破損や、不正な snapshot からの自動 fallback はしない。
 
 ## notify ストリームの競合特性
 

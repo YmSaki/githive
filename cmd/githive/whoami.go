@@ -26,10 +26,14 @@ func newWhoamiCmd() *cobra.Command {
 				return err
 			}
 
-			user, keys := matchRegistryUser(ctx, dir, sig.Email)
+			user, keys, source, err := matchRegistryUserView(ctx, dir, sig.Email)
+			if err != nil {
+				return err
+			}
+			printViewSource(source)
 
 			if flags.json {
-				return cliout.PrintSuccess(whoamiData(sig.Name, sig.Email, user, keys), nil)
+				return cliout.PrintSuccess(viewData(whoamiData(sig.Name, sig.Email, user, keys), source), nil)
 			}
 
 			fmt.Printf("%s <%s>\n", sig.Name, sig.Email)
@@ -117,4 +121,28 @@ func asAnyMaps(v any) []map[string]any {
 		}
 	}
 	return out
+}
+
+// matchRegistryUserView is for identity display only; it grants no authority.
+func matchRegistryUserView(ctx context.Context, dir, email string) (usersapp.User, []map[string]any, string, error) {
+	users, _, _, source, err := usersapp.New(dir).ListView(ctx)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	var found usersapp.User
+	for _, u := range users {
+		for _, e := range asAnyStrings(u["emails"]) {
+			if e == email {
+				if found != nil {
+					return nil, nil, "", fmt.Errorf("registry email %q has multiple owners", email)
+				}
+				found = u
+				break
+			}
+		}
+	}
+	if found == nil {
+		return nil, nil, source, nil
+	}
+	return found, asAnyMaps(found["keys"]), source, nil
 }

@@ -368,6 +368,9 @@ func (w *Writer) AppendOnto(ctx context.Context, id string, buildEvent func(pare
 	if err != nil {
 		return nil, err
 	}
+	if err := chain.RequireCompleteProjects(repo); err != nil {
+		return nil, err
+	}
 	sig, err := identity.Resolve(ctx, w.Dir)
 	if err != nil {
 		return nil, err

@@ -100,6 +100,7 @@ func newNotifyListCmd() *cobra.Command {
 				return err
 			}
 			ctx := context.Background()
+			source := ""
 			filter := notifyapp.ListFilter{UnreadOnly: unread && !all}
 			if filter.UnreadOnly {
 				sig, err := identity.Resolve(ctx, dir)
@@ -107,15 +108,19 @@ func newNotifyListCmd() *cobra.Command {
 					return err
 				}
 				filter.ActorEmail = sig.Email
-				filter.Membership = membershipResolver(dir)
+				filter.Membership = viewMembershipResolver(dir, &source)
 			}
 			svc := notifyapp.New(dir)
-			items, err := svc.List(ctx, filter)
+			items, ownSource, err := svc.ListView(ctx, filter)
+			if ownSource != "" {
+				source = ownSource
+			}
 			if err != nil {
 				return err
 			}
+			printViewSource(source)
 			if flags.json {
-				return cliout.PrintList(items, nil)
+				return cliout.PrintSuccess(viewList(items, source), nil)
 			}
 			for _, m := range items {
 				fmt.Printf("%-10s %-8v %v\n", shortID(m["id"]), m["targets"], m["title"])

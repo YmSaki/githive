@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/syncapp"
+	"github.com/ymsaki/githive/internal/core/chain"
 )
 
 // Two issue pushes have different outcomes while a divergent wiki supplies a
@@ -169,6 +170,7 @@ func TestMcpSyncWikiWarningMatchesCLIJSON(t *testing.T) {
 
 func TestSyncPartialFailurePreservesErrorClassification(t *testing.T) {
 	causes := []error{
+		&chain.ShallowHistoryError{},
 		syncapp.ErrRetriesExhausted,
 		syncapp.ErrPushRejected,
 		&syncapp.TrustRootConflictError{Ref: "refs/projects/users/registry", LocalRoots: []string{"local"}, RemoteRoots: []string{"remote"}},

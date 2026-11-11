@@ -326,6 +326,9 @@ func walkDFS(repo *git.Repository, head plumbing.Hash, visit func(*object.Commit
 // Callers must sort by envelope ID before folding
 // (docs/02-data-model.md「イベントの全順序と実体化」).
 func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, error) {
+	if err := RequireCompleteHistory(repo, head); err != nil {
+		return nil, err
+	}
 	var envelopes []*event.Envelope
 	var ids event.IDSet
 	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
@@ -377,6 +380,9 @@ func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, err
 // responsibility — mirrors internal/app/logapp.Service.List's existing
 // validation via event.IsValidTimestamp before calling this).
 func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*event.Envelope, error) {
+	if err := RequireCompleteHistory(repo, head); err != nil {
+		return nil, err
+	}
 	var envelopes []*event.Envelope
 	var ids event.IDSet
 	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
@@ -412,6 +418,9 @@ func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*
 // committer identity and time, signature) - e.g. core/sign's per-commit
 // signature verification (docs/11-security.md「SSH 署名」).
 func WalkCommits(repo *git.Repository, head plumbing.Hash) ([]*object.Commit, error) {
+	if err := RequireCompleteHistory(repo, head); err != nil {
+		return nil, err
+	}
 	var commits []*object.Commit
 	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
 		commits = append(commits, commit)

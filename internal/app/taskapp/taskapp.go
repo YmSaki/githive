@@ -31,9 +31,10 @@ type Note = map[string]any
 
 // Show is the full read result for githive task show.
 type Show struct {
-	Meta  Meta
-	Body  string
-	Notes []Note
+	ReadSource string
+	Meta       Meta
+	Body       string
+	Notes      []Note
 }
 
 // Service operates on tasks within a single repository directory.

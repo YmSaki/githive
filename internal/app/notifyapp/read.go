@@ -37,6 +37,10 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Post, error) {
 	if err != nil {
 		return nil, err
 	}
+	return listState(ctx, state, filter)
+}
+
+func listState(ctx context.Context, state *materialize.State, filter ListFilter) ([]Post, error) {
 	if state.Meta == nil {
 		return nil, nil
 	}

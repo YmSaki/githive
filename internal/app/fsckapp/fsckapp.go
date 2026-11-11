@@ -176,6 +176,11 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 	}
 
 	report := &Report{}
+	if opts.Compact {
+		if err := chain.RequireCompleteProjects(repo); err != nil {
+			return nil, err
+		}
+	}
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
 		if err != nil {
@@ -192,6 +197,9 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 			continue
 		}
 		head := plumbing.NewHash(e.OID)
+		if err := chain.RequireCompleteHistory(repo, head); err != nil {
+			return nil, err
+		}
 		switch parsed.Feature {
 		case refspace.FeatureIssue, refspace.FeatureTask, refspace.FeatureChat,
 			refspace.FeatureNotify, refspace.FeatureUsers:

@@ -100,7 +100,11 @@ func newTaskListCmd() *cobra.Command {
 				return err
 			}
 			ctx := context.Background()
-			filter := taskapp.ListFilter{Status: status, Owner: owner, Mine: mine}
+			resolvedOwner, source, err := resolveUserRefView(ctx, dir, owner)
+			if err != nil {
+				return err
+			}
+			filter := taskapp.ListFilter{Status: status, Owner: resolvedOwner, Mine: mine}
 			if mine {
 				sig, err := identity.Resolve(ctx, dir)
 				if err != nil {
@@ -109,12 +113,16 @@ func newTaskListCmd() *cobra.Command {
 				filter.ActorEmail = sig.Email
 			}
 			svc := taskapp.New(dir)
-			items, err := svc.List(ctx, filter)
+			items, ownSource, err := svc.ListView(ctx, filter)
+			if ownSource != "" {
+				source = ownSource
+			}
 			if err != nil {
 				return err
 			}
+			printViewSource(source)
 			if flags.json {
-				return cliout.PrintList(items, nil)
+				return cliout.PrintSuccess(viewList(items, source), nil)
 			}
 			fmt.Printf("%-10s %-10s %-40s %s\n", "ID", "STATUS", "TITLE", "OWNER")
 			for _, m := range items {
@@ -145,16 +153,17 @@ func newTaskShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return err
 			}
+			printViewSource(show.ReadSource)
 			if flags.json {
 				notes := make([]any, len(show.Notes))
 				for i, n := range show.Notes {
 					notes[i] = n
 				}
-				return cliout.PrintSuccess(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, nil)
+				return cliout.PrintSuccess(viewData(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, show.ReadSource), nil)
 			}
 			fmt.Printf("%v  %v  %v  owner=%v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"], show.Meta["owner"])
 			if show.Body != "" {

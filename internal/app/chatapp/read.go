@@ -11,6 +11,7 @@ import (
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
+	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
@@ -100,6 +101,10 @@ func (s *Service) Show(ctx context.Context, id string) (*Show, error) {
 	if err != nil {
 		return nil, err
 	}
+	return showState(state)
+}
+
+func showState(state *materialize.State) (*Show, error) {
 	if state.Meta == nil {
 		return nil, ErrNotFound
 	}

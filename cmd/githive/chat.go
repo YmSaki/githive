@@ -73,12 +73,13 @@ func newChatListCmd() *cobra.Command {
 				return err
 			}
 			svc := chatapp.New(dir)
-			items, err := svc.List(context.Background(), chatapp.ListFilter{Status: status})
+			items, source, err := svc.ListView(context.Background(), chatapp.ListFilter{Status: status})
 			if err != nil {
 				return err
 			}
+			printViewSource(source)
 			if flags.json {
-				return cliout.PrintList(items, nil)
+				return cliout.PrintSuccess(viewList(items, source), nil)
 			}
 			fmt.Printf("%-10s %-10s %-40s %s\n", "ID", "STATUS", "TITLE", "MESSAGES")
 			for _, m := range items {
@@ -108,7 +109,7 @@ func newChatShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return err
 			}
@@ -116,12 +117,13 @@ func newChatShowCmd() *cobra.Command {
 			if tail > 0 && len(messages) > tail {
 				messages = messages[len(messages)-tail:]
 			}
+			printViewSource(show.ReadSource)
 			if flags.json {
 				anyMessages := make([]any, len(messages))
 				for i, m := range messages {
 					anyMessages[i] = m
 				}
-				return cliout.PrintSuccess(map[string]any{"meta": show.Meta, "messages": anyMessages}, nil)
+				return cliout.PrintSuccess(viewData(map[string]any{"meta": show.Meta, "messages": anyMessages}, show.ReadSource), nil)
 			}
 			fmt.Printf("%v  %v  %v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"])
 			for _, m := range messages {

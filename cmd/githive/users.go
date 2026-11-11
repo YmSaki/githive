@@ -96,10 +96,11 @@ func newUsersListCmd() *cobra.Command {
 				return err
 			}
 			svc := usersapp.New(dir)
-			users, groups, policy, err := svc.List(context.Background())
+			users, groups, policy, source, err := svc.ListView(context.Background())
 			if err != nil {
 				return err
 			}
+			printViewSource(source)
 			if flags.json {
 				anyUsers := make([]any, len(users))
 				for i, u := range users {
@@ -113,7 +114,7 @@ func newUsersListCmd() *cobra.Command {
 				if policy != nil {
 					policyAny = policy
 				}
-				return cliout.PrintSuccess(map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, nil)
+				return cliout.PrintSuccess(viewData(map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, source), nil)
 			}
 			for _, u := range users {
 				fmt.Printf("user  %-20v %-8v %v\n", u["username"], u["kind"], u["emails"])
