@@ -448,11 +448,9 @@ func isRefUpdateRetryable(output string) bool {
 	return strings.Contains(output, "but expected") || strings.Contains(output, "cannot lock ref")
 }
 
-// Fetch runs `git fetch remote refspecs...`.
+// Fetch runs `git fetch --end-of-options remote refspecs...`.
 func (r *Runner) Fetch(ctx context.Context, remote string, refspecs ...string) error {
-	args := append([]string{"fetch", remote}, refspecs...)
-	_, err := r.run(ctx, args...)
-	return err
+	return r.fetch(ctx, remote, false, refspecs...)
 }
 
 // PushResult reports the outcome for one refspec of a push.
