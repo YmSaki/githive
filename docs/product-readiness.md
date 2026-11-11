@@ -19,17 +19,17 @@
 | [#102 config の合流](https://github.com/YmSaki/githive/issues/102) | 同版の異なる config は非 retryable な `meta_config_conflict` として両履歴を残して停止する。同じ設定は canonical 化して合流する。設定を自動で選ぶ機能ではなく、競合の解決は両親を残す明示操作を要する（[ADR-0025](adr/0025-meta-config-conflict.md)）。 |
 | [#91 users の名前と外部イベント](https://github.com/YmSaki/githive/issues/91) | 正規書き込みの名前・enum 検証、user/group 衝突防止、危険なツリーパスの保存拒否を追加した。既存の raw イベントを fold から消す変更や、自動の台帳修復を実装したわけではない。外部・既存履歴に対する受理範囲と回復性まで解決済みとはしない。 |
 | [#136 policy 編集](https://github.com/YmSaki/githive/issues/136) | 保存前の policy 検証と編集失敗時の下書き保持を追加した。CLI は `users policy edit`（EDITOR の明示設定が必要）、非対話の保存は MCP の `users_policy_set` を使う。`githive users policy set` という CLI は現在存在しない。Hosted の policy は助言的であり、Forge のサーバー側権限強制を提供するものではない。 |
-| [#135 入力検証](https://github.com/YmSaki/githive/issues/135) | issue/task/chat の title/status 等、notify 宛先/source、users の名前・kind/status 等を共有の書き込み経路で検査する。全 JSON Schema の汎用 validator ではない。due は `YYYY-MM-DD` の形を確認し、暦上の実在日までは検査しない。source.kind の列挙・グループの存在確認も追加していない。 |
+| [#135 入力検証](https://github.com/YmSaki/githive/issues/135) | issue/task/chat の title/status 等、notify 宛先/source、users の名前・kind/status 等を共有の書き込み経路で検査する。既知 kind の data は同梱した権威スキーマでも検査し、外部履歴の feature/entity 文脈を確認する。未知 kind は将来拡張として警告付きで保持する。due は `YYYY-MM-DD` の形を確認し、暦上の実在日までは検査しない。source.kind の列挙・グループの存在確認も追加していない。 |
 
 ## 引き続き追跡する互換性・日常利用の条件
 
-- **[#87 shallow 閲覧](https://github.com/YmSaki/githive/issues/87):** issue/task/chat の一覧は head ツリーを読めるが、Show 系・notify/users の一覧等は履歴 fold を使い、完全なイベント履歴が必要。depth 1 の issue List が表示できても Show は親オブジェクト不足で失敗する。snapshot 閲覧、自動 deepen、専用の復旧案内は未実装の課題として追跡する（[同期仕様](03-sync-and-concurrency.md#shallow--partial-clone-との関係)）。この現状説明を shallow 対応の実装完了や課題の取消しとは扱わない。
-- **[#88 イベント依存順序](https://github.com/YmSaki/githive/issues/88):** 通常追記は既知の最大非 checkpoint ID 以下の新イベントを `clock_skew` で拒否し、raw な issue/task/chat 履歴の create より前の変更・別 create による置換は `event_order_violation` で拒否する。reducer や既存イベントを書き換える対策ではない。raw users の key_add/key_revoke と user_set の依存順序・鍵ローテーション全体の検証は未実装であり、#88 は残課題を含む（[ADR-0026](adr/0026-reject-lossy-event-order.md)）。
+- **[#87 shallow 閲覧](https://github.com/YmSaki/githive/issues/87):** issue/task/chat の詳細と一覧、notify/users/status/whoami に閲覧専用 snapshot view を追加した。不完全な履歴では `read_source: snapshot`、`history_complete: false`、`verified: false` を返す。保存済み Markdown の LF を保持し、元イベント本文の完全復元とは扱わない。書き込み・権限判定・log/verify/fsck/compact は完全履歴を要求し、`shallow_history` と復旧案内を返す。自動 fetch/deepen は行わない（[ADR-0028](adr/0028-shallow-read-views.md)）。
+- **[#88 イベント依存順序](https://github.com/YmSaki/githive/issues/88):** 通常追記は既知の最大非 checkpoint ID 以下の新イベントを `clock_skew` で拒否する。raw issue/task/chat の create 前変更・別 create による置換に加え、users の user_set 前の鍵操作、対応する key_add より前の revoke、同じ鍵素材の文字列表現差による失効空振りを受理境界で拒否する。既存の不正履歴は隔離し、削除・書換え・自動修復しない。reducer と schema version は変更していない（[ADR-0026](adr/0026-reject-lossy-event-order.md)、[ADR-0027](adr/0027-reject-ignored-users-key-events.md)）。
 - **[#129 副参照 ID](https://github.com/YmSaki/githive/issues/129):** link の参照先、reply_to、supersedes、既知 feature の notify source.id も app 層で前方一致と大文字入力を解決し、完全な小文字 ID を保存する。CLI/MCP で add/remove の同一性、返信通知、未知・曖昧・他エンティティの拒否と追記なしを検証する。完全 ID の弱いリンクや任意 source.kind の完全 ID は既存のオフライン・拡張用契約として保持する。未知 source.kind の短縮入力は完全 ID を要求する。詳細は [入力仕様](10-cli-spec.md) に従う。
 
 - **[#130 一覧の表示 ID](https://github.com/YmSaki/githive/issues/130):** 人間向け issue/task/chat list の ID 列は、同 feature の全ローカル ref を対象に一意な最短の前方一致を表示する。非表示・archived の競合も含め、コピーした ID で show が同じエンティティを開くことを検証する。show のコメント・note・message ヘッダも一意なイベント ID を表示し、chat --tail の表示外競合も含む。初回本文付き chat.create の ID も返信・置換に使えることを CLI/MCP で検証する。JSON は完全 ID のまま。通知タイトルの装飾的短縮や notify/status/log の他の表示列まで対応済みとは扱わない（[ADR-0031](adr/0031-unambiguous-entity-list-ids.md)）。
 
-このほか、部分的に破損した履歴の検査・一覧継続、fsck の全 data/feature/entity 検査、複数リモートの追跡意味等にも未検証・未完了の範囲がある。Issue が open であることと、特定の候補で緩和されたことを混同しない。
+部分破損でも verify は他 ref の検査結果を保持し、fsck/verify と同期・初期化は既知 data と feature/entity を検査する。破損した一覧の継続、verify の全警告分類、複数リモートの追跡意味等には未完了の範囲がある。Issue が open であることと、特定の候補で緩和されたことを混同しない。
 
 ## 検証済み配布基点と後続変更
 
