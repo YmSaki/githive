@@ -193,7 +193,7 @@ type issueNewParams struct {
 type issueListParams struct {
 	Status   string `json:"status,omitempty" jsonschema:"filter by status"`
 	Label    string `json:"label,omitempty" jsonschema:"filter by label"`
-	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee email"`
+	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee username or email"`
 	Cursor   string `json:"cursor,omitempty" jsonschema:"resume after this id (from a previous response's next_cursor)"`
 	Limit    int    `json:"limit,omitempty" jsonschema:"max items to return (default 50, max 200)"`
 }
@@ -412,7 +412,7 @@ type taskNewParams struct {
 
 type taskListParams struct {
 	Status string `json:"status,omitempty" jsonschema:"filter by status"`
-	Owner  string `json:"owner,omitempty" jsonschema:"filter by owner email"`
+	Owner  string `json:"owner,omitempty" jsonschema:"filter by owner username or email"`
 	Mine   bool   `json:"mine,omitempty" jsonschema:"only tasks owned by the actor"`
 	Cursor string `json:"cursor,omitempty" jsonschema:"resume after this id (from a previous response's next_cursor)"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"max items to return (default 50, max 200)"`
