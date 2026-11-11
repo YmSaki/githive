@@ -8,6 +8,8 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
@@ -53,6 +55,22 @@ func checkMaterialization(repo *git.Repository, ref string, feature refspace.Fea
 			Ref: ref, Feature: string(feature), Commit: head.String(), Path: diff[0], Code: "tree_mismatch",
 			Message: fmt.Sprintf("head tree differs from the recomputed materialization at %d path(s): %s", len(diff), strings.Join(diff, ", ")),
 		})
+	} else {
+		// Blob contents alone do not define a Git tree: file modes and empty
+		// directories also affect its identity and checkout behavior. Render
+		// the expected tree in memory so fsck remains read-only on the repo.
+		expected, err := chain.WriteTree(&git.Repository{Storer: memory.NewStorage()}, want)
+		if err != nil {
+			return append(findings, Finding{Ref: ref, Feature: string(feature), Commit: head.String(), Code: "tree_render_failed", Message: err.Error()})
+		}
+		commit, err := object.GetCommit(repo.Storer, head)
+		if err != nil {
+			return append(findings, Finding{Ref: ref, Feature: string(feature), Commit: head.String(), Code: "read_tree_failed", Message: err.Error()})
+		}
+		if commit.TreeHash != expected {
+			findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: head.String(), Code: "tree_mismatch",
+				Message: "head tree has different file modes or directory structure from the recomputed materialization"})
+		}
 	}
 
 	commits, err := chain.WalkCommits(repo, head)
