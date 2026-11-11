@@ -15,6 +15,10 @@ import (
 type CheckpointStart struct {
 	// Checkpoint is the checkpoint envelope closest to head.
 	Checkpoint *event.Envelope
+	// Parent is the checkpoint commit's parent (ZeroHash for a root). The
+	// checkpoint's data.head must equal it for the snapshot to be usable
+	// (ADR-0016 条件 4).
+	Parent plumbing.Hash
 	// After holds every event between Checkpoint (exclusive) and head
 	// (inclusive), in head-to-checkpoint walk order. Fold sorts by ID, so
 	// the slice order does not matter to callers.
@@ -50,7 +54,11 @@ func FindCheckpointStart(repo *git.Repository, head plumbing.Hash) (*CheckpointS
 		}
 		if env != nil {
 			if strings.HasSuffix(env.Kind, ".checkpoint") {
-				return &CheckpointStart{Checkpoint: env, After: after}, nil
+				var parent plumbing.Hash
+				if len(commit.ParentHashes) == 1 {
+					parent = commit.ParentHashes[0]
+				}
+				return &CheckpointStart{Checkpoint: env, Parent: parent, After: after}, nil
 			}
 			after = append(after, env)
 		}

@@ -315,3 +315,52 @@ func TestShortcutSkippedWhenEventSortsBeforeCheckpoint(t *testing.T) {
 		t.Errorf("fallback state differs from full walk:\n%s\n---\n%s", got, want)
 	}
 }
+
+// TestShortcutSkippedWhenCheckpointHeadIsStale is issue #95's reader-side
+// regression test: a checkpoint whose snapshot was taken before a write E,
+// but which sits on top of E, must not be used as a fold base - otherwise E
+// vanishes from the state. Checkpoints already written this way by older
+// tools are disabled by the same check (ADR-0016 条件 4).
+func TestShortcutSkippedWhenCheckpointHeadIsStale(t *testing.T) {
+	requireGit(t)
+	dir := newTestRepo(t)
+	w := testWriter(dir)
+	ctx := context.Background()
+
+	seedChain(t, w)
+	staleEvents, staleOID, err := w.CurrentEvents(ctx, testEntity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendEvent(t, w, "issue.comment", map[string]any{"body": "concurrent E"})
+
+	stateMap, err := materialize.StateToMap(w.Registry.Fold(staleEvents))
+	if err != nil {
+		t.Fatal(err)
+	}
+	maxID := ""
+	for _, e := range staleEvents {
+		if e.ID > maxID {
+			maxID = e.ID
+		}
+	}
+	appendEvent(t, w, "issue.checkpoint", map[string]any{
+		"event_count": len(staleEvents), "head": staleOID, "max_event_id": maxID, "state": stateMap,
+	})
+	appendEvent(t, w, "issue.comment", map[string]any{"body": "after"})
+
+	base, _, _, err := w.foldInputs(ctx, testEntity, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base != nil {
+		t.Error("shortcut engaged on a checkpoint whose data.head is not its parent")
+	}
+	got, err := w.Fold(ctx, testEntity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, want := treeBytes(t, got), treeBytes(t, fullFold(t, w)); g != want {
+		t.Errorf("fold differs from full walk:\n%s\n---\n%s", g, want)
+	}
+}
