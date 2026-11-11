@@ -31,7 +31,7 @@ git のコミット署名機構（`gpg.format ssh`）をそのまま使う（[AD
 
 `githive verify` はチェーンを遡って全コミットを検証し、違反を一覧で報告する（終了コード 4）。
 マージコミット（event-union）はマージ実行者の署名を持てばよい。中身の正しさは決定的実体化の再計算で独立に検証できる。
-`githive fsck` が ref ごとにこの再計算を行う。head のツリーが `TreeFiles(fold(head から到達できる全イベント))` と byte 単位で一致しなければ `tree_mismatch`、各 checkpoint の `data.state` がそのコミットから到達できるイベントの fold と一致しなければ `checkpoint_state_mismatch` を報告する。再計算するのは head と checkpoint だけで、途中のコミットのツリーは照合しない（読み手は head からしか実体化しないため。fsck の計算量はチェーン長に線形）。meta/config と wiki は対象外である。
+`githive fsck` が ref ごとにこの再計算を行う。head のツリーが `TreeFiles(fold(head から到達できる全イベント))` と byte 単位で一致しなければ `tree_mismatch`、各 checkpoint の `data.state` がそのコミットから到達できるイベントの fold と一致しなければ `checkpoint_state_mismatch` を報告する。再計算するのは head と checkpoint だけで、途中のコミットのツリーは照合しない（読み手は head から実体化するため）。各 checkpoint の照合ではその祖先履歴を再走査するため、checkpoint 数が増えた場合まで一律に線形時間とは保証しない。meta/config と wiki は対象外である。
 
 ## 信頼の根
 

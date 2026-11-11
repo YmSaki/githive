@@ -1,0 +1,34 @@
+{
+  "source_sha": "1a1dde2de203d60a4dff0682aaae7a70dac73c5f",
+  "module_version": "v0.0.0-20261111130129-1a1dde2de203",
+  "binary_sha256": "633a1f88a1a5731a51180e1544de371e07f366bce7f08c338e6ac0ef886bbc71",
+  "platform": "linux/amd64",
+  "go": "1.25.4",
+  "commands": 101,
+  "json_rpc_requests": 56,
+  "mcp_tools_listed": 41,
+  "mcp_tools_successfully_called": 41,
+  "mcp_resource_types_read": [
+    "issue",
+    "task",
+    "chat",
+    "wiki"
+  ],
+  "failures": [],
+  "signed_mcp_write_and_verify": true,
+  "snippet_shell_substitution_blocked": true,
+  "upgrade_preserves_refs_config_issues": true,
+  "uninstall_preserves_refs_config": true,
+  "reinstall_preserves_refs_config_issues": true,
+  "ci": {
+    "head_sha": "1a1dde2de203d60a4dff0682aaae7a70dac73c5f",
+    "url": "https://github.com/YmSaki/githive/actions/runs/43025638502",
+    "jobs": {
+      "spec-validate": "success",
+      "test (ubuntu-latest)": "success",
+      "test (windows-latest)": "success"
+    }
+  },
+  "coverage": "ordinary entrypoint smoke; not every flag, boundary, platform, race or hosting provider",
+  "later_code_changes": "This record does not certify later source changes, including status.from audit metadata."
+}

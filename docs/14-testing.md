@@ -30,7 +30,7 @@ test harness（`internal/testutil`）が次のシナリオを部品として提�
 3. **shallow 読み**：depth 1 で fetch した clone で list/show が動き、履歴系が deepen を要求する。
 4. **素の git 互換**：ツールで書いたデータを素の git コマンドだけで読む（各機能仕様の「素の git での読み方」を自動テスト化）。
 5. **署名検証**：正しい署名、鍵不一致、revoke 後の署名、actor 偽装の 4 ケース（P3 以降）。
-6. **チェーン破損の検出**：スキーマ違反イベント、非 canonical JSON、ツリー改竄を fsck / verify が報告する。
+6. **チェーン破損の検出**：`fsck` が封筒破損、head ツリーの再計算不一致、checkpoint state の不一致を報告する。`verify` は署名・actor・台帳権限・信頼の根を検査する。全 data schema と非 canonical JSON の監査は別の受け入れ項目であり、署名検証の成功をツリー再計算の成功とは扱わない。
 7. **自動 fetch 耐性**：未 push のローカルチェーンがある状態で素の `git fetch`（および `fetch --prune`）を実行し、`refs/projects/*` が変化しないこと（[ADR-0008](adr/0008-remote-tracking-separation.md) の追跡分離）。
 8. **チェックポイント越しのマージ**：A のオフラインイベント（古い ULID）と B のチェックポイントを含むチェーンをマージし、A のイベントが実体化結果に残ること。
 9. **祖先無しマージ**：独立に作られた同名 ref（meta/config）が空祖先で収束すること。registry の二重ルートが検証エラーになること。

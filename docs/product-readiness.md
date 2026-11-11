@@ -1,6 +1,6 @@
 # 製品準備状況
 
-**未リリース・完成判定前。** 2026-11-11 時点の実装・ハーネス固定スナップショット `8f808637049573a1504e6dc9eb3e6914b043a633` に対する作業記録である。候補で改善したこと、公開 main に取り込まれたこと、配布・最終受け入れの完了は別の状態として扱う。全機能の完成や、本番運用の包括的な安全性を宣言しない。
+**未リリース・完成判定前。** 2026-11-11 時点の検証済み配布基点 `1a1dde2de203d60a4dff0682aaae7a70dac73c5f` と、それ以後の追加修正を分けて記録する。候補で改善したこと、公開 main に取り込まれたこと、配布・最終受け入れの完了は別の状態として扱う。全機能の完成や、本番運用の包括的な安全性を宣言しない。
 
 ## 配布物と候補の区別
 
@@ -18,7 +18,7 @@
 |---|---|
 | [#102 config の合流](https://github.com/YmSaki/githive/issues/102) | 同版の異なる config は非 retryable な `meta_config_conflict` として両履歴を残して停止する。同じ設定は canonical 化して合流する。設定を自動で選ぶ機能ではなく、競合の解決は両親を残す明示操作を要する（[ADR-0025](adr/0025-meta-config-conflict.md)）。 |
 | [#91 users の名前と外部イベント](https://github.com/YmSaki/githive/issues/91) | 正規書き込みの名前・enum 検証、user/group 衝突防止、危険なツリーパスの保存拒否を追加した。既存の raw イベントを fold から消す変更や、自動の台帳修復を実装したわけではない。外部・既存履歴に対する受理範囲と回復性まで解決済みとはしない。 |
-| [#136 policy 編集](https://github.com/YmSaki/githive/issues/136) | 保存前の policy 検証、非対話 set、編集失敗時の下書き保持を追加した。Hosted の policy は助言的であり、Forge のサーバー側権限強制を提供するものではない。 |
+| [#136 policy 編集](https://github.com/YmSaki/githive/issues/136) | 保存前の policy 検証と編集失敗時の下書き保持を追加した。CLI は `users policy edit`（EDITOR の明示設定が必要）、非対話の保存は MCP の `users_policy_set` を使う。`githive users policy set` という CLI は現在存在しない。Hosted の policy は助言的であり、Forge のサーバー側権限強制を提供するものではない。 |
 | [#135 入力検証](https://github.com/YmSaki/githive/issues/135) | issue/task/chat の title/status 等、notify 宛先/source、users の名前・kind/status 等を共有の書き込み経路で検査する。全 JSON Schema の汎用 validator ではない。due は `YYYY-MM-DD` の形を確認し、暦上の実在日までは検査しない。source.kind の列挙・グループの存在確認も追加していない。 |
 
 ## 引き続き追跡する互換性・日常利用の条件
@@ -29,23 +29,17 @@
 
 このほか、部分的に破損した履歴の検査・一覧継続、fsck の全 data/feature/entity 検査、複数リモートの追跡意味等にも未検証・未完了の範囲がある。Issue が open であることと、特定の候補で緩和されたことを混同しない。
 
-## テスト証拠の範囲と残るゲート
+## 検証済み配布基点と後続変更
 
-従前の製品スモーク QA はソース `bc9dd06898de19736707d78dbe6f5fbe255cc1ad`、バイナリ SHA256 `69593d5f53628410e52d06f401cccf21e6cc19c41fa7b546f40766a3a7e98b8a` を対象にした。CLI/Git の67コマンドと署名・policy 等の30コマンド、MCP の initialize/initialized/tools/list と22回の tool call（計25メッセージ）を記録している。**41ツールの登録を確認したことは、全41ツールの呼び出し・全オプションの検証ではない。** 25メッセージを25種類のツールの完全なカバレッジとも数えない。
+固定 SHA `1a1dde2de203d60a4dff0682aaae7a70dac73c5f` を公開 Go module から実際にインストールし、`v0.0.0-20261111130129-1a1dde2de203`、Linux amd64 / Go 1.25.4、バイナリ SHA256 `633a1f88a1a5731a51180e1544de371e07f366bce7f08c338e6ac0ef886bbc71` を確認した。受け入れ試験前後のバイナリハッシュは一致する。
 
-その後に候補へ追加した修正を、この古いバイナリの QA 結果で合格にしない。最終ソースとバイナリの対応を固定した可搬的な CLI/MCP QA、必要な通常操作・競合/失敗時の検証、最終コミットに対する CI の確認とレビューが残っている。既存の Go/spec テストや途中コミットでの PASS は証拠として保持するが、未実行・対象外・想定違いのケースを PASS に換算しない。
+この配布物に対する `scripts/acceptance.py` の実行は **101コマンド、56 JSON-RPC、登録された全41ツールの正常呼び出し、Issue/Task/Chat/Wiki の4種 resource 読み出しが成功、失敗0**。署名付き CLI/MCP の書き込みと verify、旧公開版からの更新・実行ファイル削除・再インストール後の Issue/refs/config の保持、Agent 設定例の shell 展開防止も追加確認した。公開可能な要約は [固定した結果](acceptance/1a1dde2.json) に保存する。試験用秘密鍵を含む raw fixture は公開しない。
 
-## 配布物検証からの再開
+同じ SHA の [CI 実行](https://github.com/YmSaki/githive/actions/runs/43025638502) は Ubuntu・Windows・spec job が成功した。197件の spec、Go test/vet/build と主要コアの race 検査も、この基点の証拠として記録されている。旧候補の Windows 補助実行・設定例の shell quoting の失敗は修正後に再検証済みであり、現在の同 SHA の失敗として記述しない。
 
-旧候補 `fe77a322834b8aaf82172bbfd9ceb67c2733b5c6` の固定インストール後、Agent 設定例の shell quoting に追加の不具合を確認した。email などの値にあるコマンド置換が、返された設定例を POSIX シェルで実行したとき展開され得たため、文字列を POSIX の単引用符で保護する修正を追加した。実際のシェルを使い、副作用が起きず Git 設定に元の文字列が保持される回帰テストを追加している。
+以前の bc9dd06 に対する「41ツール登録、22 tool calls / 計25メッセージ」は過去の限定的なスモーク結果である。現在の全41ツールの正常呼び出しの証拠と区別し、件数を足したり古い不足を現在の不足として扱ったりしない。ただし、全ツールを一度正常に呼んだことは、全フラグ・境界値・権限攻撃・競合・OS・ホスティング実機を網羅した意味ではない。macOS と実際の GitHub/GitLab/Gitea への project refs 配送は、この実行の確認範囲外である。
 
-この追加修正前のバイナリに対する QA を、新候補の合格証拠として扱わない。新しい最終コミットに対して全体ゲート、固定版の再インストール、可搬的な受け入れ検証を再実行する。設定例は POSIX シェル向けであり、PowerShell 等では JSON に含む値をその環境の方法で設定する。
-
-## Windows CI の状況
-
-旧候補 fe77a32 の Windows CI は、CAS 競合を注入する4ケースで失敗した。POSIX の拡張子なし Git wrapper が Windows の実行ファイル検索で選択されず、競合自体が注入されていなかったためである。この失敗を製品の CAS 処理の不具合と断定せず、Windows で正常に動く証拠としても扱わない。
-
-テストをネイティブな補助実行ファイルへ変更し、wrapper が実際に選択されることも検査する。Linux の検証や Windows 向けクロスコンパイルだけでは Windows 実行時の合格にはならないため、新しい最終コミットの Windows CI を別途確認する。
+この基点以後に追加する status の監査用 from 等の変更には、対応する新しいソースでローカル回帰テストを実行する。**1a1dde2 の配布物・CI 成功を後続コミットの成功証拠にはしない。** 最終統合後の配布物と CI の再確認は、対象 SHA とともに追記する。現行機能と将来機能の具体的な受け入れ範囲は [機能別チェックリスト](product-acceptance.md) を参照。
 
 ## マージと完了の扱い
 
