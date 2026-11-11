@@ -132,3 +132,8 @@ checkpoint を含む全イベントに、canonical JSON 256 KiB の上限とネ�
 ### イベント ID 衝突時の同期
 
 同一 ID で canonical bytes の異なる封筒が両側または片側の履歴にある場合、`conflicting_event_id` としてその ref の同期を拒否する。fast-forward も検証対象で、失敗した ref は更新しない。他の正常な ref の処理は継続する。内容が一致するコピーは和集合で一つに数える（ADR-0023）。
+
+
+### meta/config の同版競合
+
+同じ schema_version の config.json が canonical 化後も異なる場合、sync は `meta_config_conflict` で対象 ref を変更せず停止する。両側の OID を調べ、両方を親に持つ解決コミットを作ってから再同期する（[ADR-0025](adr/0025-meta-config-conflict.md)）。同じ設定は自動合流し、異版は従来どおり大きい版を採る。対応していない schema_version は合流より前に拒否する。

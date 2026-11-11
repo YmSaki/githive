@@ -4,6 +4,7 @@
 package syncapp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -542,7 +543,8 @@ func mergedTree(ctx context.Context, dir string, repo *git.Repository, feature r
 }
 
 // metaMergeFiles picks the config.json of whichever side declares the higher
-// schema_version, local winning a tie.
+// schema_version. Equal-version configs must have identical canonical bytes;
+// differing values require an explicit resolution instead of a directional win.
 //
 // Higher wins because schema_version is the repository's *minimum* required
 // version (docs/01-architecture.md「バージョニングと互換性」) and a tool that
@@ -573,7 +575,29 @@ func metaMergeFiles(ctx context.Context, dir, localOID, remoteOID string) (map[s
 	if remoteVersion > localVersion {
 		return map[string][]byte{metaConfigPath: remote}, nil
 	}
-	return map[string][]byte{metaConfigPath: local}, nil
+	if localVersion > remoteVersion {
+		return map[string][]byte{metaConfigPath: local}, nil
+	}
+	localValue, err := event.DecodeGeneric(local)
+	if err != nil {
+		return nil, err
+	}
+	remoteValue, err := event.DecodeGeneric(remote)
+	if err != nil {
+		return nil, err
+	}
+	localCanonical, err := event.Encode(localValue)
+	if err != nil {
+		return nil, err
+	}
+	remoteCanonical, err := event.Encode(remoteValue)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(localCanonical, remoteCanonical) {
+		return nil, &MetaConfigConflictError{LocalOID: localOID, RemoteOID: remoteOID}
+	}
+	return map[string][]byte{metaConfigPath: localCanonical}, nil
 }
 
 const metaConfigPath = "config.json"

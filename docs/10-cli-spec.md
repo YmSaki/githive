@@ -146,3 +146,8 @@ TUI と MCP サーバーは同一プロセス内で `app` を直接呼ぶため�
 ### 履歴内のイベント ID 衝突
 
 同一 ID の異なる封筒を検出した読み出し・書き込み・sync は、終了コード 4、`error.code: "conflicting_event_id"`、`retryable: false` で拒否する。同じ処理を再試行するだけでは修復できないため、fsck / verify の検査結果から競合する履歴を調べる（ADR-0023）。
+
+
+### 共有設定の競合
+
+同版の異なる meta/config は `meta_config_conflict`、`retryable:false` で報告する。単なる再実行では設定を選べない。エラーが示す local/remote の OID を `git show <oid>:config.json` で調べ、[ADR-0025](adr/0025-meta-config-conflict.md) の両親を保存する解決手順に従う。

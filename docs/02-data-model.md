@@ -204,7 +204,7 @@ front matter は人間の閲覧と grep のためであり、機械処理はイ�
   - `features`（string の配列）：有効機能一覧。現行のデフォルト（`initapp.DefaultFeatures`）は `["issue", "task", "notify", "users", "chat", "wiki"]`。
   - `created_at`（string）：init 実行時刻。RFC3339、UTC、ミリ秒精度（イベント封筒の `ts` と同値）。
 
-冪等性：`refs/projects/meta/config` が既に存在すれば `githive init` は何もしない。また `githive init` は meta/config を作る前にリモートを fetch し、リモートに meta/config があればローカル ref をそこへ合わせて、自分では作らない（[10](10-cli-spec.md)「`githive init` の手順」）。clone した後に init しても、第 2 のルートはできない。したがって `meta.init` イベントはチェーンに 1 個だけ、ルートコミットとしてのみ存在する（後続の meta.* イベント種別は現行実装には無い）。
+冪等性：`refs/projects/meta/config` が既に存在すれば `githive init` は何もしない。また `githive init` は meta/config を作る前にリモートを fetch し、リモートに meta/config があればローカル ref をそこへ合わせて、自分では作らない（[10](10-cli-spec.md)「`githive init` の手順」）。clone した後に init しても、第 2 のルートはできない。通常の初期化では `meta.init` は1個のルートコミットとして作られる。既存・オフラインで独立に作られた履歴を合流した場合は複数の meta.init ルートを保持しうる。同版で異なる config は自動で勝者を選ばず、両親を残す明示的な解決を要する（[ADR-0025](adr/0025-meta-config-conflict.md)）。後続の meta.* イベント種別は現行実装には無い。
 
 ## サイズと成長の制約
 
