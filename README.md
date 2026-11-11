@@ -46,7 +46,9 @@ githive --help
 
 ## 動作モード
 
-| 機能 | hosted モード（GitHub 等） | forge モード（自作サーバー） |
+以下は Hosted クライアントの現行範囲と、将来の Forge サーバーの設計上の比較である。**Forge 列は未実装の構想**であり、サーバー配布・pre-receive の権限強制・push 時配信が現在利用できるという意味ではない。候補の検証状況と制約は [製品準備状況](docs/product-readiness.md) を参照。
+
+| 機能 | hosted モード（GitHub 等） | forge モード（自作サーバー・将来） |
 |------|--------------------------|---------------------------|
 | issue / task / chat / wiki | 完全動作 | 完全動作 |
 | notify の記録 | 完全動作（配信は fetch 時に検出） | push 時に配信 |

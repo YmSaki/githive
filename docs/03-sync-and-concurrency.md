@@ -95,9 +95,9 @@ CRDT の用語では、イベント集合を grow-only set とする operation-b
 
 ## shallow / partial clone との関係
 
-- `--depth 1` の fetch でも、先頭コミットのツリーに現在状態が完全に含まれるため、一覧と閲覧は動く。
+- head のツリーを直接読む issue/task/chat の一覧は、`--depth 1` の fetch でも表示できる。**現在の Show 系・notify/users の一覧等は履歴 fold を使うため、完全なイベント履歴が必要**。depth 1 の issue Show は親オブジェクト不足で失敗することを確認しており、snapshot 閲覧への切り替えは未実装（[#87](https://github.com/YmSaki/githive/issues/87)）。浅い履歴で全閲覧が動くとは保証しない。
 - 履歴表示、検証（署名、チェーン整合）、分岐マージは深い履歴を要求する。必要時に `git fetch --deepen` で追加取得する。
-- ツールは「浅い履歴しかない」状態を検出し、自動 deepen するか、明示的なエラーで知らせる（未実装。Horizon 2 以降、[13-roadmap.md](13-roadmap.md) P4）。
+- 自動の shallow 検出・deepen と専用の復旧エラーは未実装の課題である（[#87](https://github.com/YmSaki/githive/issues/87)、[13-roadmap.md](13-roadmap.md) P4）。必要なイベント履歴を取得してから利用する。この記述の訂正は shallow 対応の実装完了や機能範囲からの削除を意味しない。
 
 ## notify ストリームの競合特性
 
