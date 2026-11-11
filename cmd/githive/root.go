@@ -175,6 +175,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 	switch {
 	case errors.Is(err, event.ErrEventTooLarge):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "event_too_large", Message: err.Error()}
+	case errors.Is(err, event.ErrConflictingEventID):
+		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "conflicting_event_id", Message: err.Error()}
 	case errors.Is(err, errVerifyAllWithRef):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "usage_error", Message: err.Error()}
 	case errors.As(err, &ambiguous):

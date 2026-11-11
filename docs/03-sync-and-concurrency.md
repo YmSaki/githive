@@ -127,3 +127,6 @@ event-union マージは通知の性質（追記のみ、順序の厳密性が�
 ### checkpoint の容量上限
 
 checkpoint を含む全イベントに、canonical JSON 256 KiB の上限とネスト128段の上限を適用する（[ADR-0021](adr/0021-strict-json-and-event-bounds.md)）。完全な state が上限を超える場合、compact は対象 ref と元の履歴を変更せずエラーを返す。checkpoint を作れなくても、通常の全走査による読み取り・追記は続けられる。
+### イベント ID 衝突時の同期
+
+同一 ID で canonical bytes の異なる封筒が両側または片側の履歴にある場合、`conflicting_event_id` としてその ref の同期を拒否する。fast-forward も検証対象で、失敗した ref は更新しない。他の正常な ref の処理は継続する。内容が一致するコピーは和集合で一つに数える（ADR-0023）。

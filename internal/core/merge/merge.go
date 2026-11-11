@@ -17,17 +17,24 @@ import (
 )
 
 // UnionEvents merges any number of event sets into one, deduplicated by ID.
-// Order of the input sets does not affect the result (commutative,
+// Identical copies collapse; differing canonical payloads with the same ID
+// return event.ErrConflictingEventID instead of selecting a winner.
+// Order of valid input sets does not affect the result (commutative,
 // associative, idempotent - docs/14-testing.md「マージの収束」).
-func UnionEvents(sets ...[]*event.Envelope) []*event.Envelope {
+func UnionEvents(sets ...[]*event.Envelope) ([]*event.Envelope, error) {
+	var ids event.IDSet
 	byID := map[string]*event.Envelope{}
 	var order []string
 	for _, set := range sets {
 		for _, env := range set {
-			if _, seen := byID[env.ID]; !seen {
-				order = append(order, env.ID)
+			fresh, err := ids.Add(env)
+			if err != nil {
+				return nil, err
 			}
-			byID[env.ID] = env
+			if fresh {
+				order = append(order, env.ID)
+				byID[env.ID] = env
+			}
 		}
 	}
 	sort.Strings(order)
@@ -35,11 +42,15 @@ func UnionEvents(sets ...[]*event.Envelope) []*event.Envelope {
 	for i, id := range order {
 		out[i] = byID[id]
 	}
-	return out
+	return out, nil
 }
 
 // Fold unions the given event sets and folds them with registry. This is
 // the pure, git-independent core of a merge.
-func Fold(registry *materialize.Registry, sets ...[]*event.Envelope) *materialize.State {
-	return registry.Fold(UnionEvents(sets...))
+func Fold(registry *materialize.Registry, sets ...[]*event.Envelope) (*materialize.State, error) {
+	events, err := UnionEvents(sets...)
+	if err != nil {
+		return nil, err
+	}
+	return registry.Fold(events), nil
 }

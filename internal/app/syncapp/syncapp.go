@@ -284,6 +284,12 @@ func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*push
 		return nil, Result{}, err
 	}
 
+	if parsed.Feature != refspace.FeatureWiki {
+		if err := validateEventIDs(dir, localOID, remoteOID); err != nil {
+			return nil, Result{}, err
+		}
+	}
+
 	if localOID == remoteOID {
 		return nil, Result{Ref: ref, Action: ActionUpToDate}, nil
 	}
@@ -521,7 +527,11 @@ func mergedTree(ctx context.Context, dir string, repo *git.Repository, feature r
 	if err != nil {
 		return nil, err
 	}
-	return treeWriter(merge.Fold(registry, localEvents, remoteEvents))
+	state, err := merge.Fold(registry, localEvents, remoteEvents)
+	if err != nil {
+		return nil, err
+	}
+	return treeWriter(state)
 }
 
 // metaMergeFiles picks the config.json of whichever side declares the higher

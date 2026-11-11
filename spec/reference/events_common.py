@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
+from canonical_json import encode
+
 ULID_RE = re.compile(r"^[0-9a-hjkmnp-tv-z]{26}$")
 
 
@@ -28,12 +30,24 @@ def sort_events(events: Iterable[dict]) -> list[dict]:
     docs/02-data-model.md:
         state = fold(sort_by_event_id(events))
     「イベント ID（ULID）の辞書順を全順序とする」に従う。
-    同一 id のイベントが重複して渡された場合も安定ソートで順序を保つ
-    （通常は起きない想定だが、event-union マージでの重複排除は
-    呼び出し側の責務とする）。
+    同じ id の canonical bytes が異なる場合は破損として拒否する。
+    一致するコピーの入力順は維持する（和集合側で重複を除去する）。
     """
-    return sorted(events, key=lambda e: e["id"])
+    checked = list(events)
+    validate_event_ids(checked)
+    return sorted(checked, key=lambda e: e["id"])
 
 
 def envelope_kind_matches(event: dict, prefix: str) -> bool:
     return event.get("kind", "").startswith(prefix + ".")
+
+
+def validate_event_ids(events: Iterable[dict]) -> None:
+    """Reject contradictory event identities without choosing a winner (ADR-0023)."""
+    seen: dict[str, bytes] = {}
+    for event in events:
+        raw = encode(event)
+        event_id = event["id"]
+        if event_id in seen and seen[event_id] != raw:
+            raise ValueError(f"conflicting_event_id: {event_id}")
+        seen[event_id] = raw

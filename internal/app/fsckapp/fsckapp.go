@@ -234,6 +234,7 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 			Ref: ref, Feature: string(feature), Code: "walk_failed", Message: err.Error(),
 		}}
 	}
+	var ids event.IDSet
 	for _, c := range commits {
 		env, err := chain.ExtractEnvelope(c)
 		if err != nil {
@@ -247,8 +248,15 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 			})
 			continue
 		}
-		// env == nil: a merge commit, nothing envelope-level to check.
-		_ = env
+		if env != nil {
+			if _, err := ids.Add(env); err != nil {
+				code := "invalid_envelope"
+				if errors.Is(err, event.ErrConflictingEventID) {
+					code = "conflicting_event_id"
+				}
+				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: code, Message: err.Error()})
+			}
+		}
 	}
 	return findings
 }

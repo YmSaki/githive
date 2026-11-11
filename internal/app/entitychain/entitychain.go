@@ -188,7 +188,7 @@ func (w *Writer) foldInputs(ctx context.Context, id, newEventID string) (base *m
 	if err != nil {
 		return nil, nil, "", err
 	}
-	base, events, err = w.foldInputsAt(oid, newEventID)
+	base, events, err = w.foldInputsAt(oid, newEventID, nil)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -209,7 +209,7 @@ func (w *Writer) headOID(ctx context.Context, id string) (string, error) {
 
 // foldInputsAt is foldInputs for a head OID the caller has already read, so
 // that everything one Append attempt computes refers to the same commit.
-func (w *Writer) foldInputsAt(oid, newEventID string) (base *materialize.State, events []*event.Envelope, err error) {
+func (w *Writer) foldInputsAt(oid, newEventID string, newEvent *event.Envelope) (base *materialize.State, events []*event.Envelope, err error) {
 	if oid == gitx.ZeroOID {
 		return nil, nil, nil
 	}
@@ -218,6 +218,26 @@ func (w *Writer) foldInputsAt(oid, newEventID string) (base *materialize.State, 
 		return nil, nil, err
 	}
 	head := plumbing.NewHash(oid)
+	// A checkpoint cannot hide colliding event identities in covered history.
+	events, err = chain.WalkChain(repo, head)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Compare a new event with the full history, including checkpoint envelopes
+	// and events hidden behind the snapshot, before selecting the shortcut.
+	if newEvent != nil {
+		var ids event.IDSet
+		if _, err := ids.Add(newEvent); err != nil {
+			return nil, nil, err
+		}
+		for _, prior := range events {
+			if prior.ID == newEvent.ID {
+				if _, err := ids.Add(prior); err != nil {
+					return nil, nil, err
+				}
+			}
+		}
+	}
 
 	start, err := chain.FindCheckpointStart(repo, head)
 	if err != nil {
@@ -229,10 +249,6 @@ func (w *Writer) foldInputsAt(oid, newEventID string) (base *materialize.State, 
 		}
 	}
 
-	events, err = chain.WalkChain(repo, head)
-	if err != nil {
-		return nil, nil, err
-	}
 	return nil, events, nil
 }
 
@@ -394,11 +410,17 @@ func (w *Writer) AppendOnto(ctx context.Context, id string, buildEvent func(pare
 			return nil, err
 		}
 		env.Actor = sig.Email
-		base, existingEvents, err := w.foldInputsAt(oid, env.ID)
+		base, existingEvents, err := w.foldInputsAt(oid, env.ID, env)
 		if err != nil {
 			return nil, err
 		}
 		allEvents := append(append([]*event.Envelope(nil), existingEvents...), env)
+		var ids event.IDSet
+		for _, input := range allEvents {
+			if _, err := ids.Add(input); err != nil {
+				return nil, err
+			}
+		}
 		state := w.Registry.FoldFrom(base, allEvents)
 		if w.NotFoundErr != nil && state.Meta == nil {
 			return nil, w.NotFoundErr

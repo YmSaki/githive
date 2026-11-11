@@ -316,17 +316,26 @@ func walkDFS(repo *git.Repository, head plumbing.Hash, visit func(*object.Commit
 // parents, so it works across event-union merge commits too) and returns
 // every event envelope found, in no particular order. Duplicate commits
 // reachable via multiple paths (diamonds from merges) are visited once.
+// Identical event copies collapse; conflicting same-ID canonical payloads
+// return event.ErrConflictingEventID before any fold can select a winner.
 // Callers must sort by envelope ID before folding
 // (docs/02-data-model.md「イベントの全順序と実体化」).
 func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, error) {
 	var envelopes []*event.Envelope
+	var ids event.IDSet
 	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
 		env, err := ExtractEnvelope(commit)
 		if err != nil {
 			return false, err
 		}
 		if env != nil {
-			envelopes = append(envelopes, env)
+			fresh, err := ids.Add(env)
+			if err != nil {
+				return false, err
+			}
+			if fresh {
+				envelopes = append(envelopes, env)
+			}
 		}
 		return true, nil
 	})
@@ -361,6 +370,7 @@ func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, err
 // validation via event.IsValidTimestamp before calling this).
 func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*event.Envelope, error) {
 	var envelopes []*event.Envelope
+	var ids event.IDSet
 	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
 		env, err := ExtractEnvelope(commit)
 		if err != nil {
@@ -372,7 +382,13 @@ func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*
 			return false, nil
 		}
 		if env != nil {
-			envelopes = append(envelopes, env)
+			fresh, err := ids.Add(env)
+			if err != nil {
+				return false, err
+			}
+			if fresh {
+				envelopes = append(envelopes, env)
+			}
 		}
 		return true, nil
 	})

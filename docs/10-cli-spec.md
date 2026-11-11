@@ -137,3 +137,6 @@ TUI と MCP サーバーは同一プロセス内で `app` を直接呼ぶため�
 ### イベントの容量超過
 
 1イベントの canonical JSON が256 KiBを超える書き込みは、終了コード2・`error.code: event_too_large` で拒否する。本文は分割するか wiki に保存する。`fsck --compact` の checkpoint が上限を超えた場合も対象 ref を進めない。外部から到着した上限超過イベントは fsck の `event_too_large` finding になる。
+### 履歴内のイベント ID 衝突
+
+同一 ID の異なる封筒を検出した読み出し・書き込み・sync は、終了コード 4、`error.code: "conflicting_event_id"`、`retryable: false` で拒否する。同じ処理を再試行するだけでは修復できないため、fsck / verify の検査結果から競合する履歴を調べる（ADR-0023）。

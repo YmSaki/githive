@@ -60,7 +60,7 @@ import fold_issue
 import fold_notify
 import fold_task
 import fold_users
-from events_common import sort_events
+from events_common import sort_events, validate_event_ids
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +448,25 @@ def run_strict_json_validation(results: Results) -> None:
 # main
 # ---------------------------------------------------------------------------
 
+def run_event_identity_validation(results: Results) -> None:
+    for path in sorted((VECTORS_DIR / "event-identity").glob("*.json")):
+        vector = json.loads(path.read_text(encoding="utf-8"))
+        name = f"event-identity[{path.name}]"
+        for events in (vector["events"], list(reversed(vector["events"]))):
+            try:
+                validate_event_ids(events)
+            except ValueError as err:
+                if not vector["conflicting"] or "conflicting_event_id" not in str(err):
+                    results.fail(name, str(err))
+                    break
+            else:
+                if vector["conflicting"]:
+                    results.fail(name, "conflicting event ID accepted")
+                    break
+        else:
+            results.ok(name)
+
+
 def main() -> int:
     results = Results()
     run_schema_validation(results)
@@ -457,6 +476,7 @@ def main() -> int:
     run_fold_validation(results)
     run_ordering_validation(results)
     run_strict_json_validation(results)
+    run_event_identity_validation(results)
     return results.print_summary()
 
 

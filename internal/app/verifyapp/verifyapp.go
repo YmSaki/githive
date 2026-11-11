@@ -5,6 +5,7 @@ package verifyapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -85,6 +86,25 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 		return nil, err
 	}
 	report.CommitCount = len(commits)
+
+	var ids event.IDSet
+	for _, commit := range commits {
+		env, err := chain.ExtractEnvelope(commit)
+		if err != nil || env == nil {
+			continue
+		}
+		if _, err := ids.Add(env); err != nil {
+			code := "invalid_envelope"
+			if errors.Is(err, event.ErrConflictingEventID) {
+				code = "conflicting_event_id"
+			}
+			report.Issues = append(report.Issues, Issue{CommitHash: commit.Hash.String(), Code: code, Message: err.Error()})
+		}
+	}
+	// A contradictory registry must not become authoritative for signatures.
+	if len(report.Issues) > 0 {
+		return report, nil
+	}
 
 	registryState, err := loadRegistryState(ctx, dir)
 	if err != nil {
