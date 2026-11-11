@@ -42,7 +42,7 @@ sync 対象になった以上、未 push の報告からだけ外しておく理
 
 - wiki の 3-way マージは worktree（実ファイル）を要する。`githive sync` は [03-sync-and-concurrency.md](../03-sync-and-concurrency.md) の全体設計として「ローカル ref の更新までで完結し、作業ファイルには触らない」原則で書かれており、sync がマージのために worktree を作り始めると、`wiki save` の既存のコンフリクトフロー（マーカーを残したまま人間が解消して再実行する）と二重になる。fast-forward だけなら ref 更新で完結し、この原則を壊さない。
 - 分岐を**エラーにしない**のは、`githive sync` が複数 ref を一括処理するコマンドだからである。wiki が分岐しているだけで他の全 ref の同期が失敗するのは、[01-architecture.md](../01-architecture.md)「部分的成功は正常系として報告する」に反する。
-- meta/config のマージで `schema_version` の大きい方を採るのは、[01-architecture.md](../01-architecture.md)「`schema_version` はリポジトリ全体の最低要求バージョンを表す」と「自分の対応より新しければ拒否」の組み合わせから、**下げる方向の合流が安全側にならない**ためである。上げる方向に倒せば、古いツールは拒否して止まる（安全）。下げると、新しい意味論で書かれた既存イベントを古い意味論で読む状態を招く。
+- meta/config のマージで `schema_version` の大きい方を採るのは、[01-architecture.md](../01-architecture.md)「`schema_version` はリポジトリ全体の最低要求バージョンを表す」と「自分の対応より新しければ拒否」の組み合わせから、**下げる方向の合流が安全側にならない**ためである。上げる方向に倒せば、古いツールは拒否して止まる（安全）。下げると、新しい意味論で書かれた既存イベントを古い意味論で読む状態を招く。この役割をリポジトリ schema_version に持たせるため、fold 意味論の変更では封筒 v と合わせてこれも上げる（[ADR-0018](0018-schema-version-bump-rule.md)）。
 
 ## 帰結
 

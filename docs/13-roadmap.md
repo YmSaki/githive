@@ -124,4 +124,4 @@ policy.json のルール評価（[00-vision.md](00-vision.md)「動作モード�
 | forge とクライアントの検証ロジック乖離 | 検証は core に置き、pre-receive はそれを呼ぶだけにする（P8 の構造要件） |
 | IDE の自動 fetch によるローカル ref 破壊 | 追跡名前空間の分離で設計段階で解消済み（[ADR-0008](adr/0008-remote-tracking-separation.md)）。シナリオ 7 で回帰防止 |
 | チェックポイントがマージでイベントを消す | 「fold ではチェックポイントを常に無視」を規則化（[03](03-sync-and-concurrency.md)）。シナリオ 8 で回帰防止 |
-| ツールのバージョン混在による実体化分岐 | fold 意味論の変更に schema_version 昇格を必須化（[01](01-architecture.md)） |
+| ツールのバージョン混在による実体化分岐 | fold 意味論の変更に封筒 v とリポジトリ schema_version の両方の昇格を必須化し、読み書きと sync の前に検査（[01](01-architecture.md)、[ADR-0018](adr/0018-schema-version-bump-rule.md)） |

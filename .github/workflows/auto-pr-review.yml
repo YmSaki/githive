@@ -56,7 +56,8 @@ jobs:
               増えていないか（scripts/check-canonical-json.sh を実行して確認）。
             - 決定性: fold規則・実体化の変更が「同一イベント集合→byte同一ツリー」を
               壊す可能性がないか。map走査順・時刻・乱数への依存を疑う。
-            - fold意味論を変える変更に schema_version 昇格が伴っているか。
+            - fold意味論を変える変更（既存featureへのツリーに影響するkind追加を含む）に、封筒v（event.SchemaVersion）と
+              リポジトリschema_version（initapp.SchemaVersion）の両方の昇格が伴っているか（ADR-0018）。
             - spec同期: internal/core/materialize の変更に対応する
               spec/reference/*.py と spec/vectors/ の更新が同じPRに含まれているか。
             - 層方向: cmd→app→core の一方通行が守られているか。

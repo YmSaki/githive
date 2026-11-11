@@ -34,12 +34,15 @@ var ErrRetriesExhausted = errors.New("entitychain: local ref update retries exha
 
 const defaultRetries = 10
 
-// SchemaUnsupportedError is returned by Append when refs/projects/meta/config
-// declares a schema_version newer than this build supports
-// (docs/02-data-model.md「meta/config ref」「ツールは操作前に schema_version
-// を確認し、自分の対応バージョンより新しければ操作を拒否する」). The CLI maps
-// it to exit code 5 and error.code "schema_unsupported"
-// (docs/10-cli-spec.md「終了コード」).
+// SchemaUnsupportedError is returned when refs/projects/meta/config (or its
+// remote-tracking counterpart, during sync) declares a repository
+// schema_version newer than this build supports (docs/01-architecture.md
+// 「バージョニングと互換性」, docs/02-data-model.md「meta/config ref」, ADR-0018).
+// Every operation that folds events - Append, Fold, sync's event-union merge
+// - checks it first, so a tool that predates a fold-semantics change stops
+// instead of silently rendering a different tree. The CLI maps it to exit
+// code 5 and error.code "schema_unsupported" (docs/10-cli-spec.md「終了コー
+// ド」).
 type SchemaUnsupportedError struct {
 	Found     int
 	Supported int
@@ -49,22 +52,29 @@ func (e *SchemaUnsupportedError) Error() string {
 	return fmt.Sprintf("entitychain: meta/config schema_version %d is newer than the %d this build supports", e.Found, e.Supported)
 }
 
-// checkSchemaSupported rejects a write when refs/projects/meta/config's
-// config.json declares a schema_version newer than initapp.SchemaVersion -
-// the config schema's own version counter, independent of the envelope
-// schema counter event.SchemaVersion (docs/01-architecture.md「Go モジュール
-// は...データスキーマはこの v と schema_version で、それぞれ独立に管理する」).
+// CheckSchemaSupported rejects an operation when refs/projects/meta/config's
+// config.json declares a repository schema_version newer than
+// initapp.SchemaVersion. That is the repository-wide minimum, distinct from
+// the envelope version event.SchemaVersion (ADR-0018 keeps the two terms
+// apart and raises both on a fold-semantics change).
 //
 // A repository with no meta/config ref yet (pre-`githive init`, or a partial
 // clone that never fetched it) skips the check entirely, preserving prior
 // behavior for those repositories. Likewise, a meta/config tree this
 // function cannot make sense of (missing/malformed config.json, no integer
-// schema_version) is left for `githive fsck` to report; Append's job here is
-// only to block writes against a config it can positively identify as too
-// new, not to duplicate fsck's broader validation.
-func checkSchemaSupported(ctx context.Context, dir string) error {
+// schema_version) is left for `githive fsck` to report; the job here is
+// only to block operations against a config it can positively identify as
+// too new, not to duplicate fsck's broader validation.
+func CheckSchemaSupported(ctx context.Context, dir string) error {
+	return CheckSchemaSupportedAt(ctx, dir, refspace.MetaConfigRef)
+}
+
+// CheckSchemaSupportedAt is CheckSchemaSupported against an arbitrary ref
+// holding a meta/config tree - sync uses it on the remote-tracking copy so a
+// newer remote is refused before anything is merged.
+func CheckSchemaSupportedAt(ctx context.Context, dir, ref string) error {
 	r := gitx.New(dir)
-	oid, err := r.RevParse(ctx, refspace.MetaConfigRef)
+	oid, err := r.RevParse(ctx, ref)
 	if err != nil {
 		return err
 	}
@@ -275,7 +285,7 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 	mu.Lock()
 	defer mu.Unlock()
 
-	if err := checkSchemaSupported(ctx, w.Dir); err != nil {
+	if err := CheckSchemaSupported(ctx, w.Dir); err != nil {
 		return nil, err
 	}
 
@@ -335,8 +345,14 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 }
 
 // Fold returns the current fold state for id without writing anything,
-// taking the checkpoint shortcut when the chain offers one.
+// taking the checkpoint shortcut when the chain offers one. Like Append it
+// refuses a repository whose schema_version is newer than this build: a
+// read folds too, and an old fold over new-semantics events would show a
+// state the writers never meant (ADR-0018).
 func (w *Writer) Fold(ctx context.Context, id string) (*materialize.State, error) {
+	if err := CheckSchemaSupported(ctx, w.Dir); err != nil {
+		return nil, err
+	}
 	base, events, _, err := w.foldInputs(ctx, id, "")
 	if err != nil {
 		return nil, err
