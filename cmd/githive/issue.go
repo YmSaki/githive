@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -484,7 +483,7 @@ func readFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimRight(string(data), "\n"), nil
+	return string(data), nil
 }
 
 // asStringSliceAny converts a decoded JSON []any of strings (as found in a

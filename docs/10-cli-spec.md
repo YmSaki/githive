@@ -180,3 +180,7 @@ sync / init は既知 kind の不正 data（`invalid_event_data`）や、kind �
 ### 既存プロジェクト設定の版情報
 
 meta/config ref が無い init 前の day-zero は許可する。存在する ref の config.json 欠損・破損・非 object・schema_version の欠損／型違い／非整数／0 以下は、互換性不明として `invalid_config`（終了コード5）で読み書き・sync・init を拒否する。対応版を超える正の整数は従来の `schema_unsupported` とする。JSON の 1、1.0、1e0 は同じ整数版として扱い、浮動小数点丸めによる小数の切り捨てはしない。これは版情報の検査であり、meta 全 schema や過去イベントと設定 tree の一致を包括的に証明するものではない（ADR-0032）。
+
+### ファイルからの本文入力
+
+Issue の本文・コメントと Task note の `-F/--file` は、ファイル本文の末尾 LF/CRLF を保持する。公開鍵ファイルの一行正規化は鍵専用経路で行い、本文には適用しない。
