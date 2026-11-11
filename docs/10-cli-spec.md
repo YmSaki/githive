@@ -158,3 +158,9 @@ TUI と MCP サーバーは同一プロセス内で `app` を直接呼ぶため�
 ### 共有設定の競合
 
 同版の異なる meta/config は `meta_config_conflict`、`retryable:false` で報告する。単なる再実行では設定を選べない。エラーが示す local/remote の OID を `git show <oid>:config.json` で調べ、[ADR-0025](adr/0025-meta-config-conflict.md) の両親を保存する解決手順に従う。
+
+### verify の破損と部分結果
+
+封筒が壊れたコミットや読めない履歴は、対象 ref の `invalid_envelope` / `walk_failed` issue として報告し、他の ref の検査結果を残す。users 台帳を完全に読み取れない場合は、その台帳を部分的に信用せず、署名を判定できない ref に `invalid_registry` を報告する。これらは終了コード4の検証失敗である。未知の `refs/projects/` ref は report の `warnings` に `unrecognized_ref` を追加し、警告だけで検証失敗にはしない。CLI JSON と MCP は同じ report 形式を使う。
+
+この部分結果の保証は、破損 ref を List 系でスキップする機能や、suspended ユーザーの「新規イベント」の時点を定義するものではない（#114 の残課題）。

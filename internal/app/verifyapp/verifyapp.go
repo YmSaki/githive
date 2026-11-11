@@ -38,6 +38,7 @@ type RefReport struct {
 	CommitCount   int
 	TrustRootHash string // only set for refs/projects/users/registry
 	Issues        []Issue
+	Warnings      []Issue // diagnostics that do not by themselves fail verification
 }
 
 // OK reports whether the ref had zero issues.
@@ -83,7 +84,8 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 	head := plumbing.NewHash(oid)
 	commits, err := chain.WalkCommits(repo, head)
 	if err != nil {
-		return nil, err
+		report.Issues = append(report.Issues, Issue{CommitHash: oid, Code: "walk_failed", Message: err.Error()})
+		return report, nil
 	}
 	report.CommitCount = len(commits)
 
@@ -91,7 +93,11 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 	var envelopes []*event.Envelope
 	for _, commit := range commits {
 		env, err := chain.ExtractEnvelope(commit)
-		if err != nil || env == nil {
+		if err != nil {
+			report.Issues = append(report.Issues, Issue{CommitHash: commit.Hash.String(), Code: "invalid_envelope", Message: err.Error()})
+			continue
+		}
+		if env == nil {
 			continue
 		}
 		envelopes = append(envelopes, env)
@@ -113,7 +119,8 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 
 	registryState, err := loadRegistryState(ctx, dir)
 	if err != nil {
-		return nil, err
+		report.Issues = append(report.Issues, Issue{Code: "invalid_registry", Message: fmt.Sprintf("cannot verify against the users registry: %v", err)})
+		return report, nil
 	}
 	for _, conflict := range materialize.EmailConflicts(registryState) {
 		report.Issues = append(report.Issues, Issue{Code: "ambiguous_email", Message: fmt.Sprintf("email %q belongs to multiple users: %s", conflict.Email, strings.Join(conflict.Usernames, ", "))})
@@ -234,6 +241,7 @@ func VerifyAll(ctx context.Context, dir string, trustRootPin string) ([]RefRepor
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
 		if err != nil {
+			reports = append(reports, RefReport{Ref: e.Ref, Warnings: []Issue{{Code: "unrecognized_ref", Message: err.Error()}}})
 			continue
 		}
 		switch parsed.Feature {
