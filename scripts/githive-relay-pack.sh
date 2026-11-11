@@ -9,8 +9,8 @@ remote="${1:-origin}"
 # workflow_dispatch の 1 入力の上限（65535 文字）に余裕を持たせる。
 max_chars=60000
 
-# リモートの最新を追跡 ref に取り込む（githive init と同じ refspec）。
-git fetch -q "$remote" '+refs/projects/*:refs/githive-remote/*'
+# 削除済み ref を配送済みと誤認したり bundle の前提にしないよう、追跡 ref も削除する。
+git fetch --prune -q "$remote" '+refs/projects/*:refs/githive-remote/*'
 
 refs=()
 while read -r sha ref; do

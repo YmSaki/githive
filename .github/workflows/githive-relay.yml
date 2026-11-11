@@ -14,10 +14,12 @@ on:
 permissions:
   contents: write
 
-# 同時に 2 つ走るとどちらかの push が non-fast-forward になるので直列にする。
+# 同時 push を直列化し、別セッションの bundle が待機中に置換されないよう
+# 最大 100 件までキューに残す（既定の single は古い待機実行を取り消す）。
 concurrency:
   group: githive-relay
   cancel-in-progress: false
+  queue: max
 
 jobs:
   relay:
