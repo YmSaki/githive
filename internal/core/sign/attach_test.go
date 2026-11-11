@@ -252,15 +252,40 @@ func TestExpandHome(t *testing.T) {
 	}
 }
 
-func TestParseGitBool(t *testing.T) {
-	for _, v := range []string{"true", "TRUE", "yes", "on", "1", " true "} {
-		if !parseGitBool(v) {
-			t.Errorf("parseGitBool(%q) = false, want true", v)
-		}
-	}
-	for _, v := range []string{"", "false", "no", "off", "0", "maybe"} {
-		if parseGitBool(v) {
-			t.Errorf("parseGitBool(%q) = true, want false", v)
-		}
+func TestResolveSignerUsesGitBooleanSemantics(t *testing.T) {
+	for _, tc := range []struct {
+		name, config     string
+		enabled, invalid bool
+	}{
+		{"implicit", "[commit]\n\tgpgsign\n", true, false},
+		{"nonzero", "[commit]\n\tgpgsign = 2\n", true, false},
+		{"empty", "[commit]\n\tgpgsign =\n", false, false},
+		{"off", "[commit]\n\tgpgsign = off\n", false, false},
+		{"invalid", "[commit]\n\tgpgsign = maybe\n", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := newConfiguredRepo(t)
+			f, err := os.OpenFile(filepath.Join(dir, ".git", "config"), os.O_APPEND|os.O_WRONLY, 0600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.WriteString(tc.config); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
+			signer, cleanup, err := ResolveSigner(context.Background(), dir)
+			defer cleanup()
+			if tc.enabled && !errors.Is(err, ErrUnsupportedFormat) {
+				t.Fatalf("signing silently disabled: signer=%v err=%v", signer != nil, err)
+			}
+			if tc.invalid && err == nil {
+				t.Fatal("invalid signing setting accepted")
+			}
+			if !tc.enabled && !tc.invalid && (err != nil || signer != nil) {
+				t.Fatalf("expected unsigned mode: signer=%v err=%v", signer != nil, err)
+			}
+		})
 	}
 }
