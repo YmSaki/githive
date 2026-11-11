@@ -148,15 +148,17 @@ func AppendEvent(repo *git.Repository, parent plumbing.Hash, env *event.Envelope
 	if err := env.Validate(); err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("chain: invalid envelope: %w", err)
 	}
-	treeHash, err := WriteTree(repo, files)
-	if err != nil {
-		return plumbing.ZeroHash, err
-	}
+	// Validate/encode the event before storing its tree, so malformed or
+	// oversized events do not leave otherwise-unreachable blobs behind.
 	msg, err := buildMessage(summary, env)
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
 	if err := verifyRoundTrip(msg, env); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	treeHash, err := WriteTree(repo, files)
+	if err != nil {
 		return plumbing.ZeroHash, err
 	}
 
@@ -218,6 +220,9 @@ func ExtractEnvelope(commit *object.Commit) (*event.Envelope, error) {
 	env, err := envelopeFromMessage(commit.Message)
 	if err != nil {
 		return nil, fmt.Errorf("chain: commit %s: %w", commit.Hash, err)
+	}
+	if env == nil && len(commit.ParentHashes) <= 1 {
+		return nil, fmt.Errorf("chain: commit %s: non-merge commit has no event envelope", commit.Hash)
 	}
 	return env, nil
 }

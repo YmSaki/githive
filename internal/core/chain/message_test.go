@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
@@ -86,8 +87,18 @@ func TestExtractEnvelopeReadsLegacyMultilineSummary(t *testing.T) {
 }
 
 func TestExtractEnvelopeMergeCommitHasNoEvent(t *testing.T) {
-	got, err := ExtractEnvelope(&object.Commit{Message: "merge: event-union"})
+	got, err := ExtractEnvelope(&object.Commit{Message: "merge: event-union", ParentHashes: []plumbing.Hash{plumbing.NewHash(strings.Repeat("1", 40)), plumbing.NewHash(strings.Repeat("2", 40))}})
 	if err != nil || got != nil {
 		t.Fatalf("got %+v, %v; want nil, nil", got, err)
+	}
+}
+
+func TestExtractEnvelopeRejectsMissingEventOnNonMerge(t *testing.T) {
+	for _, parents := range [][]plumbing.Hash{nil, {plumbing.NewHash(strings.Repeat("1", 40))}} {
+		for _, message := range []string{"ordinary commit", "merge: event-union", "summary\n\n"} {
+			if _, err := ExtractEnvelope(&object.Commit{Message: message, ParentHashes: parents}); err == nil {
+				t.Fatalf("accepted missing envelope with %d parent(s): %q", len(parents), message)
+			}
+		}
 	}
 }

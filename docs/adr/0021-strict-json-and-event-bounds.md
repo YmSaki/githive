@@ -14,6 +14,7 @@ encoding/json の通常 Decode は最初の値だけを読み、重複キーを�
 - 不正 UTF-8 と孤立 surrogate は置換せず拒否する。正しい surrogate pair は Unicode scalar として受け付ける。
 - 配列とオブジェクトの入れ子は最大128段。入力パース・pretty encoder・compact encoderに同じ上限を適用する。循環する Go の値もこの上限で停止する。
 - イベント封筒の v は整数で、対応版の範囲内でなければならない。小数と整数への overflow を拒否する。
+- イベントがないroot/単一親コミットは破損として拒否する。省略を認めるのは実際に複数の親を持つmergeコミットだけである。
 - 全 kind のイベント JSON は256 KiB（262144 bytes）以下とする。サイズには canonical JSON のインデントと末尾 LF を含み、人間向け summary と区切りの空行は含まない。raw 入力にも同じ上限をパース前に適用し、compact 入力の canonical 化後にも確認する。
 - checkpoint も同じ上限とする。巨大な full state の compaction は失敗するが、対象 ref と元の履歴は変更しない。通常の読み取り・追記は checkpoint がなくても動作する。
 - サイズ超過の書き込みは `event_too_large`、終了コード2。fsck は外部由来の上限超過イベントを同じ finding code で報告する。
