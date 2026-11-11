@@ -46,7 +46,8 @@ test harness（`internal/testutil`）が次のシナリオを部品として提�
 
 ## CI 構成
 
-- 3 OS（Linux / macOS / Windows）で全層を実行する。git のバージョンは最低要求（2.34）と最新の 2 系統。
+- Go の build/test/vet は Linux / macOS / Windows の runner を対象にする。`source-install-smoke.py` で Git の版が最低要求（2.34）以上であること、現在の checkout を隔離した GOBIN へ install して CLI/MCP の help とビルド情報を読めることも検査する。実行ログは OS 別の `source-install-*` artifact に残す。
+- この matrix は runner 標準の Git を使う。Git 2.34 実機と最新の2系統を切り替えたテストはまだ設定していない。macOS job の追加自体も、実行結果が出るまで macOS 合格の証拠とは扱わない。
 - lint：gofmt、go vet、golangci-lint。encoding/json の直接使用禁止ルール（canonical JSON の一元化）を custom lint で強制する。
 - 互換テスト（実サービス）は nightly のみ。トークンは CI シークレット。
 
