@@ -335,7 +335,7 @@ func TestMcpUsersKeyAddRejectsNonKeyInput(t *testing.T) {
 
 	// A real key line must still work.
 	callMcpTool(t, session, "users_key_add", map[string]any{
-		"name": "alice", "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGVoZWhlaGVoZWhlaGVoZWhlaGVoZWhlaGU= alice@laptop",
+		"name": "alice", "pub": testPubKey,
 	})
 }
 

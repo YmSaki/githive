@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // Input validation for the users registry (docs/11-security.md「実装上の
@@ -28,9 +30,8 @@ var sshPublicKeyTypes = map[string]bool{
 
 // ValidatePublicKey checks that pub has the shape "<type> <base64>
 // [comment]" with a recognized key type, and rejects private key material
-// with a dedicated error. It is a cheap shape check, not full parsing: the
-// real cryptographic validation happens in git verify-commit when a
-// signature is checked.
+// with a dedicated error. It also parses the SSH wire representation before
+// an unusable key can be committed to the registry.
 func ValidatePublicKey(pub string) error {
 	if strings.Contains(pub, "-----BEGIN") || strings.Contains(pub, "PRIVATE KEY") {
 		return fmt.Errorf("%w: input looks like a private key; pass the .pub file instead", ErrPrivateKey)
@@ -40,7 +41,7 @@ func ValidatePublicKey(pub string) error {
 	}
 	fields := strings.Fields(pub)
 	if len(fields) < 2 || !sshPublicKeyTypes[fields[0]] {
-		return fmt.Errorf("%w: want \"<type> <base64-data> [comment]\", got %q", ErrInvalidKey, pub)
+		return fmt.Errorf("%w: want \"<type> <base64-data> [comment]\"", ErrInvalidKey)
 	}
 	data := fields[1]
 	if len(data) < 20 {
@@ -52,6 +53,10 @@ func ValidatePublicKey(pub string) error {
 		default:
 			return fmt.Errorf("%w: key data is not base64", ErrInvalidKey)
 		}
+	}
+	key, _, options, rest, err := ssh.ParseAuthorizedKey([]byte(pub))
+	if err != nil || len(options) != 0 || len(rest) != 0 || key.Type() != fields[0] {
+		return fmt.Errorf("%w: malformed SSH public key data", ErrInvalidKey)
 	}
 	return nil
 }

@@ -47,6 +47,8 @@ func TestCLIUsersKeyAddRejectsNonPublicKeys(t *testing.T) {
 		{privPath, "private_key_rejected"},
 		{filepath.Join(t.TempDir(), "nosuchfile.pub"), "invalid_key"},
 		{"garbage not a key", "invalid_key"},
+		{"ssh-ed25519 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "invalid_key"},
+		{"ssh-rsa " + strings.Fields(testPubKey)[1], "invalid_key"},
 	} {
 		res := runCLI(t, dir, "users", "key", "add", "alice", "--pub", c.pub, "--no-sync", "--json")
 		if res.code != 2 || errorCode(t, res) != c.code {
@@ -112,6 +114,15 @@ func TestMcpUsersRejectsPrivateKeyAndBadEmail(t *testing.T) {
 	session := newMcpTestSession(t, dir)
 	callMcpToolExpectError(t, session, "users_add", map[string]any{"name": "carol", "email": "carol smith"})
 	callMcpTool(t, session, "users_add", map[string]any{"name": "alice", "email": "alice@example.com"})
+	before, err := exec.Command("git", "-C", dir, "rev-parse", "refs/projects/users/registry").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	callMcpToolExpectError(t, session, "users_key_add", map[string]any{"name": "alice", "pub": "ssh-ed25519 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
+	after, err := exec.Command("git", "-C", dir, "rev-parse", "refs/projects/users/registry").Output()
+	if err != nil || string(before) != string(after) {
+		t.Fatalf("malformed wire key changed registry: %v", err)
+	}
 	callMcpToolExpectError(t, session, "users_key_add", map[string]any{"name": "alice", "pub": "-----BEGIN OPENSSH PRIVATE KEY----- abc"})
 	callMcpTool(t, session, "users_key_add", map[string]any{"name": "alice", "pub": testPubKey})
 	callMcpTool(t, session, "users_key_revoke", map[string]any{"name": "alice", "pub": strings.Join(strings.Fields(testPubKey)[:2], " ")})

@@ -3,6 +3,7 @@ package usersapp
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -20,6 +21,8 @@ func TestValidatePublicKey(t *testing.T) {
 		{"/home/a/.ssh/nosuchfile.pub", ErrInvalidKey},
 		{"garbage not a key", ErrInvalidKey},
 		{"ssh-ed25519 AAAA", ErrInvalidKey},
+		{"ssh-ed25519 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ErrInvalidKey},
+		{"ssh-rsa " + testPub[12:], ErrInvalidKey},
 		{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI!!/HvyUTIDZYyBZaz6iHIOXxLN881k", ErrInvalidKey},
 		{testPub + "\nssh-ed25519 " + testPub[12:], ErrInvalidKey},
 	}
@@ -28,6 +31,14 @@ func TestValidatePublicKey(t *testing.T) {
 		if c.want == nil && err != nil || c.want != nil && !errors.Is(err, c.want) {
 			t.Errorf("ValidatePublicKey(%q) = %v, want %v", c.in, err, c.want)
 		}
+	}
+}
+
+func TestMalformedKeyErrorDoesNotEchoUnrecognizedMaterial(t *testing.T) {
+	const supplied = "unrecognized-private-material-without-a-pem-header"
+	err := ValidatePublicKey(supplied)
+	if !errors.Is(err, ErrInvalidKey) || strings.Contains(err.Error(), supplied) {
+		t.Fatalf("invalid key material must be rejected without echoing it: %v", err)
 	}
 }
 
