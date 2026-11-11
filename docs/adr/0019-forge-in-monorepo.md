@@ -45,7 +45,7 @@ forge とクライアントの両方が使うロジック（policy.json の評�
 
 同一 go.mod やバイナリ分割だけでライセンス境界を保証したとは扱わない。共有部分の変更は MIT 側へ置き、core/app と MIT のクライアントから Forge 専用コード・UI への依存を禁止する。第三者コード・素材の元ライセンス表示を保持する。MIT スキーマからの生成物も、入力の権利表示と配布条件を確認し、共通定義を AGPL 側から MIT のクライアントへ逆輸入しない。
 
-P8 の最初の実装 PR は、ファイルの適用表示、CLI の依存に Forge 専用部分がないこと、Forge 配布物の notice と必要な対応ソースの範囲を検査する CI を含む。Forge ソースや実配布物はこの ADR では追加しない。
+P8 の最初の実装 PR は、ファイルの適用表示、CLI の直接・推移依存に Forge 専用部分や AGPL のみで提供される依存がないこと、Forge 配布物の notice と必要な対応ソースの範囲を検査する CI を含む。Forge ソースや実配布物はこの ADR では追加しない。
 
 ### 2. バイナリは `githive` と `githive-forge` の 2 本
 
@@ -78,7 +78,7 @@ SQLite は cgo 不要のドライバを使い、`go build` だけでクロスコ
 
 ## 帰結
 
-- go.sum には forge の依存も載る。CLI のバイナリには影響しない。
+- go.mod/go.sum と依存版解決は CLI/Forge で共有する。Forge 専用パッケージは CLI にリンクされないが、共有依存の版選択や toolchain の変更は CLI にも影響し得るため、全体の Go 検査を省略しない。
 - 層構造の表（[01-architecture.md](../01-architecture.md)、`.claude/rules/go-layering.md`）に `internal/forge` を加える。バイナリが 2 本になると逆方向の import が入り込みやすくなるので、「`core`・`app` から `internal/forge` を import しない」の機械的な検査を forge の最初の実装 PR で CI に加える。
 - 次の 2 点は本 ADR では決めず、P8 着手時に別の ADR で決める。
   - pre-receive で、隔離領域（`GIT_OBJECT_DIRECTORY` と `GIT_ALTERNATE_OBJECT_DIRECTORIES`）にある未受理のオブジェクトをどう読むか。go-git はこれらの環境変数を解釈しないため、system git 経由で読むか go-git に alternates を明示的に渡すかを、ADR-0002 の線引きとあわせて決める。あわせて、ref ではなく `old..new` の範囲を検証する API を `core`/`app` に設ける。
