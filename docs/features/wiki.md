@@ -60,6 +60,16 @@ githive wiki log [<path>]
 なお、記録済みの worktree が（`wiki save` を経由せず）人手で既に削除されている場合は、この検出は行われず新規の
 worktree 作成に進む（そうしないと二度と `wiki edit` できなくなるため）。
 
+### 同期に失敗したとき
+
+`wiki save` はまず worktree でコミットし、その後リモートとの 3-way マージと push を行う。同期の失敗は次のように扱う。
+
+- リモートに届かない（オフライン、fetch・ls-remote・push の失敗）：ローカルの `refs/projects/wiki/main` をそのコミットまで進め、worktree を片付けたうえで、警告（`--json` では `warnings[].code: "wiki_sync_failed"`）付きの成功（終了コード 0）を返す。コミットはローカル ref にあるので、後で `githive sync` が push する。ローカル ref が編集中に別の場所へ動いていて fast-forward できない場合だけは、ローカル ref を動かさずエラーを返し、worktree を残す。
+- push が拒否され続けた（リモートが進み続けた、または pre-receive などのフックが拒否した）：コミットはローカル ref に保存済みで、worktree は残る（`wiki_push_race`、終了コード 3）。
+- 再実行：worktree に変更が無くても、worktree の HEAD がまだローカル ref に入っていない、またはリモート（最後に取得した `refs/githive-remote/wiki/main`）に入っていなければ、未完了の save とみなしてマージと push から再開する。「no changes to save」になるのは、公開済みの状態で何も編集していないときだけである。
+
+worktree を破棄する前に `githive wiki save` を再実行すること。破棄手順を踏むと、ローカル ref に入っていない worktree 上のコミットは参照されなくなる（reflog の範囲でしか辿れない）。
+
 ## sync との関係
 
 `githive sync` は wiki について **fetch と fast-forward だけ**を行う（[ADR-0017](../adr/0017-wiki-and-meta-sync.md)）。

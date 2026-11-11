@@ -81,7 +81,9 @@ func newVerifyCmd() *cobra.Command {
 				return &verifyFailedError{reports: reports}
 			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"reports": reportsToAny(reports)}, nil)
+				if err := cliout.PrintSuccess(map[string]any{"reports": reportsToAny(reports)}, nil); err != nil {
+					return err
+				}
 			}
 			return nil
 		},

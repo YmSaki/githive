@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -42,6 +43,10 @@ var (
 	// whether to present a not-found result or propagate an unexpected git
 	// error unmasked.
 	ErrNotFound = errors.New("gitx: ref or path not found")
+
+	// ErrInvalidRef means a ref argument was rejected before reaching git
+	// because git would parse it as an option.
+	ErrInvalidRef = errors.New("gitx: invalid ref")
 )
 
 // Version is a parsed `git version` result.
@@ -175,8 +180,15 @@ func (r *Runner) ForEachRef(ctx context.Context, patterns ...string) ([]RefEntry
 
 // RevParse resolves ref to its object id. Returns ("", nil) if ref does not
 // exist.
+//
+// A ref starting with "-" is rejected with ErrInvalidRef rather than passed
+// to git, where it would be parsed as an option (#99); --end-of-options
+// guards the rest.
 func (r *Runner) RevParse(ctx context.Context, ref string) (string, error) {
-	out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", ref)
+	if strings.HasPrefix(ref, "-") {
+		return "", fmt.Errorf("%w: %q", ErrInvalidRef, ref)
+	}
+	out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "--end-of-options", ref)
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -448,9 +460,51 @@ func isRefUpdateRetryable(output string) bool {
 	return strings.Contains(output, "but expected") || strings.Contains(output, "cannot lock ref")
 }
 
-// Fetch runs `git fetch remote refspecs...`.
+// ErrInvalidRemote means a remote argument was rejected before reaching git:
+// it started with "-" (git would parse it as an option, e.g.
+// --upload-pack=<cmd>), contained whitespace or control characters, or
+// looked like a remote name that is not configured (docs/11-security.md
+// 「実装上の注意」: 白リストで検証してから使う).
+var ErrInvalidRemote = errors.New("gitx: invalid remote")
+
+var remoteNameRe = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._-]*$`)
+
+// ValidateRemote accepts either a configured remote name (one with a
+// remote.<name>.url) or a URL/path (anything containing '/' or ':' that is
+// not a bare name), and rejects everything else. Fetch, Push and ls-remote
+// call it themselves, so every entry point (CLI --remote, MCP sync/doctor,
+// wiki save) is covered.
+func (r *Runner) ValidateRemote(ctx context.Context, remote string) error {
+	if remote == "" || strings.HasPrefix(remote, "-") {
+		return fmt.Errorf("%w: %q", ErrInvalidRemote, remote)
+	}
+	for _, c := range remote {
+		if c <= ' ' || c == 0x7f {
+			return fmt.Errorf("%w: %q contains whitespace or control characters", ErrInvalidRemote, remote)
+		}
+	}
+	if !remoteNameRe.MatchString(remote) {
+		if strings.ContainsAny(remote, "/:\\") {
+			return nil // URL, scp-style address or filesystem path
+		}
+		return fmt.Errorf("%w: %q is neither a remote name nor a URL", ErrInvalidRemote, remote)
+	}
+	url, err := r.ConfigGet(ctx, "remote."+remote+".url")
+	if err != nil {
+		return err
+	}
+	if url == "" {
+		return fmt.Errorf("%w: no remote named %q is configured", ErrInvalidRemote, remote)
+	}
+	return nil
+}
+
+// Fetch runs `git fetch --end-of-options remote refspecs...`.
 func (r *Runner) Fetch(ctx context.Context, remote string, refspecs ...string) error {
-	args := append([]string{"fetch", remote}, refspecs...)
+	if err := r.ValidateRemote(ctx, remote); err != nil {
+		return err
+	}
+	args := append([]string{"fetch", "--end-of-options", remote}, refspecs...)
 	_, err := r.run(ctx, args...)
 	return err
 }
@@ -466,7 +520,10 @@ type PushResult struct {
 // per-refspec result, so callers can retry only the rejected refs
 // (docs/03-sync-and-concurrency.md「sync のアルゴリズム」).
 func (r *Runner) Push(ctx context.Context, remote string, refspecs ...string) ([]PushResult, error) {
-	args := append([]string{"push", "--porcelain", remote}, refspecs...)
+	if err := r.ValidateRemote(ctx, remote); err != nil {
+		return nil, err
+	}
+	args := append([]string{"push", "--porcelain", "--end-of-options", remote}, refspecs...)
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir}, args...)...)
 	cmd.Env = gitEnv()
 	var stdout, stderr bytes.Buffer
@@ -695,7 +752,10 @@ func (r *Runner) ConflictedPaths(ctx context.Context, worktreeDir string) ([]str
 // lsRemoteRef resolves a single ref on remote via `git ls-remote`, returning
 // ("", nil) when the remote does not have that ref yet.
 func (r *Runner) lsRemoteRef(ctx context.Context, remote, ref string) (string, error) {
-	out, err := r.run(ctx, "ls-remote", remote, ref)
+	if err := r.ValidateRemote(ctx, remote); err != nil {
+		return "", err
+	}
+	out, err := r.run(ctx, "ls-remote", "--end-of-options", remote, ref)
 	if err != nil {
 		return "", err
 	}

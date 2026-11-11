@@ -15,7 +15,7 @@
 | --json | JSON 出力（後述の封筒形式） |
 | --repo <path> | 対象リポジトリ |
 | --no-sync | 書き込み後の自動 sync を行わない |
-| --remote <name> | 同期先 remote（既定 origin） |
+| --remote <name> | 同期先 remote（既定 origin）。設定済みの remote 名か URL・パスに限る。`-` で始まる値、空白・制御文字を含む値、未設定の remote 名は `invalid_remote`（exit 2）で拒否する。`mcp serve` に渡した値は、MCP の `sync` / `doctor` が使える唯一の remote になる |
 
 ## コマンド体系
 

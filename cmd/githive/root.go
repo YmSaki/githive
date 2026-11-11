@@ -17,6 +17,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/app/wikiapp"
 	"github.com/ymsaki/githive/internal/cliout"
+	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/sign"
 )
@@ -192,11 +193,23 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		}
 	case errors.Is(err, usersapp.ErrInvalidName):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_name", Message: err.Error()}
+	case errors.Is(err, gitx.ErrInvalidRemote), errors.Is(err, errMcpRemoteNotAllowed):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_remote", Message: err.Error()}
+	case errors.Is(err, gitx.ErrInvalidRef):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_ref", Message: err.Error()}
+	case errors.Is(err, usersapp.ErrPrivateKey):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "private_key_rejected", Message: err.Error()}
+	case errors.Is(err, usersapp.ErrInvalidKey):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_key", Message: err.Error()}
+	case errors.Is(err, usersapp.ErrInvalidEmail):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_email", Message: err.Error()}
+	case errors.Is(err, usersapp.ErrKeyExists):
+		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "already_exists", Message: err.Error()}
 	case errors.Is(err, errInvalidNotifyPriority):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_priority", Message: err.Error()}
 	case errors.Is(err, logapp.ErrInvalidSince):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_since", Message: err.Error()}
-	case errors.Is(err, issueapp.ErrNotFound), errors.Is(err, usersapp.ErrUserNotFound), errors.Is(err, usersapp.ErrGroupNotFound), errors.Is(err, wikiapp.ErrNotFound):
+	case errors.Is(err, issueapp.ErrNotFound), errors.Is(err, usersapp.ErrUserNotFound), errors.Is(err, usersapp.ErrGroupNotFound), errors.Is(err, usersapp.ErrKeyNotFound), errors.Is(err, wikiapp.ErrNotFound):
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "not_found", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrRetriesExhausted), errors.Is(err, syncapp.ErrRetriesExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "conflict_retry_exhausted", Message: err.Error(), Retryable: true}

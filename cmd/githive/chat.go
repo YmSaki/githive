@@ -49,8 +49,7 @@ func newChatNewCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, chatRef(id))
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"id": id}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
 			fmt.Println(id)
 			printWarnings(warnings)
@@ -79,8 +78,7 @@ func newChatListCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				cliout.PrintList(items, nil)
-				return nil
+				return cliout.PrintList(items, nil)
 			}
 			fmt.Printf("%-10s %-10s %-40s %s\n", "ID", "STATUS", "TITLE", "MESSAGES")
 			for _, m := range items {
@@ -123,8 +121,7 @@ func newChatShowCmd() *cobra.Command {
 				for i, m := range messages {
 					anyMessages[i] = m
 				}
-				cliout.PrintSuccess(map[string]any{"meta": show.Meta, "messages": anyMessages}, nil)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"meta": show.Meta, "messages": anyMessages}, nil)
 			}
 			fmt.Printf("%v  %v  %v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"])
 			for _, m := range messages {
@@ -160,8 +157,7 @@ func newChatPostCmd() *cobra.Command {
 			warnings := notifyWarnings(notifyChatMentions(ctx, dir, id, message))
 			warnings = append(warnings, syncIfEnabled(dir, chatRef(id))...)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -195,8 +191,7 @@ func newChatArchiveCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, chatRef(id))
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -227,8 +222,7 @@ func newChatEditMetaCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, chatRef(id))
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
