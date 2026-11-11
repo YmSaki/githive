@@ -107,7 +107,7 @@ func Init(ctx context.Context, dir, remote, project string) (Result, error) {
 	result.LogAllRefUpdates = true
 
 	if result.Remote.Configured {
-		if err := r.Fetch(ctx, remote, trackingRefspec); err != nil {
+		if err := r.FetchPruned(ctx, remote, trackingRefspec); err != nil {
 			local, revErr := r.RevParse(ctx, refspace.MetaConfigRef)
 			if revErr != nil {
 				return result, revErr

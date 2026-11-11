@@ -501,12 +501,7 @@ func (r *Runner) ValidateRemote(ctx context.Context, remote string) error {
 
 // Fetch runs `git fetch --end-of-options remote refspecs...`.
 func (r *Runner) Fetch(ctx context.Context, remote string, refspecs ...string) error {
-	if err := r.ValidateRemote(ctx, remote); err != nil {
-		return err
-	}
-	args := append([]string{"fetch", "--end-of-options", remote}, refspecs...)
-	_, err := r.run(ctx, args...)
-	return err
+	return r.fetch(ctx, remote, false, refspecs...)
 }
 
 // PushResult reports the outcome for one refspec of a push.
