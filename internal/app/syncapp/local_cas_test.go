@@ -252,8 +252,7 @@ func TestSyncReplansLocalCASWithoutDroppingConcurrentEvents(t *testing.T) {
 func TestLocalMergeAndAppendShareRepositoryLock(t *testing.T) {
 	for _, operation := range []string{"append", "merge"} {
 		t.Run(operation, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
+			ctx := context.Background()
 			origin := initBareOrigin(t)
 			a := cloneRepo(t, origin, "a@example.com")
 			b := cloneRepo(t, origin, "b@example.com")
@@ -279,15 +278,19 @@ func TestLocalMergeAndAppendShareRepositoryLock(t *testing.T) {
 			if err := gitx.New(b).Fetch(ctx, a, "+"+ref+":refs/githive-remote/issue/"+id); err != nil {
 				t.Fatal(err)
 			}
+			// Fixture Git processes are slower on Windows CI. Bound the
+			// operation under test independently of clone/seed/fetch setup.
+			operationCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
 			unlock := chain.LockRepository(b)
 			entered := make(chan struct{})
 			finished := make(chan error, 1)
 			go func() {
 				close(entered)
 				if operation == "append" {
-					finished <- issueapp.New(b).Label(ctx, id, []string{"local"}, nil)
+					finished <- issueapp.New(b).Label(operationCtx, id, []string{"local"}, nil)
 				} else {
-					finished <- mergeAndAdvance(ctx, b, ref, refspace.FeatureIssue, local, remote)
+					finished <- mergeAndAdvance(operationCtx, b, ref, refspace.FeatureIssue, local, remote)
 				}
 			}()
 			<-entered
@@ -303,8 +306,8 @@ func TestLocalMergeAndAppendShareRepositoryLock(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			case <-ctx.Done():
-				t.Fatalf("%s did not resume after releasing repository lock", operation)
+			case <-operationCtx.Done():
+				t.Fatalf("%s did not resume after releasing repository lock: %v", operation, operationCtx.Err())
 			}
 		})
 	}
