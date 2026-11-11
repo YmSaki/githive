@@ -1,10 +1,10 @@
-# 統合候補のコミット来歴（固定スナップショット）
+# 統合候補のコミット来歴（実装固定スナップショット）
 
-Source: `c3e3db24cb4de7ff0142b887141a43da20ea1f00`
+Source: `3d42987c7b937bed8502be71bc3cf41d36cd029b`
 Branch: `codex/product-quality-candidate`
 Base: `ff1ab6707ff9fea8fda3aea200f726f89012c798`
 Worktree: セッションの一時作業領域（公開配布物ではない）
-Status: 未リリース。以下は c3e3db2 時点の取り込み記録であり、最終 QA・CI・承認の合格宣言ではない。
+Status: 実装・ハーネスを固定した時点の来歴。文書収録コミット自体は上記 Source に含まれない。最終配布対象 SHA・バイナリ・QA・CI・承認は別途固定し、この記録をリリース完了の宣言にしない。
 
 ## Existing PR heads included
 
@@ -53,6 +53,9 @@ Status: 未リリース。以下は c3e3db2 時点の取り込み記録であり
 | app: notify users の不正入力と危険な台帳名を拒否する | `87d0657dab9719471ce028a446dae741f67a4bdd` | `5e0cfd11f0ab71ed28b0ca59c6b05d21b25985e8` |
 | users: Agent作成で指定したdisplayとroleを保持する (#139) | `d21ef1dbbd3ec5db6f49b49b364f1228797aeceb` | `4ba9d4fa277d162e1a23d24887199eaec625e1fd` |
 | mcp: Agentプロフィールと設定情報をCLIと揃える (#139) | `8293e5a6c3d8d0db7de36892d4efcd2f221644c0` | `c3e3db24cb4de7ff0142b887141a43da20ea1f00` |
+| docs: 統合候補の来歴と未完了の受け入れ条件を明記する | `c64fd325ff5698eb42b5f764a4cd6e0613a5b841` | `86714fde94276381957db3219441656213d15aff` |
+| qa: 固定バイナリを対象に CLI と全 MCP ツールを試す受け入れスクリプトを追加する | `8185d8d6b75db8501794814bc23db0fdde8d9139` | `9c651ff910bf961378c24bd3b186106c3278031f` |
+| entitychain: 時計ずれで消える変更とcreate置換を境界で拒否 | `311c85683330ef356878259a546e4b98a15dace6` | `3d42987c7b937bed8502be71bc3cf41d36cd029b` |
 
 ## Integration resolutions
 
@@ -73,4 +76,4 @@ Status: 未リリース。以下は c3e3db2 時点の取り込み記録であり
 - Follow-up cac7eed: input/empty-edit/conflict/notification interaction tests PASS.
 - Follow-up 4c8825c: full Go suite/vet, spec197/197, format/import lint/diff checks PASS.
 - Build/test uses GOFLAGS=-buildvcs=false because outer /workspace/.git breaks automatic Go VCS stamping.
-- この記録は integration worker の一時 manifest から転記した。記録時点で公開 main のマージ・リリース公開は行っていない。後続の push や PR の作成はリリース完了を意味しない。
+- 文書収録時点で、integration worker は公開 main のマージ・リリース公開を行っていない。後続の候補 push や PR 作成はリリース完了を意味しない。
