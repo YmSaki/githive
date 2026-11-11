@@ -117,7 +117,7 @@ func TestCheckpointRejectsUnverifiedOrderingAndOlderSemantics(t *testing.T) {
 				maxID = "00000000000000000000000001"
 			}
 			_, err = w.Append(context.Background(), testEntity, func() (*event.Envelope, string) {
-				return &event.Envelope{V: version, Kind: "issue.checkpoint", ID: nextTestID(t), TS: "2026-07-28T09:00:00.000Z", Entity: testEntity, Data: map[string]any{"state": raw, "head": oid, "max_event_id": maxID}, Extra: map[string]any{}}, "issue.checkpoint"
+				return &event.Envelope{V: version, Kind: "issue.checkpoint", ID: nextTestID(t), TS: "2026-07-28T09:00:00.000Z", Entity: testEntity, Data: map[string]any{"state": raw, "head": oid, "max_event_id": maxID, "event_count": len(events)}, Extra: map[string]any{}}, "issue.checkpoint"
 			})
 			if err != nil {
 				t.Fatal(err)

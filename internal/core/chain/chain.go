@@ -239,20 +239,31 @@ func ExtractEnvelope(commit *object.Commit) (*event.Envelope, error) {
 // summaries were normalized can (issue #78). A message without "\n\n{"
 // falls back to splitting at the first blank line.
 func envelopeFromMessage(msg string) (*event.Envelope, error) {
+	body := eventBodyFromMessage(msg)
+	if strings.TrimSpace(body) == "" {
+		return nil, nil
+	}
+	return event.Decode([]byte(body))
+}
+
+// EventJSON returns the exact event body selected by the envelope parser.
+// It is used for canonical-byte auditing; the original commit is never rewritten.
+func EventJSON(commit *object.Commit) []byte {
+	return []byte(eventBodyFromMessage(commit.Message))
+}
+
+func eventBodyFromMessage(msg string) string {
 	var body string
 	if idx := strings.LastIndex(msg, "\n\n{"); idx >= 0 {
 		body = msg[idx+2:]
 	} else {
 		idx := strings.Index(msg, "\n\n")
 		if idx < 0 {
-			return nil, nil
+			return ""
 		}
 		body = msg[idx+2:]
 	}
-	if strings.TrimSpace(body) == "" {
-		return nil, nil
-	}
-	return event.Decode([]byte(body))
+	return body
 }
 
 // verifyRoundTrip checks, before anything is committed, that msg decodes

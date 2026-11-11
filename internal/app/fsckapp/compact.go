@@ -85,6 +85,16 @@ func (s *Service) maybeCheckpoint(ctx context.Context, repo *git.Repository, ref
 		if err != nil {
 			return nil, "", err
 		}
+		// Recheck this exact CAS parent: a peer may have changed the chain
+		// after the initial audit. Compact is not a repair or re-signing path.
+		for _, env := range events {
+			if err := refspace.ValidateEventContext(parsed, env); err != nil {
+				return nil, "", err
+			}
+			if _, err := event.ValidateDataSchema(env); err != nil {
+				return nil, "", err
+			}
+		}
 		// Embed the fold state in the checkpoint's data
 		// (docs/03-sync-and-concurrency.md「data に … 完全な状態 …」). The
 		// commit's tree is rendered by the Writer, so this snapshot never

@@ -4,11 +4,12 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
+	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
 // validateEventIDs checks both histories before adopting, pushing, or merging
 // either tip. Even a fast-forward or a meta/config merge must reject collisions.
-func validateEventIDs(dir string, oids ...string) error {
+func validateEventIDs(dir string, ref refspace.ParsedRef, oids ...string) error {
 	repo, err := chain.OpenRepository(dir)
 	if err != nil {
 		return err
@@ -31,6 +32,12 @@ func validateEventIDs(dir string, oids ...string) error {
 				return err
 			}
 			if fresh {
+				if err := refspace.ValidateEventContext(ref, env); err != nil {
+					return err
+				}
+				if _, err := event.ValidateDataSchema(env); err != nil {
+					return err
+				}
 				allEvents = append(allEvents, env)
 			}
 		}

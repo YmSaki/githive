@@ -95,6 +95,7 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 
 	var ids event.IDSet
 	var envelopes []*event.Envelope
+	parsed, parseErr := refspace.Parse(ref)
 	for _, commit := range commits {
 		env, err := chain.ExtractEnvelope(commit)
 		if err != nil {
@@ -103,6 +104,16 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 		}
 		if env == nil {
 			continue
+		}
+		if known, err := event.ValidateDataSchema(env); err != nil {
+			report.Issues = append(report.Issues, Issue{CommitHash: commit.Hash.String(), Code: "invalid_event_data", Message: err.Error()})
+		} else if !known {
+			report.Warnings = append(report.Warnings, Issue{CommitHash: commit.Hash.String(), Code: "unknown_event_kind", Message: fmt.Sprintf("no data schema for %q", env.Kind)})
+		}
+		if parseErr == nil {
+			if err := refspace.ValidateEventContext(parsed, env); err != nil {
+				report.Issues = append(report.Issues, Issue{CommitHash: commit.Hash.String(), Code: "event_ref_mismatch", Message: err.Error()})
+			}
 		}
 		envelopes = append(envelopes, env)
 		if _, err := ids.Add(env); err != nil {
@@ -282,6 +293,15 @@ func loadRegistryState(ctx context.Context, dir string) (*materialize.State, err
 	events, err := chain.WalkChain(repo, plumbing.NewHash(oid))
 	if err != nil {
 		return nil, err
+	}
+	parsed, _ := refspace.Parse(refspace.UsersRegistryRef)
+	for _, env := range events {
+		if err := refspace.ValidateEventContext(parsed, env); err != nil {
+			return nil, err
+		}
+		if _, err := event.ValidateDataSchema(env); err != nil {
+			return nil, err
+		}
 	}
 	return materialize.UsersRegistry.Fold(events), nil
 }

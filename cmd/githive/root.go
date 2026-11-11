@@ -173,6 +173,10 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 	if errors.As(err, &invalidInput) {
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_input", Message: err.Error()}
 	}
+	var invalidData *event.DataSchemaError
+	if errors.As(err, &invalidData) {
+		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "invalid_event_data", Message: err.Error()}
+	}
 	var ambiguous *apperr.AmbiguousIDError
 	var schemaUnsupported *entitychain.SchemaUnsupportedError
 	if errors.As(err, &schemaUnsupported) {
@@ -205,6 +209,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 	switch {
 	case errors.Is(err, event.ErrEventTooLarge):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "event_too_large", Message: err.Error()}
+	case errors.Is(err, refspace.ErrEventRefMismatch):
+		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "event_ref_mismatch", Message: err.Error()}
 	case errors.Is(err, event.ErrEventOrderViolation):
 		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "event_order_violation", Message: err.Error()}
 	case errors.Is(err, event.ErrConflictingEventID):

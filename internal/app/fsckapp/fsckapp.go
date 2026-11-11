@@ -37,6 +37,7 @@
 package fsckapp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -203,9 +204,16 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 		switch parsed.Feature {
 		case refspace.FeatureIssue, refspace.FeatureTask, refspace.FeatureChat,
 			refspace.FeatureNotify, refspace.FeatureUsers:
-			report.Findings = append(report.Findings, validateChain(repo, e.Ref, parsed.Feature, head)...)
-			report.Findings = append(report.Findings, checkMaterialization(repo, e.Ref, parsed.Feature, head)...)
-			if opts.Compact {
+			findings := validateChain(repo, e.Ref, parsed.Feature, head)
+			findings = append(findings, checkMaterialization(repo, e.Ref, parsed.Feature, head)...)
+			report.Findings = append(report.Findings, findings...)
+			valid := true
+			for _, finding := range findings {
+				if finding.Severity != SeverityWarning {
+					valid = false
+				}
+			}
+			if opts.Compact && valid {
 				cp, findings, err := s.maybeCheckpoint(ctx, repo, e.Ref, parsed, e.OID, opts)
 				if err != nil {
 					return nil, err
@@ -238,6 +246,7 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 // no envelope (chain.ExtractEnvelope returns nil) and are skipped.
 func validateChain(repo *git.Repository, ref string, feature refspace.Feature, head plumbing.Hash) []Finding {
 	var findings []Finding
+	parsed, parseErr := refspace.Parse(ref)
 	commits, err := chain.WalkCommits(repo, head)
 	if err != nil {
 		return []Finding{{
@@ -260,6 +269,19 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 			continue
 		}
 		if env != nil {
+			if known, err := event.ValidateDataSchema(env); err != nil {
+				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: "invalid_event_data", Message: err.Error()})
+			} else if !known {
+				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: "unknown_event_kind", Severity: SeverityWarning, Message: fmt.Sprintf("no data schema for %q", env.Kind)})
+			}
+			if canonical, err := env.CanonicalJSON(); err == nil && !bytes.Equal(canonical, chain.EventJSON(c)) {
+				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: "non_canonical_event", Message: "event JSON differs from its canonical encoding"})
+			}
+			if parseErr == nil {
+				if err := refspace.ValidateEventContext(parsed, env); err != nil {
+					findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: "event_ref_mismatch", Message: err.Error()})
+				}
+			}
 			envelopes = append(envelopes, env)
 			if _, err := ids.Add(env); err != nil {
 				code := "invalid_envelope"

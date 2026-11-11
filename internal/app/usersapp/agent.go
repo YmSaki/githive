@@ -68,6 +68,20 @@ func AddAgentWithProfile(ctx context.Context, dir, username, project, email, key
 	if !ValidEmail(email) {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidEmail, email)
 	}
+	fields := map[string]any{"emails": []any{email}, "kind": "agent"}
+	if profile.Display != "" {
+		fields["display"] = profile.Display
+	}
+	if profile.Roles != nil {
+		roles := make([]any, len(profile.Roles))
+		for i, role := range profile.Roles {
+			roles[i] = role
+		}
+		fields["roles"] = roles
+	}
+	if _, err := event.ValidateDataSchema(&event.Envelope{Kind: "users.user_set", Data: map[string]any{"username": username, "fields": fields}}); err != nil {
+		return nil, &event.InvalidInputError{Kind: "users.user_set", Field: "data", Rule: err.Error()}
+	}
 	svc := New(dir)
 	nameFree := func(state *materialize.State) error {
 		for _, collection := range []string{"users", "groups"} {
@@ -159,17 +173,6 @@ func AddAgentWithProfile(ctx context.Context, dir, username, project, email, key
 		return nil, err
 	}
 	publicCreated = true
-	fields := map[string]any{"emails": []any{email}, "kind": "agent"}
-	if profile.Display != "" {
-		fields["display"] = profile.Display
-	}
-	if profile.Roles != nil {
-		roles := make([]any, len(profile.Roles))
-		for i, role := range profile.Roles {
-			roles[i] = role
-		}
-		fields["roles"] = roles
-	}
 	if err := svc.mutateChecked(ctx, "users.user_set", "users.user_set: "+username, map[string]any{
 		"username": username,
 		"fields":   fields,

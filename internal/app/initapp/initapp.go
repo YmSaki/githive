@@ -178,13 +178,26 @@ func adoptRemoteOnlyRefs(ctx context.Context, r *gitx.Runner) ([]string, error) 
 		if oid != "" {
 			continue
 		}
-		if local == refspace.UsersRegistryRef {
+		parsed, err := refspace.Parse(local)
+		if err != nil {
+			continue // unrecognized future namespaces are not adopted as supported data
+		}
+		if parsed.Feature != refspace.FeatureWiki {
 			repo, err := chain.OpenRepository(r.Dir)
 			if err != nil {
 				return adopted, err
 			}
-			if _, err := chain.WalkChain(repo, plumbing.NewHash(e.OID)); err != nil {
-				return adopted, fmt.Errorf("initapp: refusing remote registry: %w", err)
+			events, err := chain.WalkChain(repo, plumbing.NewHash(e.OID))
+			if err != nil {
+				return adopted, fmt.Errorf("initapp: refusing remote event chain: %w", err)
+			}
+			for _, env := range events {
+				if err := refspace.ValidateEventContext(parsed, env); err != nil {
+					return adopted, err
+				}
+				if _, err := event.ValidateDataSchema(env); err != nil {
+					return adopted, err
+				}
 			}
 		}
 		if err := r.UpdateRef(ctx, local, e.OID, gitx.ZeroOID); err != nil {

@@ -166,3 +166,11 @@ TUI と MCP サーバーは同一プロセス内で `app` を直接呼ぶため�
 封筒が壊れたコミットや読めない履歴は、対象 ref の `invalid_envelope` / `walk_failed` issue として報告し、他の ref の検査結果を残す。users 台帳を完全に読み取れない場合は、その台帳を部分的に信用せず、署名を判定できない ref に `invalid_registry` を報告する。これらは終了コード4の検証失敗である。未知の `refs/projects/` ref は report の `warnings` に `unrecognized_ref` を追加し、警告だけで検証失敗にはしない。CLI JSON と MCP は同じ report 形式を使う。
 
 この部分結果の保証は、破損 ref を List 系でスキップする機能や、suspended ユーザーの「新規イベント」の時点を定義するものではない（#114 の残課題）。
+
+### イベントの data と ref の契約検査
+
+既知 kind の data は、バイナリに埋め込んだ `spec/schemas/*.json` の型・required・enum 等で検査する。通常の issue/task/chat/notify/users の共有 writer は、不正 data を保存前に `invalid_input`（終了コード2）で拒否する。Agent の不正 profile も鍵生成前に拒否する。users.roles の定義済み値は admin / member / reader である。
+
+sync / init は既知 kind の不正 data（`invalid_event_data`）や、kind と ref feature・entity と per-entity ref ID の不一致（`event_ref_mismatch`）を採用せず、終了コード4で検査を促す。fsck / verify にも対象コミットの診断を残す。users 台帳の data が検証できない場合、部分的な台帳で署名を正当化しない。
+
+未知 kind は `unknown_event_kind` 警告とし、既存の無視・保持の互換性を維持する。fsck は元のイベント本文の canonical bytes も照合し、`non_canonical_event` を報告する。未知フィールドの破棄、暦上の実在日の強制、opaque な source.kind の列挙追加は行わない（[ADR-0030](adr/0030-embedded-event-contract-validation.md)）。有効な enum でも状態遷移規則で無視されるイベントの完全な警告列挙は別の #116 残課題である。

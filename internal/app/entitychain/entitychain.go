@@ -398,6 +398,9 @@ func (w *Writer) AppendOnto(ctx context.Context, id string, buildEvent func(pare
 		if err := event.ValidateWriteData(env); err != nil {
 			return nil, err
 		}
+		if _, err := event.ValidateDataSchema(env); err != nil {
+			return nil, &event.InvalidInputError{Kind: env.Kind, Field: "data", Rule: err.Error()}
+		}
 		base, existingEvents, err := w.foldInputsAt(oid, env.ID, env)
 		if err != nil {
 			return nil, err

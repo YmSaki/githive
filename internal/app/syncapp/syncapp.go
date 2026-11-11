@@ -290,7 +290,7 @@ func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*push
 	}
 
 	if parsed.Feature != refspace.FeatureWiki {
-		if err := validateEventIDs(dir, localOID, remoteOID); err != nil {
+		if err := validateEventIDs(dir, parsed, localOID, remoteOID); err != nil {
 			return nil, Result{}, err
 		}
 	}
