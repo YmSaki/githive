@@ -29,16 +29,7 @@ func newWhoamiCmd() *cobra.Command {
 			user, keys := matchRegistryUser(ctx, dir, sig.Email)
 
 			if flags.json {
-				data := map[string]any{"name": sig.Name, "email": sig.Email}
-				if user != nil {
-					data["username"] = user["username"]
-					data["registered"] = true
-					data["keys"] = keys
-				} else {
-					data["registered"] = false
-				}
-				cliout.PrintSuccess(data, nil)
-				return nil
+				return cliout.PrintSuccess(whoamiData(sig.Name, sig.Email, user, keys), nil)
 			}
 
 			fmt.Printf("%s <%s>\n", sig.Name, sig.Email)
@@ -60,6 +51,26 @@ func newWhoamiCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// whoamiData builds the whoami result shared by the CLI --json output and the
+// MCP whoami tool (docs/15: CLI と MCP で同じ data を返す). keys is converted
+// to []any because the canonical encoder only renders []any, not
+// []map[string]any.
+func whoamiData(name, email string, user usersapp.User, keys []map[string]any) map[string]any {
+	data := map[string]any{"name": name, "email": email}
+	if user == nil {
+		data["registered"] = false
+		return data
+	}
+	data["username"] = user["username"]
+	data["registered"] = true
+	anyKeys := make([]any, len(keys))
+	for i, k := range keys {
+		anyKeys[i] = k
+	}
+	data["keys"] = anyKeys
+	return data
 }
 
 // matchRegistryUser finds the registry user (if any) whose emails include

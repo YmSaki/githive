@@ -49,13 +49,12 @@ func newUsersAddCmd() *cobra.Command {
 				}
 				warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 				if flags.json {
-					cliout.PrintSuccess(map[string]any{
+					return cliout.PrintSuccess(map[string]any{
 						"username":   setup.Username,
 						"email":      setup.Email,
 						"public_key": setup.PublicKey,
 						"pub_line":   setup.PubLine,
 					}, warnings)
-					return nil
 				}
 				fmt.Printf("created agent %s <%s>\n", setup.Username, setup.Email)
 				fmt.Println(setup.ConfigSnippet)
@@ -68,8 +67,7 @@ func newUsersAddCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -112,8 +110,7 @@ func newUsersListCmd() *cobra.Command {
 				if policy != nil {
 					policyAny = policy
 				}
-				cliout.PrintSuccess(map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, nil)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, nil)
 			}
 			for _, u := range users {
 				fmt.Printf("user  %-20v %-8v %v\n", u["username"], u["kind"], u["emails"])
@@ -155,8 +152,7 @@ func newUsersKeyAddCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -189,8 +185,7 @@ func newUsersKeyRevokeCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -226,8 +221,7 @@ func newUsersGroupSetCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -255,8 +249,7 @@ func newUsersGroupRemoveCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -340,8 +333,7 @@ func newUsersPolicyEditCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -419,7 +411,11 @@ func resolveNotifyTargets(ctx context.Context, dir string, targets []string) ([]
 // otherwise as a literal public key string (docs/features/users.md「--pub
 // <key or file>」). Only used by the CLI, where the caller runs on their
 // own machine and reading a local file is exactly what's wanted; the MCP
-// tools use looksLikeSSHPublicKey instead (see its doc comment for why).
+// tools never read pub as a path (see registerUsersTools). Validation of
+// the resulting key (including rejecting private key material) is
+// usersapp.ValidatePublicKey's job, shared by CLI and MCP; this only turns
+// a missing path into an explicit error instead of letting the path
+// string itself be registered as a "key".
 func resolveKeyArg(pub string) (string, error) {
 	if info, err := os.Stat(pub); err == nil && !info.IsDir() {
 		content, err := readFile(pub)
@@ -428,46 +424,8 @@ func resolveKeyArg(pub string) (string, error) {
 		}
 		return strings.TrimSpace(content), nil
 	}
+	if usersapp.ValidatePublicKey(pub) != nil && len(strings.Fields(pub)) == 1 {
+		return "", fmt.Errorf("%w: %q is neither a public key line nor a readable file", usersapp.ErrInvalidKey, pub)
+	}
 	return pub, nil
-}
-
-// sshPublicKeyTypePrefixes are the key-type fields OpenSSH's public key
-// line format (ssh-keygen(1)) uses in practice.
-var sshPublicKeyTypePrefixes = map[string]bool{
-	"ssh-ed25519": true, "ssh-rsa": true, "ssh-dss": true,
-	"ecdsa-sha2-nistp256": true, "ecdsa-sha2-nistp384": true, "ecdsa-sha2-nistp521": true,
-	"sk-ssh-ed25519@openssh.com": true, "sk-ecdsa-sha2-nistp256@openssh.com": true,
-}
-
-// looksLikeSSHPublicKey reports whether s has the shape "<type> <base64>
-// [comment]" with a recognized key type. It's a cheap sanity check, not
-// full parsing (core/sign's git verify-commit does the real validation
-// when a signature is checked) - but it's enough to reject an MCP caller
-// passing something that obviously isn't a key.
-//
-// Unlike the CLI's resolveKeyArg (docs/features/users.md「--pub <key or
-// file>」), the MCP tools that add/revoke keys (users_key_add,
-// users_key_revoke) never read pub as a file path: an MCP caller is an
-// Agent, not the operator sitting at the keyboard, and letting an Agent's
-// tool argument drive a server-side file read is an indirect
-// file-exfiltration path (e.g. pointing "pub" at ~/.ssh/id_ed25519, then
-// reading it back via users_list). Requiring a literal key line closes
-// that off entirely rather than trying to sandbox the read.
-func looksLikeSSHPublicKey(s string) bool {
-	fields := strings.Fields(s)
-	if len(fields) < 2 || !sshPublicKeyTypePrefixes[fields[0]] {
-		return false
-	}
-	data := fields[1]
-	if len(data) < 20 {
-		return false
-	}
-	for _, r := range data {
-		switch {
-		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '+', r == '/', r == '=':
-		default:
-			return false
-		}
-	}
-	return true
 }

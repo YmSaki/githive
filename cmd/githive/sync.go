@@ -42,8 +42,7 @@ func newSyncCmd() *cobra.Command {
 				for i, r := range results {
 					items[i] = map[string]any{"ref": r.Ref, "action": string(r.Action)}
 				}
-				cliout.PrintList(items, warnings)
-				return nil
+				return cliout.PrintList(items, warnings)
 			}
 			for _, r := range results {
 				fmt.Printf("%s\t%s\n", r.Action, r.Ref)

@@ -72,8 +72,7 @@ func newNotifyPostCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, notifyapp.StreamRef)
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"id": id}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
 			fmt.Println(id)
 			printWarnings(warnings)
@@ -108,6 +107,7 @@ func newNotifyListCmd() *cobra.Command {
 					return err
 				}
 				filter.ActorEmail = sig.Email
+				filter.Membership = membershipResolver(dir)
 			}
 			svc := notifyapp.New(dir)
 			items, err := svc.List(ctx, filter)
@@ -115,8 +115,7 @@ func newNotifyListCmd() *cobra.Command {
 				return err
 			}
 			if flags.json {
-				cliout.PrintList(items, nil)
-				return nil
+				return cliout.PrintList(items, nil)
 			}
 			for _, m := range items {
 				fmt.Printf("%-10s %-8v %v\n", shortID(m["id"]), m["targets"], m["title"])
@@ -147,7 +146,7 @@ func newNotifyAckCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: membershipResolver(dir)})
 				if err != nil {
 					return err
 				}
@@ -166,8 +165,7 @@ func newNotifyAckCmd() *cobra.Command {
 			}
 			warnings := syncIfEnabled(dir, notifyapp.StreamRef)
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"acked": ids}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"acked": ids}, warnings)
 			}
 			printWarnings(warnings)
 			return nil

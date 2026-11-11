@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
@@ -82,6 +83,9 @@ func (s *Service) AddUser(ctx context.Context, username, display, email, kind st
 	if !ValidUsername(username) {
 		return fmt.Errorf("%w: username %q", ErrInvalidName, username)
 	}
+	if email != "" && !ValidEmail(email) {
+		return fmt.Errorf("%w: %q (must contain '@', no whitespace, at most 320 bytes)", ErrInvalidEmail, email)
+	}
 	fields := map[string]any{}
 	if display != "" {
 		fields["display"] = display
@@ -102,10 +106,25 @@ func (s *Service) AddUser(ctx context.Context, username, display, email, kind st
 }
 
 // KeyAdd registers an SSH public key for username. username must already
-// exist (docs/features/users.md: key ops target an existing user).
+// exist (docs/features/users.md: key ops target an existing user). pub must
+// pass ValidatePublicKey, and a key whose material (type + base64, ignoring
+// the comment) is already registered for username - active or revoked - is
+// rejected with ErrKeyExists: re-adding a revoked key under a new comment
+// would otherwise silently resurrect it.
 func (s *Service) KeyAdd(ctx context.Context, username, pub string) error {
-	if _, err := s.getUser(ctx, username); err != nil {
+	pub = strings.TrimSpace(pub)
+	if err := ValidatePublicKey(pub); err != nil {
 		return err
+	}
+	user, err := s.getUser(ctx, username)
+	if err != nil {
+		return err
+	}
+	material := KeyMaterial(pub)
+	for _, k := range userKeys(user) {
+		if stored, _ := k["pub"].(string); KeyMaterial(stored) == material {
+			return fmt.Errorf("%w: %s already has this key (%q)", ErrKeyExists, username, stored)
+		}
 	}
 	return s.mutate(ctx, "users.key_add", "users.key_add: "+username, map[string]any{
 		"username": username,
@@ -113,15 +132,52 @@ func (s *Service) KeyAdd(ctx context.Context, username, pub string) error {
 	})
 }
 
-// KeyRevoke marks username's key as revoked (not deleted).
+// KeyRevoke marks username's key as revoked (not deleted). The key is
+// matched by material (type + base64), so the comment given here need not
+// match the registered one. fold matches users.key_revoke against the
+// stored pub string exactly, so one event is written per matching
+// registered entry, carrying that entry's exact string. If no active key
+// matches, ErrKeyNotFound is returned instead of a silent no-op.
 func (s *Service) KeyRevoke(ctx context.Context, username, pub string) error {
-	if _, err := s.getUser(ctx, username); err != nil {
+	pub = strings.TrimSpace(pub)
+	if err := ValidatePublicKey(pub); err != nil {
 		return err
 	}
-	return s.mutate(ctx, "users.key_revoke", "users.key_revoke: "+username, map[string]any{
-		"username": username,
-		"pub":      pub,
-	})
+	user, err := s.getUser(ctx, username)
+	if err != nil {
+		return err
+	}
+	material := KeyMaterial(pub)
+	var targets []string
+	for _, k := range userKeys(user) {
+		stored, _ := k["pub"].(string)
+		if KeyMaterial(stored) == material && k["revoked_at"] == nil {
+			targets = append(targets, stored)
+		}
+	}
+	if len(targets) == 0 {
+		return fmt.Errorf("%w: %s has no active key matching %q", ErrKeyNotFound, username, material)
+	}
+	for _, stored := range targets {
+		if err := s.mutate(ctx, "users.key_revoke", "users.key_revoke: "+username, map[string]any{
+			"username": username,
+			"pub":      stored,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func userKeys(user User) []map[string]any {
+	raw, _ := user["keys"].([]any)
+	out := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // GroupSet creates or replaces a group.

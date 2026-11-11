@@ -193,6 +193,7 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 		case refspace.FeatureIssue, refspace.FeatureTask, refspace.FeatureChat,
 			refspace.FeatureNotify, refspace.FeatureUsers:
 			report.Findings = append(report.Findings, validateChain(repo, e.Ref, parsed.Feature, head)...)
+			report.Findings = append(report.Findings, checkMaterialization(repo, e.Ref, parsed.Feature, head)...)
 			if opts.Compact {
 				cp, findings, err := s.maybeCheckpoint(ctx, repo, e.Ref, parsed, e.OID, opts)
 				if err != nil {
