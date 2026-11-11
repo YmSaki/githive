@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/cliout"
@@ -108,9 +109,14 @@ func newIssueListCmd() *cobra.Command {
 			if flags.json {
 				return cliout.PrintSuccess(viewList(items, source), nil)
 			}
-			fmt.Printf("%-10s %-12s %-40s %s\n", "ID", "STATUS", "TITLE", "ASSIGNEE")
+			displayIDs, err := idresolve.DisplayIDs(context.Background(), dir, "issue")
+			if err != nil {
+				return err
+			}
+			width := displayIDWidth(displayIDs, items)
+			fmt.Printf("%-*s %-12s %-40s %s\n", width, "ID", "STATUS", "TITLE", "ASSIGNEE")
 			for _, m := range items {
-				fmt.Printf("%-10s %-12v %-40v %v\n", shortID(m["id"]), m["status"], m["title"], m["assignees"])
+				fmt.Printf("%-*s %-12v %-40v %v\n", width, displayID(displayIDs, m["id"]), m["status"], m["title"], m["assignees"])
 			}
 			return nil
 		},

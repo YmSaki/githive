@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/identity"
@@ -81,9 +82,14 @@ func newChatListCmd() *cobra.Command {
 			if flags.json {
 				return cliout.PrintSuccess(viewList(items, source), nil)
 			}
-			fmt.Printf("%-10s %-10s %-40s %s\n", "ID", "STATUS", "TITLE", "MESSAGES")
+			displayIDs, err := idresolve.DisplayIDs(context.Background(), dir, "chat")
+			if err != nil {
+				return err
+			}
+			width := displayIDWidth(displayIDs, items)
+			fmt.Printf("%-*s %-10s %-40s %s\n", width, "ID", "STATUS", "TITLE", "MESSAGES")
 			for _, m := range items {
-				fmt.Printf("%-10s %-10v %-40v %v\n", shortID(m["id"]), m["status"], m["title"], m["message_count"])
+				fmt.Printf("%-*s %-10v %-40v %v\n", width, displayID(displayIDs, m["id"]), m["status"], m["title"], m["message_count"])
 			}
 			return nil
 		},

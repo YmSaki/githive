@@ -92,7 +92,7 @@ notify は非空の title と宛先配列を要求し、宛先は `user:<email>`
 - 一覧系は `{ "items": [...], "total": n }` で統一する。例外は `githive users list` で、users/groups/policy という 3 種類の異なる一覧を同時に返す都合上 `{ "users": [...], "groups": [...], "policy": {...} }` の形をとる（[features/users.md](features/users.md)）。
 - `sync` の各 item は `ref` と `action` を持ち、対処を要する警告がある場合は `warning` も持つ。成功時は封筒の `warnings` にも同じ警告を返す。
 - `sync` が一部の ref だけで失敗しても、処理済み ref の `items`・`total` と `warnings` を `error.data` に返す。既存のエラーコード・`retryable`・復旧手順は保持する。人間向け出力にも処理済み ref と警告を表示してからエラーを報告する。
-- ID は常に完全形（26 文字）で出力する。短縮は入力時のみ受け付ける。
+- JSON の ID は常に完全形（26 文字）で出力する。人間向け issue/task/chat list の ID 列は、同 feature の全ローカル ref に対して一意な最短の前方一致（最低 8 文字、最大 26 文字）を表示する。archived やフィルター非表示の ref も比較する。作成結果・show の完全 ID は変えない。その他の装飾的短縮表示や notify/status/log の表示列は、この一覧 ID 列の保証範囲に含めない（[ADR-0031](adr/0031-unambiguous-entity-list-ids.md)）。
 
 ## 終了コード
 
@@ -139,6 +139,8 @@ ID        STATUS       TITLE                         ASSIGNEE   UPDATED
 $ githive issue show 01j8xq4d --json
 { "ok": true, "data": { "meta": { ... }, "body": "...", "comments": [ ... ] } }
 ```
+
+上の一覧例は先頭 8 文字が互いに異なる場合の表示例である。共通部分がある場合は、一意になる文字数まで ID 列と列幅が伸びる。
 
 ## ライブラリとしての利用
 

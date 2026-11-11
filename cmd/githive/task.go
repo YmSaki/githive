@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
@@ -124,9 +125,14 @@ func newTaskListCmd() *cobra.Command {
 			if flags.json {
 				return cliout.PrintSuccess(viewList(items, source), nil)
 			}
-			fmt.Printf("%-10s %-10s %-40s %s\n", "ID", "STATUS", "TITLE", "OWNER")
+			displayIDs, err := idresolve.DisplayIDs(context.Background(), dir, "task")
+			if err != nil {
+				return err
+			}
+			width := displayIDWidth(displayIDs, items)
+			fmt.Printf("%-*s %-10s %-40s %s\n", width, "ID", "STATUS", "TITLE", "OWNER")
 			for _, m := range items {
-				fmt.Printf("%-10s %-10v %-40v %v\n", shortID(m["id"]), m["status"], m["title"], m["owner"])
+				fmt.Printf("%-*s %-10v %-40v %v\n", width, displayID(displayIDs, m["id"]), m["status"], m["title"], m["owner"])
 			}
 			return nil
 		},
