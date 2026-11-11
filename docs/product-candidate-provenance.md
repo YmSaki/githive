@@ -1,10 +1,10 @@
 # 統合候補のコミット来歴（実装固定スナップショット）
 
-Source: `8f808637049573a1504e6dc9eb3e6914b043a633`
+Source: `dfc4ebe6ecf48c700d83bd54c9556db4bdf2b0e9`
 Branch: `codex/product-quality-candidate`
 Base: `ff1ab6707ff9fea8fda3aea200f726f89012c798`
 Worktree: セッションの一時作業領域（公開配布物ではない）
-Status: 設定例 quoting と Windows CAS テスト補助実行の修正後のスナップショット。文書収録コミット自体は上記 Source に含まれない。最終配布 SHA・QA・Windows CI は別途再固定する。
+Status: 第二波の独立レビュー・修正を含む実装固定スナップショット。最終CI/配布物は対象SHAを別に固定する。
 
 ## Existing PR heads included
 
@@ -87,3 +87,35 @@ Status: 設定例 quoting と Windows CAS テスト補助実行の修正後の�
 - 旧 fe77a32 の配布物検証で見つかった Agent 設定例の shell 展開を追加修正した。旧版の QA を新候補の承認に流用しない。
 - 同じ旧候補の Windows CI は POSIX Git wrapper が起動せず CAS 競合注入テスト4ケースで失敗した。新しいネイティブ wrapper は実際の選択を検査する。Windows 向けクロスコンパイルは実行時 CI の代わりにならない。
 - 最終コミットで全体ゲート、固定 Go module の再インストール、可搬的な受け入れ検証と Windows CI をそれぞれ確認する。
+
+## 第二波の統合コミット
+
+| Candidate commit | 内容 |
+|---|---|
+| `de98c8e8d011fbe4e9fe832673e80e0c77c07e08` | users: SSH鍵の実データを検証して不正鍵の登録を拒否 (#127) |
+| `02caff5884cc5681af8647e3f464d7b0fc561e0c` | users/sign: email の所有衝突を拒否し正当な alias の署名を検証する (#92 #111) |
+| `b550acb331b595b4fee332ff8e6197715e6aabe6` | issue/task: status の遷移元を CAS 成功時の親状態から監査記録する |
+| `2f3c7a92fe5293b6efd5b53e3c3251c86e0bec4e` | docs: 固定配布物の受け入れ証拠と実際の提供範囲を更新する |
+| `1a07a08cecb9cf5878459f2c1a95662a544f49d3` | ci: macOS と隔離 GOBIN のソース導入 smoke を追加する |
+| `89ffe39dbd05ef9cd1de0201a372a04b5ef78382` | docs: 公開版と候補の導入経路および現行クライアントの範囲を明確にする |
+| `6772b74c42b5157a1de960e778096afc6799493b` | app: 副参照 ID を feature とイベント種別で解決して完全形で保存する (#129) |
+| `242729883d87d97424fb9b52b034f01d4b438ed9` | docs/adr: usersの鍵依存順序を受け入れ時に検証する方針 |
+| `3fae3846e8caea4aa07a4f37e36c6e82578eaa68` | event: 無視されるusers鍵操作を共有の受け入れ境界で拒否 |
+| `fac97472005a98aa7ecbe1a4d984c3324feac8fa` | verify: 壊れた履歴でも他の ref の診断を保持する (#114) |
+| `d9a120888e54195af27f4c80c9d1c7eb891a22c5` | app: 浅い履歴の閲覧を明示的な snapshot view で提供する |
+| `c5da0be02e87fa2e221662bea184e77787b1fa12` | verify: 浅い履歴を破損診断へ変換せず復旧案内を保持する |
+| `f8d740c5182cd7810652f7ed1700f6172a6972ae` | cli: エンティティ一覧に全 ref で一意な可変長 ID を表示する (#130) |
+| `aa32ce9f1a534684d6c5b642ccc8327e49886a95` | cli: show のイベント ID を一意に表示し初回チャット本文も参照可能にする (#130) |
+| `80996997cd74ec1c7e2ed56a1c8ae0ec97858878` | event: 埋め込みスキーマと ref 文脈で不正イベントの採用を防ぐ (#116) |
+| `7f9fdd814b8360f5ddc9f394541c64455824d899` | docs: 統合済みの浅い閲覧とイベント受理検査を現状へ反映する |
+| `50da14ae13e511728407d0e199fd411d99b0c1ef` | fsck/verify: 実際の遷移規則で無視された status を警告する (#116) |
+| `64e3198e28cbf38d9e234fda301e0f5c9af612f0` | users: 一覧を名前順で返し CLI と MCP の表示順を固定する (#142) |
+| `ae350d15145186ffbc9189ec500a6332f881d53b` | fix(gitx): 継承環境より優先して診断localeを固定する |
+| `c4fc9c799b7f20393c979c96a8da7a2718bfec9b` | gitx: rev-parse の実行失敗を ref 不存在へ変換しない |
+| `6ef0bb4e63b3c949029b4568e6f43a0649f14610` | config: 既存設定の版情報不明を fail closed にする (#191) |
+| `de420b0461211549a2db1a8105c6180dbc597299` | 同期結果と未配信警告を保持し置換前のレジストリを永続退避する |
+| `0cb7bf53322df30f8db142c618c7d9c10e97dc4a` | cli: ファイル本文の末尾改行を保持し鍵の正規化と分離する (#193) |
+| `1db77fceeea05becc1e6728982e4e72b31d263d2` | ci: 固定公開モジュールの導入・更新保全と配布物受け入れを独立検証する |
+| `dfc4ebe6ecf48c700d83bd54c9556db4bdf2b0e9` | wiki: 保存時に別 writer のローカル履歴を置換しない |
+
+独立した第一原理監査・領域別coverage・未採用の設計案は [監査報告](audits/2026-11-11/README.md)。この実装基点後に収録する文書自体は Source に含まれない。

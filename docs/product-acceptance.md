@@ -25,3 +25,5 @@
 ## 将来機能
 
 Forge サーバー、pre-receive の権限強制・再計算、push 時のリアルタイム通知、Web UI、LFS、TUI/VS Code、通知 sharding、forge 連番は、対応する実装と検証を別途示すまで構想・将来範囲である。README のモード比較や設計文書の記載だけを現行機能の受け入れ証拠にしない。
+
+第二波の実配布物の検証は [1db77fc](acceptance/1db77fc.json)、領域別の監査と未採用の設計案は [監査報告](audits/2026-11-11/README.md)。Wikiの最終祖先保護を含むheadの実結果はPR #187で別途固定する。
