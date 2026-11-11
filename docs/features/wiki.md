@@ -52,6 +52,11 @@ githive wiki log [<path>]
 競合したら `githive wiki save` が通常の git コンフリクトマーカーを提示し、解決後の再実行で完了する。
 
 `githive wiki edit` は編集中の worktree を1つだけ記録する（`githive.wiki.worktree` という git config キー）。
+このキーは githive が管理する値であり、通常は `wiki edit` が絶対パスを設定する。
+手動設定した相対パスはリポジトリのディレクトリを基準に解決する（実行プロセスの作業ディレクトリには依存しない）。
+自動削除するのは、githive が一時ディレクトリに作成し、所有マーカーが同じリポジトリを示す worktree だけである。
+手動で作った worktree や所有マーカーのない旧版の worktree を設定した場合、save 成功後はこのキーを解除するが、
+worktree とその親・兄弟のファイルは削除しない。必要なら利用者が `git worktree remove` で片付ける。
 前回の `wiki edit` を `wiki save` せずに再度 `wiki edit` を実行すると、記録済みの worktree がまだディスク上に存在する限り
 `ErrWorktreeExists`（`--json` では `error.code: "wiki_worktree_exists"`、終了コード 1）で拒否され、新しい worktree は作られない。
 前回の worktree を放置したまま2つ目を作って古い方を参照不能にする（worktree 登録とディスクの両方がリークする）ことを避けるためである。

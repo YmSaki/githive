@@ -619,8 +619,23 @@ func (r *Runner) WorktreeAdd(ctx context.Context, ref string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("gitx: create temp worktree dir: %w", err)
 	}
+	canonicalTmp, err := canonicalWorktreePath(tmp)
+	if err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", err
+	}
+	tmp = canonicalTmp
 	dir := filepath.Join(tmp, "worktree")
 	if _, err := r.run(ctx, "worktree", "add", "--detach", dir, base); err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", err
+	}
+	owner, err := r.worktreeOwner(ctx)
+	if err == nil {
+		err = os.WriteFile(filepath.Join(tmp, worktreeOwnerFile), []byte(owner), 0o600)
+	}
+	if err != nil {
+		_, _ = r.run(ctx, "worktree", "remove", "--force", dir)
 		_ = os.RemoveAll(tmp)
 		return "", err
 	}
@@ -647,13 +662,18 @@ func (r *Runner) emptyRootCommit(ctx context.Context) (string, error) {
 	return strings.TrimSpace(string(commit)), nil
 }
 
-// WorktreeRemove force-removes the worktree at dir (even when it is dirty or
-// has a conflicted merge in progress) and prunes git's administrative record,
-// then deletes the private temp parent WorktreeAdd created. It must succeed on
-// the cleanup path after a conflicted merge, so it falls back to deleting the
-// directory itself if `git worktree remove` refuses. dir must be a path
-// returned by WorktreeAdd.
+// WorktreeRemove removes only a temporary worktree owned by this repository
+// and created by WorktreeAdd. Unmanaged worktrees are left untouched. Relative
+// paths are interpreted against Runner.Dir, never the process working directory.
 func (r *Runner) WorktreeRemove(ctx context.Context, dir string) error {
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(r.Dir, dir)
+	}
+	dir = filepath.Clean(dir)
+	owned, err := r.ownsWorktree(ctx, dir)
+	if err != nil || !owned {
+		return err
+	}
 	_, removeErr := r.run(ctx, "worktree", "remove", "--force", dir)
 	if removeErr != nil {
 		// Fall back to deleting the checkout ourselves so nothing leaks; the
@@ -661,7 +681,10 @@ func (r *Runner) WorktreeRemove(ctx context.Context, dir string) error {
 		_ = os.RemoveAll(dir)
 	}
 	_, _ = r.run(ctx, "worktree", "prune")
-	_ = os.RemoveAll(filepath.Dir(dir)) // the temp parent from WorktreeAdd
+	_ = os.Remove(filepath.Join(filepath.Dir(dir), worktreeOwnerFile))
+	// Never recursively delete the parent: unrelated files may have been
+	// placed there since WorktreeAdd created it.
+	_ = os.Remove(filepath.Dir(dir))
 	return removeErr
 }
 

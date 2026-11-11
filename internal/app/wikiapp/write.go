@@ -127,6 +127,7 @@ func (s *Service) Edit(ctx context.Context, keep bool) (string, error) {
 		return "", err
 	}
 	if existing != "" {
+		existing = s.resolveWorktreePath(existing)
 		stillThere, err := worktreeDirExists(existing)
 		if err != nil {
 			return "", err
@@ -188,6 +189,7 @@ func (s *Service) Save(ctx context.Context, msg, remote string, noSync bool) (Sa
 	if worktreeDir == "" {
 		return SaveResult{}, ErrNoEditInProgress
 	}
+	worktreeDir = s.resolveWorktreePath(worktreeDir)
 
 	inMerge, err := r.MergeInProgress(ctx, worktreeDir)
 	if err != nil {
@@ -197,6 +199,13 @@ func (s *Service) Save(ctx context.Context, msg, remote string, noSync bool) (Sa
 		return s.finishConflictRerun(ctx, r, worktreeDir, msg, remote, noSync)
 	}
 	return s.saveNormal(ctx, r, worktreeDir, msg, remote, noSync)
+}
+
+func (s *Service) resolveWorktreePath(dir string) string {
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(s.Dir, dir)
+	}
+	return filepath.Clean(dir)
 }
 
 // saveNormal handles a first save of an edit: validate, commit, then merge/push.
