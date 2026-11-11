@@ -17,7 +17,7 @@ MCP サーバー（[15](../15-clients.md)）は長時間稼働する1プロセ�
 
 - `cmd/githive/mcp.go` の書き込みツール（issue_new/comment/status/... 等すべて）は sync を一切行わない。CLI の `--no-sync` を常に指定した状態と同じ既定動作にする。
 - 明示的に sync したい Agent は `sync` ツールを呼ぶ。`status` ツールで未 push ref を確認できる。
-- 自動 notify（issue.comment の reply-to、issue.assign の新規担当者、task.status(done)、task.reassign）は CLI と同じ規則（自分自身・既に対象だった相手への再通知を抑止）でそのまま発行する。CLI 側も、これらのコマンドが発行する自動 notify イベント自体は自動 sync の対象に含めていない（`autoNotify` を呼ぶ issue/task コマンドの `syncIfEnabled` は当該エンティティ自身の ref のみを対象にし、`notifyapp.StreamRef` は渡さない）ため、MCP のこの決定は「issue/task コマンド起点の自動 notify はローカルのみで生成され、次の明示的な sync まで push されない」という既存の CLI の挙動を変えるものではない（`githive notify post`/`ack` 自体は `cmd/githive/notify.go:50,143` のとおり `syncIfEnabled` に `notifyapp.StreamRef` を渡しており、notify を主目的とする書き込みは通常どおり自動 sync される）。
+- 自動 notify の生成規則は CLI と同じ。MCP の通知は次の明示 sync までローカルに留まる。CLI は [ADR-0024](0024-cli-auto-notify-sync.md) により、書き込み後の自動 sync に notify/stream も含める。CLI までローカル生成のみとした以前の記述は ADR-0024 が置き換える。
 
 ## 帰結
 
