@@ -1,0 +1,204 @@
+{
+  "description": "docs/features/issue.md の規則のうち、これまでベクタで固定されていなかったものをまとめて固定する。2 件目の issue.create は無視される（チェーンの最初のイベントに限る）。label/assign は同じイベント内で remove を先、add を後に適用するので、同じ値を両方に指定すると残る。同じ {rel,id} の link は重複しない。再オープン（→open）で closed_at は null に戻り、再度 close すると新しい時刻になる。archived は終端で、archived→open / archived→closed は無視される。",
+  "events": [
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "assignees": [],
+        "labels": [
+          "bug"
+        ],
+        "title": "最初の create が勝つ"
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqs9m0mpjtb9d5mpjtb980",
+      "kind": "issue.create",
+      "ts": "2026-11-02T09:00:00.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "assignees": [
+          "ignored@example.com"
+        ],
+        "labels": [
+          "ignored"
+        ],
+        "title": "2 件目の create は無視される"
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqsak8mpjtb9d5mpjtb981",
+      "kind": "issue.create",
+      "ts": "2026-11-02T09:00:01.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "add": [
+          "bug",
+          "ui"
+        ],
+        "remove": [
+          "bug"
+        ]
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqsbjgmpjtb9d5mpjtb982",
+      "kind": "issue.label",
+      "ts": "2026-11-02T09:00:02.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "add": [
+          "a@example.com"
+        ]
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqschrmpjtb9d5mpjtb983",
+      "kind": "issue.assign",
+      "ts": "2026-11-02T09:00:03.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "add": [
+          "a@example.com"
+        ],
+        "remove": [
+          "a@example.com"
+        ]
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqsdh0mpjtb9d5mpjtb984",
+      "kind": "issue.assign",
+      "ts": "2026-11-02T09:00:04.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "id": "01k9zzzzzzzzzzzzzzzzzzzzzz",
+        "rel": "task"
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqseg8mpjtb9d5mpjtb985",
+      "kind": "issue.link",
+      "ts": "2026-11-02T09:00:05.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "id": "01k9zzzzzzzzzzzzzzzzzzzzzz",
+        "rel": "task"
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqsffgmpjtb9d5mpjtb986",
+      "kind": "issue.link",
+      "ts": "2026-11-02T09:00:06.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "from": "open",
+        "to": "closed"
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqsgermpjtb9d5mpjtb987",
+      "kind": "issue.status",
+      "ts": "2026-11-02T09:00:07.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "from": "closed",
+        "to": "open"
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqshe0mpjtb9d5mpjtb988",
+      "kind": "issue.status",
+      "ts": "2026-11-02T09:00:08.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "from": "open",
+        "to": "closed"
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqsjd8mpjtb9d5mpjtb989",
+      "kind": "issue.status",
+      "ts": "2026-11-02T09:00:09.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "from": "closed",
+        "to": "archived"
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqskcgmpjtb9d5mpjtb98a",
+      "kind": "issue.status",
+      "ts": "2026-11-02T09:00:10.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "from": "archived",
+        "to": "open"
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqsmbrmpjtb9d5mpjtb98b",
+      "kind": "issue.status",
+      "ts": "2026-11-02T09:00:11.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "from": "archived",
+        "to": "closed"
+      },
+      "entity": "01m6dqs9m03wq3tk2vd9wrg5s6",
+      "id": "01m6dqsnb0mpjtb9d5mpjtb98c",
+      "kind": "issue.status",
+      "ts": "2026-11-02T09:00:12.000Z",
+      "v": 2
+    }
+  ],
+  "expected_comments": {},
+  "expected_meta": {
+    "assignees": [
+      "a@example.com"
+    ],
+    "closed_at": "2026-11-02T09:00:09.000Z",
+    "comment_count": 0,
+    "created_at": "2026-11-02T09:00:00.000Z",
+    "created_by": "yuumiya@example.com",
+    "id": "01m6dqs9m03wq3tk2vd9wrg5s6",
+    "labels": [
+      "bug",
+      "ui"
+    ],
+    "links": [
+      {
+        "id": "01k9zzzzzzzzzzzzzzzzzzzzzz",
+        "rel": "task"
+      }
+    ],
+    "status": "archived",
+    "title": "最初の create が勝つ",
+    "updated_at": "2026-11-02T09:00:10.000Z"
+  },
+  "name": "08-reopen-archived-terminal-set-order-dedupe"
+}

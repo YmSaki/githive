@@ -23,6 +23,9 @@ githive P0 の実行可能スペックを検証するスクリプト。
   (d) spec/vectors/ordering/*.json を spec/reference/events_common.py の
       sort_events（の ID 抽出版）で再計算し、expected_sorted と
       一致することを確認する。
+  (a2) spec/vectors/schema-negative/*.json の不正イベントが envelope +
+      kind スキーマのどこかで拒否されることを確認する（スキーマが何も
+      拒否しない状態でも (a) は PASS してしまうため）。
   (e) 結果を PASS/FAIL のサマリで stdout に出す。
 
 終了コード: 全 PASS なら 0、1 件でも FAIL があれば 1。
@@ -188,6 +191,32 @@ def run_schema_validation(results: Results) -> None:
             continue
 
         results.ok(label)
+
+
+# ---------------------------------------------------------------------------
+# (a2) スキーマの負例
+# ---------------------------------------------------------------------------
+
+def run_schema_negative_validation(results: Results) -> None:
+    envelope_validator, kind_validators = build_validators()
+    d = VECTORS_DIR / "schema-negative"
+    paths = sorted(d.glob("*.json"))
+    if not paths:
+        results.fail("schema-negative/no-vectors-found", "schema-negative vectors が見つからない")
+        return
+
+    for path in paths:
+        name = f"schema-negative[{path.name}]"
+        with open(path, encoding="utf-8") as f:
+            ev = json.load(f)["event"]
+        rejected = any(True for _ in envelope_validator.iter_errors(ev))
+        if not rejected:
+            validator = kind_validators.get(ev.get("kind"))
+            rejected = validator is None or any(True for _ in validator.iter_errors(ev.get("data", {})))
+        if not rejected:
+            results.fail(name, "不正なイベントがスキーマ検証を通過した")
+            continue
+        results.ok(name)
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +432,7 @@ def run_ordering_validation(results: Results) -> None:
 def main() -> int:
     results = Results()
     run_schema_validation(results)
+    run_schema_negative_validation(results)
     run_canonical_validation(results)
     run_canonical_compact_validation(results)
     run_fold_validation(results)
