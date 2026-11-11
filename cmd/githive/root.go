@@ -216,6 +216,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		}
 	case errors.Is(err, usersapp.ErrInvalidName):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_name", Message: err.Error()}
+	case errors.Is(err, usersapp.ErrInvalidPolicy):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_policy", Message: err.Error()}
 	case errors.Is(err, gitx.ErrInvalidRemote), errors.Is(err, errMcpRemoteNotAllowed):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_remote", Message: err.Error()}
 	case errors.Is(err, gitx.ErrInvalidRef):

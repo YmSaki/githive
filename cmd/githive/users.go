@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -272,7 +273,11 @@ func newUsersPolicyEditCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit",
 		Short: "Edit policy.json in $EDITOR and publish it",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (retErr error) {
+			editor := os.Getenv("EDITOR")
+			if strings.TrimSpace(editor) == "" {
+				return fmt.Errorf("%w: set EDITOR explicitly before editing; noninteractive clients can use users_policy_set via MCP", usersapp.ErrInvalidPolicy)
+			}
 			dir, err := repoDir()
 			if err != nil {
 				return err
@@ -295,7 +300,14 @@ func newUsersPolicyEditCmd() *cobra.Command {
 				return err
 			}
 			tmpPath := tmp.Name()
-			defer os.Remove(tmpPath)
+			discardDraft := false
+			defer func() {
+				if discardDraft {
+					os.Remove(tmpPath)
+				} else if retErr != nil {
+					retErr = fmt.Errorf("%w; edited policy retained at %s", retErr, tmpPath)
+				}
+			}()
 			if _, err := tmp.Write(before); err != nil {
 				tmp.Close()
 				return err
@@ -303,13 +315,9 @@ func newUsersPolicyEditCmd() *cobra.Command {
 			if err := tmp.Close(); err != nil {
 				return err
 			}
-			editor := os.Getenv("EDITOR")
-			if editor == "" {
-				editor = "vi"
-			}
 			editCmd := exec.CommandContext(ctx, editor, tmpPath)
 			editCmd.Stdin = os.Stdin
-			editCmd.Stdout = os.Stdout
+			editCmd.Stdout = os.Stderr
 			editCmd.Stderr = os.Stderr
 			if err := editCmd.Run(); err != nil {
 				return fmt.Errorf("running editor %q: %w", editor, err)
@@ -318,19 +326,27 @@ func newUsersPolicyEditCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if bytes.Equal(before, after) {
+				discardDraft = true
+				if flags.json {
+					return cliout.PrintSuccess(nil, nil)
+				}
+				return nil
+			}
 			decoded, err := event.DecodeGeneric(after)
 			if err != nil {
-				return fmt.Errorf("invalid policy JSON: %w", err)
+				return fmt.Errorf("%w: invalid JSON: %v", usersapp.ErrInvalidPolicy, err)
 			}
 			edited, ok := decoded.(map[string]any)
 			if !ok {
-				return fmt.Errorf("policy JSON must be an object")
+				return fmt.Errorf("%w: JSON must be an object", usersapp.ErrInvalidPolicy)
 			}
 			rules, _ := edited["rules"].([]any)
 			def, _ := edited["default"].(string)
 			if err := svc.PolicySet(ctx, rules, def); err != nil {
 				return err
 			}
+			discardDraft = true
 			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)

@@ -96,6 +96,7 @@ registry 型 ref もイベントソーシングで管理する（形式は他機
 
 policy は部分編集イベントにせず全置換とする。
 ルールの順序が意味を持つため、部分編集の合併で順序が壊れることを避ける。
+CLI と MCP の書き込みは `rules` の配列・各ルールの必須フィールドと型・`actions` と `default` の値を保存前に検証する。これは policy の形式検証であり、hosted モードのサーバー側権限制御ではない。
 
 ## 信頼の根（trust anchor）
 
@@ -133,6 +134,11 @@ githive users list [--json]
 githive users policy edit          # $EDITOR で rules を編集し policy_set を発行
 githive whoami                     # 自分のユーザー特定結果と鍵の状態を表示
 ```
+
+`users policy edit` は明示的な `EDITOR`（実行ファイルのパス）を要求し、未設定時に vi を自動起動しない。
+エディタの出力は stderr に送り、`--json` の stdout と分離する。
+エディタ・JSON・形式検証・保存の失敗時は編集したファイルを残し、エラーに保存先を表示する。成功時と未変更時は一時ファイルを削除する。
+非対話クライアントから直接 JSON を設定する場合は MCP の `users_policy_set` を使える。
 
 - `--kind`：`human` または `agent`（`--agent` を使わず直接指定する場合）。
 - `--email`：docs/02 の actor 規則（空白を含まない、`@` を含む、320 byte 以下）に加え、allowed_signers の principal パターンで特別な意味を持つ文字（`,` `*` `?` `!` `"`）を拒否する（`invalid_email`、exit 2）。

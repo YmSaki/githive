@@ -240,6 +240,9 @@ func (s *Service) GroupRemove(ctx context.Context, name string) error {
 // PolicySet replaces policy.json wholesale
 // (docs/features/users.md「policy は部分編集イベントにせず全置換とする」).
 func (s *Service) PolicySet(ctx context.Context, rules []any, def string) error {
+	if err := ValidatePolicy(rules, def); err != nil {
+		return err
+	}
 	return s.mutate(ctx, "users.policy_set", "users.policy_set", map[string]any{
 		"rules":   rules,
 		"default": def,
