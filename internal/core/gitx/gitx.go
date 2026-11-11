@@ -83,17 +83,10 @@ func New(dir string) *Runner {
 	return &Runner{Dir: dir}
 }
 
-// gitEnv returns the current process environment with LC_ALL forced to "C",
-// so every git subprocess gitx starts prints its diagnostics in a
-// locale-independent form that gitx's error classifiers (isRefUpdateRetryable,
-// classifyPushRejection in syncapp) can pattern-match reliably regardless of
-// the operator's locale. It must prefix rather than append its own entry:
-// environment lookup returns the first match in the slice, so if the
-// inherited environment already sets LC_ALL (or LANG), ours must come first
-// to win - POSIX gives LC_ALL top precedence, but only once it is the value
-// git actually sees.
+// gitEnv forces C diagnostics for the text-based Git result classifiers.
+// os/exec keeps the last duplicate environment entry, so append the override.
 func gitEnv() []string {
-	return append([]string{"LC_ALL=C"}, os.Environ()...)
+	return append(os.Environ(), "LC_ALL=C")
 }
 
 func (r *Runner) run(ctx context.Context, args ...string) ([]byte, error) {
