@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -16,6 +16,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: gofmt check
         if: runner.os != 'Windows'
@@ -28,11 +32,53 @@ jobs:
         if: runner.os != 'Windows'
         run: bash scripts/check-canonical-json.sh
 
+      - name: relay pack regression
+        if: runner.os == 'Linux'
+        run: bash scripts/test-githive-relay.sh
+
       - name: go build
         run: go build ./...
 
       - name: go test
         run: go test ./...
+
+      - name: source install smoke
+        run: python scripts/source-install-smoke.py --output "${{ runner.temp }}/githive-source-install"
+
+      - name: source install evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-install-${{ runner.os }}
+          path: ${{ runner.temp }}/githive-source-install/report.json
+
+  distribution-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: exact published module distribution acceptance
+        run: python scripts/distribution-acceptance.py --source-commit "${{ github.event.pull_request.head.sha }}" --output "${{ runner.temp }}/distribution-acceptance"
+      - name: tested binary and sanitized distribution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: distribution-acceptance
+          path: |
+            ${{ runner.temp }}/distribution-acceptance/publish/summary.json
+            ${{ runner.temp }}/distribution-acceptance/publish/provenance.json
+            ${{ runner.temp }}/distribution-acceptance/publish/bin/githive
 
   spec-validate:
     runs-on: ubuntu-latest

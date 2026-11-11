@@ -14,8 +14,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
 // MinVersion is the lowest system git version githive supports (SSH signing
@@ -42,6 +45,10 @@ var (
 	// whether to present a not-found result or propagate an unexpected git
 	// error unmasked.
 	ErrNotFound = errors.New("gitx: ref or path not found")
+
+	// ErrInvalidRef means a ref argument was rejected before reaching git
+	// because git would parse it as an option.
+	ErrInvalidRef = errors.New("gitx: invalid ref")
 )
 
 // Version is a parsed `git version` result.
@@ -76,17 +83,10 @@ func New(dir string) *Runner {
 	return &Runner{Dir: dir}
 }
 
-// gitEnv returns the current process environment with LC_ALL forced to "C",
-// so every git subprocess gitx starts prints its diagnostics in a
-// locale-independent form that gitx's error classifiers (isRefUpdateRetryable,
-// classifyPushRejection in syncapp) can pattern-match reliably regardless of
-// the operator's locale. It must prefix rather than append its own entry:
-// environment lookup returns the first match in the slice, so if the
-// inherited environment already sets LC_ALL (or LANG), ours must come first
-// to win - POSIX gives LC_ALL top precedence, but only once it is the value
-// git actually sees.
+// gitEnv forces C diagnostics for the text-based Git result classifiers.
+// os/exec keeps the last duplicate environment entry, so append the override.
 func gitEnv() []string {
-	return append([]string{"LC_ALL=C"}, os.Environ()...)
+	return append(os.Environ(), "LC_ALL=C")
 }
 
 func (r *Runner) run(ctx context.Context, args ...string) ([]byte, error) {
@@ -175,11 +175,18 @@ func (r *Runner) ForEachRef(ctx context.Context, patterns ...string) ([]RefEntry
 
 // RevParse resolves ref to its object id. Returns ("", nil) if ref does not
 // exist.
+//
+// A ref starting with "-" is rejected with ErrInvalidRef rather than passed
+// to git, where it would be parsed as an option (#99); --end-of-options
+// guards the rest.
 func (r *Runner) RevParse(ctx context.Context, ref string) (string, error) {
-	out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", ref)
+	if strings.HasPrefix(ref, "-") {
+		return "", fmt.Errorf("%w: %q", ErrInvalidRef, ref)
+	}
+	out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "--end-of-options", ref)
 	if err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return "", nil
 		}
 		return "", err
@@ -448,11 +455,48 @@ func isRefUpdateRetryable(output string) bool {
 	return strings.Contains(output, "but expected") || strings.Contains(output, "cannot lock ref")
 }
 
-// Fetch runs `git fetch remote refspecs...`.
+// ErrInvalidRemote means a remote argument was rejected before reaching git:
+// it started with "-" (git would parse it as an option, e.g.
+// --upload-pack=<cmd>), contained whitespace or control characters, or
+// looked like a remote name that is not configured (docs/11-security.md
+// 「実装上の注意」: 白リストで検証してから使う).
+var ErrInvalidRemote = errors.New("gitx: invalid remote")
+
+var remoteNameRe = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._-]*$`)
+
+// ValidateRemote accepts either a configured remote name (one with a
+// remote.<name>.url) or a URL/path (anything containing '/' or ':' that is
+// not a bare name), and rejects everything else. Fetch, Push and ls-remote
+// call it themselves, so every entry point (CLI --remote, MCP sync/doctor,
+// wiki save) is covered.
+func (r *Runner) ValidateRemote(ctx context.Context, remote string) error {
+	if remote == "" || strings.HasPrefix(remote, "-") {
+		return fmt.Errorf("%w: %q", ErrInvalidRemote, remote)
+	}
+	for _, c := range remote {
+		if c <= ' ' || c == 0x7f {
+			return fmt.Errorf("%w: %q contains whitespace or control characters", ErrInvalidRemote, remote)
+		}
+	}
+	if !remoteNameRe.MatchString(remote) {
+		if strings.ContainsAny(remote, "/:\\") {
+			return nil // URL, scp-style address or filesystem path
+		}
+		return fmt.Errorf("%w: %q is neither a remote name nor a URL", ErrInvalidRemote, remote)
+	}
+	url, err := r.ConfigGet(ctx, "remote."+remote+".url")
+	if err != nil {
+		return err
+	}
+	if url == "" {
+		return fmt.Errorf("%w: no remote named %q is configured", ErrInvalidRemote, remote)
+	}
+	return nil
+}
+
+// Fetch runs `git fetch --end-of-options remote refspecs...`.
 func (r *Runner) Fetch(ctx context.Context, remote string, refspecs ...string) error {
-	args := append([]string{"fetch", remote}, refspecs...)
-	_, err := r.run(ctx, args...)
-	return err
+	return r.fetch(ctx, remote, false, refspecs...)
 }
 
 // PushResult reports the outcome for one refspec of a push.
@@ -466,7 +510,10 @@ type PushResult struct {
 // per-refspec result, so callers can retry only the rejected refs
 // (docs/03-sync-and-concurrency.md「sync のアルゴリズム」).
 func (r *Runner) Push(ctx context.Context, remote string, refspecs ...string) ([]PushResult, error) {
-	args := append([]string{"push", "--porcelain", remote}, refspecs...)
+	if err := r.ValidateRemote(ctx, remote); err != nil {
+		return nil, err
+	}
+	args := append([]string{"push", "--porcelain", "--end-of-options", remote}, refspecs...)
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", r.Dir}, args...)...)
 	cmd.Env = gitEnv()
 	var stdout, stderr bytes.Buffer
@@ -557,6 +604,16 @@ func (r *Runner) WorktreeAdd(ctx context.Context, ref string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if base == "" && ref == refspace.WikiMainRef {
+		tracking, err := refspace.RemoteTrackingRef(ref)
+		if err != nil {
+			return "", err
+		}
+		base, err = r.RevParse(ctx, tracking)
+		if err != nil {
+			return "", err
+		}
+	}
 	if base == "" {
 		base, err = r.emptyRootCommit(ctx)
 		if err != nil {
@@ -567,8 +624,23 @@ func (r *Runner) WorktreeAdd(ctx context.Context, ref string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("gitx: create temp worktree dir: %w", err)
 	}
+	canonicalTmp, err := canonicalWorktreePath(tmp)
+	if err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", err
+	}
+	tmp = canonicalTmp
 	dir := filepath.Join(tmp, "worktree")
 	if _, err := r.run(ctx, "worktree", "add", "--detach", dir, base); err != nil {
+		_ = os.RemoveAll(tmp)
+		return "", err
+	}
+	owner, err := r.worktreeOwner(ctx)
+	if err == nil {
+		err = os.WriteFile(filepath.Join(tmp, worktreeOwnerFile), []byte(owner), 0o600)
+	}
+	if err != nil {
+		_, _ = r.run(ctx, "worktree", "remove", "--force", dir)
 		_ = os.RemoveAll(tmp)
 		return "", err
 	}
@@ -576,7 +648,8 @@ func (r *Runner) WorktreeAdd(ctx context.Context, ref string) (string, error) {
 }
 
 // emptyRootCommit writes git's empty tree object (if absent) and returns a
-// fresh parentless commit of it, used as the base for a first-ever wiki save.
+// deterministic parentless commit of it, shared by independently created
+// first wiki edits so they can later use an ordinary 3-way merge.
 func (r *Runner) emptyRootCommit(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "hash-object", "-w", "-t", "tree", "--stdin")
 	cmd.Env = gitEnv()
@@ -588,20 +661,30 @@ func (r *Runner) emptyRootCommit(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("gitx: hash-object empty tree: %w: %s", err, strings.TrimSpace(errBuf.String()))
 	}
 	tree := strings.TrimSpace(out.String())
-	commit, err := r.run(ctx, "commit-tree", tree, "-m", "githive: wiki root")
+	root := exec.CommandContext(ctx, "git", "-C", r.Dir, "commit-tree", "--no-gpg-sign", tree, "-m", "githive: wiki root")
+	root.Env = append(gitEnv(),
+		"GIT_AUTHOR_NAME=githive", "GIT_AUTHOR_EMAIL=wiki@githive.invalid",
+		"GIT_COMMITTER_NAME=githive", "GIT_COMMITTER_EMAIL=wiki@githive.invalid",
+		"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE=2000-01-01T00:00:00Z")
+	commit, err := root.CombinedOutput()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("gitx: create wiki root: %w: %s", err, strings.TrimSpace(string(commit)))
 	}
 	return strings.TrimSpace(string(commit)), nil
 }
 
-// WorktreeRemove force-removes the worktree at dir (even when it is dirty or
-// has a conflicted merge in progress) and prunes git's administrative record,
-// then deletes the private temp parent WorktreeAdd created. It must succeed on
-// the cleanup path after a conflicted merge, so it falls back to deleting the
-// directory itself if `git worktree remove` refuses. dir must be a path
-// returned by WorktreeAdd.
+// WorktreeRemove removes only a temporary worktree owned by this repository
+// and created by WorktreeAdd. Unmanaged worktrees are left untouched. Relative
+// paths are interpreted against Runner.Dir, never the process working directory.
 func (r *Runner) WorktreeRemove(ctx context.Context, dir string) error {
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(r.Dir, dir)
+	}
+	dir = filepath.Clean(dir)
+	owned, err := r.ownsWorktree(ctx, dir)
+	if err != nil || !owned {
+		return err
+	}
 	_, removeErr := r.run(ctx, "worktree", "remove", "--force", dir)
 	if removeErr != nil {
 		// Fall back to deleting the checkout ourselves so nothing leaks; the
@@ -609,7 +692,10 @@ func (r *Runner) WorktreeRemove(ctx context.Context, dir string) error {
 		_ = os.RemoveAll(dir)
 	}
 	_, _ = r.run(ctx, "worktree", "prune")
-	_ = os.RemoveAll(filepath.Dir(dir)) // the temp parent from WorktreeAdd
+	_ = os.Remove(filepath.Join(filepath.Dir(dir), worktreeOwnerFile))
+	// Never recursively delete the parent: unrelated files may have been
+	// placed there since WorktreeAdd created it.
+	_ = os.Remove(filepath.Dir(dir))
 	return removeErr
 }
 
@@ -669,7 +755,7 @@ func (r *Runner) MergeInProgress(ctx context.Context, worktreeDir string) (bool,
 		return strings.TrimSpace(out.String()) != "", nil
 	}
 	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 		return false, nil
 	}
 	return false, fmt.Errorf("gitx: rev-parse MERGE_HEAD: %w", err)
@@ -695,7 +781,10 @@ func (r *Runner) ConflictedPaths(ctx context.Context, worktreeDir string) ([]str
 // lsRemoteRef resolves a single ref on remote via `git ls-remote`, returning
 // ("", nil) when the remote does not have that ref yet.
 func (r *Runner) lsRemoteRef(ctx context.Context, remote, ref string) (string, error) {
-	out, err := r.run(ctx, "ls-remote", remote, ref)
+	if err := r.ValidateRemote(ctx, remote); err != nil {
+		return "", err
+	}
+	out, err := r.run(ctx, "ls-remote", "--end-of-options", remote, ref)
 	if err != nil {
 		return "", err
 	}

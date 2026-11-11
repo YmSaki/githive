@@ -4,58 +4,25 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
-	"github.com/ymsaki/githive/internal/app/apperr"
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
+	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
-
-// minIDPrefixLen is the shortest ID prefix githive resolves by itself
-// (docs/10-cli-spec.md「ID の入力解決」: 先頭 8 文字以上の前方一致).
-const minIDPrefixLen = 8
 
 // ResolveID resolves a full or shortened (>=8 char) ULID to the full ID of
 // exactly one existing task.
 func (s *Service) ResolveID(ctx context.Context, prefix string) (string, error) {
-	if event.IsValidULID(prefix) {
-		r := gitx.New(s.Dir)
-		oid, err := r.RevParse(ctx, refFor(prefix).String())
-		if err != nil {
-			return "", err
-		}
-		if oid == "" {
-			return "", ErrNotFound
-		}
-		return prefix, nil
-	}
-	if len(prefix) < minIDPrefixLen {
-		return "", fmt.Errorf("taskapp: id prefix %q is shorter than %d characters", prefix, minIDPrefixLen)
-	}
-
-	ids, err := s.listIDs(ctx)
-	if err != nil {
-		return "", err
-	}
-	var matches []string
-	for _, id := range ids {
-		if strings.HasPrefix(id, prefix) {
-			matches = append(matches, id)
-		}
-	}
-	switch len(matches) {
-	case 0:
+	id, err := idresolve.Entity(ctx, s.Dir, "task", prefix)
+	if err == idresolve.ErrNotFound {
 		return "", ErrNotFound
-	case 1:
-		return matches[0], nil
-	default:
-		sort.Strings(matches)
-		return "", &apperr.AmbiguousIDError{Prefix: prefix, Candidates: matches}
 	}
+	return id, err
 }
 
 func (s *Service) listIDs(ctx context.Context) ([]string, error) {
@@ -152,6 +119,10 @@ func (s *Service) Show(ctx context.Context, id string) (*Show, error) {
 	if err != nil {
 		return nil, err
 	}
+	return showState(state)
+}
+
+func showState(state *materialize.State) (*Show, error) {
 	if state.Meta == nil {
 		return nil, ErrNotFound
 	}

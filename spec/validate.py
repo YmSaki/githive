@@ -23,6 +23,9 @@ githive P0 の実行可能スペックを検証するスクリプト。
   (d) spec/vectors/ordering/*.json を spec/reference/events_common.py の
       sort_events（の ID 抽出版）で再計算し、expected_sorted と
       一致することを確認する。
+  (a2) spec/vectors/schema-negative/*.json の不正イベントが envelope +
+      kind スキーマのどこかで拒否されることを確認する（スキーマが何も
+      拒否しない状態でも (a) は PASS してしまうため）。
   (e) 結果を PASS/FAIL のサマリで stdout に出す。
 
 終了コード: 全 PASS なら 0、1 件でも FAIL があれば 1。
@@ -57,7 +60,8 @@ import fold_issue
 import fold_notify
 import fold_task
 import fold_users
-from events_common import sort_events
+from events_common import sort_events, validate_event_ids
+from domain_validation import validate_users_key_order
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +192,32 @@ def run_schema_validation(results: Results) -> None:
             continue
 
         results.ok(label)
+
+
+# ---------------------------------------------------------------------------
+# (a2) スキーマの負例
+# ---------------------------------------------------------------------------
+
+def run_schema_negative_validation(results: Results) -> None:
+    envelope_validator, kind_validators = build_validators()
+    d = VECTORS_DIR / "schema-negative"
+    paths = sorted(d.glob("*.json"))
+    if not paths:
+        results.fail("schema-negative/no-vectors-found", "schema-negative vectors が見つからない")
+        return
+
+    for path in paths:
+        name = f"schema-negative[{path.name}]"
+        with open(path, encoding="utf-8") as f:
+            ev = json.load(f)["event"]
+        rejected = any(True for _ in envelope_validator.iter_errors(ev))
+        if not rejected:
+            validator = kind_validators.get(ev.get("kind"))
+            rejected = validator is None or any(True for _ in validator.iter_errors(ev.get("data", {})))
+        if not rejected:
+            results.fail(name, "不正なイベントがスキーマ検証を通過した")
+            continue
+        results.ok(name)
 
 
 # ---------------------------------------------------------------------------
@@ -396,17 +426,80 @@ def run_ordering_validation(results: Results) -> None:
         results.ok(name)
 
 
+def run_strict_json_validation(results: Results) -> None:
+    from strict_json import decode_strict
+    path = VECTORS_DIR / "json-decoding" / "01-strict-inputs.json"
+    with open(path, encoding="utf-8") as source:
+        cases = json.load(source)["cases"]
+    for case in cases:
+        raw = bytes.fromhex(case["hex"]) if "hex" in case else case["source"].encode("utf-8")
+        try:
+            decode_strict(raw)
+            accepted = True
+        except (ValueError, UnicodeError):
+            accepted = False
+        name = f"strict-json[{case['name']}]"
+        if accepted != case["accepted"]:
+            results.fail(name, f"accepted={accepted}, expected={case['accepted']}")
+        else:
+            results.ok(name)
+
+
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 
+def run_event_identity_validation(results: Results) -> None:
+    for path in sorted((VECTORS_DIR / "event-identity").glob("*.json")):
+        vector = json.loads(path.read_text(encoding="utf-8"))
+        name = f"event-identity[{path.name}]"
+        for events in (vector["events"], list(reversed(vector["events"]))):
+            try:
+                validate_event_ids(events)
+            except ValueError as err:
+                if not vector["conflicting"] or "conflicting_event_id" not in str(err):
+                    results.fail(name, str(err))
+                    break
+            else:
+                if vector["conflicting"]:
+                    results.fail(name, "conflicting event ID accepted")
+                    break
+        else:
+            results.ok(name)
+
+
+def run_domain_validation(results: Results) -> None:
+    path = VECTORS_DIR / "domain-validation" / "01-users-key-order.json"
+    vector = json.loads(path.read_text(encoding="utf-8"))
+    for case in vector["cases"]:
+        name = f"domain-validation[{case['name']}]"
+        for events in (case["events"], list(reversed(case["events"]))):
+            try:
+                validate_users_key_order(events)
+                valid = True
+            except ValueError as error:
+                valid = False
+                if "event_order_violation" not in str(error):
+                    results.fail(name, str(error))
+                    break
+            if valid != case["valid"]:
+                results.fail(name, f"accepted={valid}, expected={case['valid']}")
+                break
+        else:
+            results.ok(name)
+
+
 def main() -> int:
     results = Results()
     run_schema_validation(results)
+    run_schema_negative_validation(results)
     run_canonical_validation(results)
     run_canonical_compact_validation(results)
     run_fold_validation(results)
     run_ordering_validation(results)
+    run_strict_json_validation(results)
+    run_event_identity_validation(results)
+    run_domain_validation(results)
     return results.print_summary()
 
 

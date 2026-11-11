@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -43,19 +44,23 @@ func newUsersAddCmd() *cobra.Command {
 			ctx := context.Background()
 			username := args[0]
 			if agent {
-				setup, err := usersapp.AddAgent(ctx, dir, username, project, email, keyDir)
+				setup, err := usersapp.AddAgentWithProfile(ctx, dir, username, project, email, keyDir, usersapp.AgentProfile{Display: display, Roles: roles})
 				if err != nil {
 					return err
 				}
-				warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+				warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+				if syncErr != nil {
+					return syncErr
+				}
 				if flags.json {
-					cliout.PrintSuccess(map[string]any{
-						"username":   setup.Username,
-						"email":      setup.Email,
-						"public_key": setup.PublicKey,
-						"pub_line":   setup.PubLine,
+					return cliout.PrintSuccess(map[string]any{
+						"username":       setup.Username,
+						"email":          setup.Email,
+						"public_key":     setup.PublicKey,
+						"pub_line":       setup.PubLine,
+						"private_key":    setup.PrivateKey,
+						"config_snippet": setup.ConfigSnippet,
 					}, warnings)
-					return nil
 				}
 				fmt.Printf("created agent %s <%s>\n", setup.Username, setup.Email)
 				fmt.Println(setup.ConfigSnippet)
@@ -66,10 +71,12 @@ func newUsersAddCmd() *cobra.Command {
 			if err := svc.AddUser(ctx, username, display, email, kind, roles); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -95,10 +102,11 @@ func newUsersListCmd() *cobra.Command {
 				return err
 			}
 			svc := usersapp.New(dir)
-			users, groups, policy, err := svc.List(context.Background())
+			users, groups, policy, source, err := svc.ListView(context.Background())
 			if err != nil {
 				return err
 			}
+			printViewSource(source)
 			if flags.json {
 				anyUsers := make([]any, len(users))
 				for i, u := range users {
@@ -112,8 +120,7 @@ func newUsersListCmd() *cobra.Command {
 				if policy != nil {
 					policyAny = policy
 				}
-				cliout.PrintSuccess(map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, nil)
-				return nil
+				return cliout.PrintSuccess(viewData(map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, source), nil)
 			}
 			for _, u := range users {
 				fmt.Printf("user  %-20v %-8v %v\n", u["username"], u["kind"], u["emails"])
@@ -153,10 +160,12 @@ func newUsersKeyAddCmd() *cobra.Command {
 			if err := svc.KeyAdd(ctx, args[0], key); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -187,10 +196,12 @@ func newUsersKeyRevokeCmd() *cobra.Command {
 			if err := svc.KeyRevoke(ctx, args[0], key); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -224,10 +235,12 @@ func newUsersGroupSetCmd() *cobra.Command {
 			if err := svc.GroupSet(ctx, args[0], members, description); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -253,10 +266,12 @@ func newUsersGroupRemoveCmd() *cobra.Command {
 			if err := svc.GroupRemove(ctx, args[0]); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -279,7 +294,11 @@ func newUsersPolicyEditCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit",
 		Short: "Edit policy.json in $EDITOR and publish it",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (retErr error) {
+			editor := os.Getenv("EDITOR")
+			if strings.TrimSpace(editor) == "" {
+				return fmt.Errorf("%w: set EDITOR explicitly before editing; noninteractive clients can use users_policy_set via MCP", usersapp.ErrInvalidPolicy)
+			}
 			dir, err := repoDir()
 			if err != nil {
 				return err
@@ -302,7 +321,14 @@ func newUsersPolicyEditCmd() *cobra.Command {
 				return err
 			}
 			tmpPath := tmp.Name()
-			defer os.Remove(tmpPath)
+			discardDraft := false
+			defer func() {
+				if discardDraft {
+					os.Remove(tmpPath)
+				} else if retErr != nil {
+					retErr = fmt.Errorf("%w; edited policy retained at %s", retErr, tmpPath)
+				}
+			}()
 			if _, err := tmp.Write(before); err != nil {
 				tmp.Close()
 				return err
@@ -310,13 +336,9 @@ func newUsersPolicyEditCmd() *cobra.Command {
 			if err := tmp.Close(); err != nil {
 				return err
 			}
-			editor := os.Getenv("EDITOR")
-			if editor == "" {
-				editor = "vi"
-			}
 			editCmd := exec.CommandContext(ctx, editor, tmpPath)
 			editCmd.Stdin = os.Stdin
-			editCmd.Stdout = os.Stdout
+			editCmd.Stdout = os.Stderr
 			editCmd.Stderr = os.Stderr
 			if err := editCmd.Run(); err != nil {
 				return fmt.Errorf("running editor %q: %w", editor, err)
@@ -325,23 +347,33 @@ func newUsersPolicyEditCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if bytes.Equal(before, after) {
+				discardDraft = true
+				if flags.json {
+					return cliout.PrintSuccess(nil, nil)
+				}
+				return nil
+			}
 			decoded, err := event.DecodeGeneric(after)
 			if err != nil {
-				return fmt.Errorf("invalid policy JSON: %w", err)
+				return fmt.Errorf("%w: invalid JSON: %v", usersapp.ErrInvalidPolicy, err)
 			}
 			edited, ok := decoded.(map[string]any)
 			if !ok {
-				return fmt.Errorf("policy JSON must be an object")
+				return fmt.Errorf("%w: JSON must be an object", usersapp.ErrInvalidPolicy)
 			}
 			rules, _ := edited["rules"].([]any)
 			def, _ := edited["default"].(string)
 			if err := svc.PolicySet(ctx, rules, def); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			discardDraft = true
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -419,7 +451,11 @@ func resolveNotifyTargets(ctx context.Context, dir string, targets []string) ([]
 // otherwise as a literal public key string (docs/features/users.md「--pub
 // <key or file>」). Only used by the CLI, where the caller runs on their
 // own machine and reading a local file is exactly what's wanted; the MCP
-// tools use looksLikeSSHPublicKey instead (see its doc comment for why).
+// tools never read pub as a path (see registerUsersTools). Validation of
+// the resulting key (including rejecting private key material) is
+// usersapp.ValidatePublicKey's job, shared by CLI and MCP; this only turns
+// a missing path into an explicit error instead of letting the path
+// string itself be registered as a "key".
 func resolveKeyArg(pub string) (string, error) {
 	if info, err := os.Stat(pub); err == nil && !info.IsDir() {
 		content, err := readFile(pub)
@@ -428,46 +464,8 @@ func resolveKeyArg(pub string) (string, error) {
 		}
 		return strings.TrimSpace(content), nil
 	}
+	if usersapp.ValidatePublicKey(pub) != nil && len(strings.Fields(pub)) == 1 {
+		return "", fmt.Errorf("%w: %q is neither a public key line nor a readable file", usersapp.ErrInvalidKey, pub)
+	}
 	return pub, nil
-}
-
-// sshPublicKeyTypePrefixes are the key-type fields OpenSSH's public key
-// line format (ssh-keygen(1)) uses in practice.
-var sshPublicKeyTypePrefixes = map[string]bool{
-	"ssh-ed25519": true, "ssh-rsa": true, "ssh-dss": true,
-	"ecdsa-sha2-nistp256": true, "ecdsa-sha2-nistp384": true, "ecdsa-sha2-nistp521": true,
-	"sk-ssh-ed25519@openssh.com": true, "sk-ecdsa-sha2-nistp256@openssh.com": true,
-}
-
-// looksLikeSSHPublicKey reports whether s has the shape "<type> <base64>
-// [comment]" with a recognized key type. It's a cheap sanity check, not
-// full parsing (core/sign's git verify-commit does the real validation
-// when a signature is checked) - but it's enough to reject an MCP caller
-// passing something that obviously isn't a key.
-//
-// Unlike the CLI's resolveKeyArg (docs/features/users.md「--pub <key or
-// file>」), the MCP tools that add/revoke keys (users_key_add,
-// users_key_revoke) never read pub as a file path: an MCP caller is an
-// Agent, not the operator sitting at the keyboard, and letting an Agent's
-// tool argument drive a server-side file read is an indirect
-// file-exfiltration path (e.g. pointing "pub" at ~/.ssh/id_ed25519, then
-// reading it back via users_list). Requiring a literal key line closes
-// that off entirely rather than trying to sandbox the read.
-func looksLikeSSHPublicKey(s string) bool {
-	fields := strings.Fields(s)
-	if len(fields) < 2 || !sshPublicKeyTypePrefixes[fields[0]] {
-		return false
-	}
-	data := fields[1]
-	if len(data) < 20 {
-		return false
-	}
-	for _, r := range data {
-		switch {
-		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '+', r == '/', r == '=':
-		default:
-			return false
-		}
-	}
-	return true
 }

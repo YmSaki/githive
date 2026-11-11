@@ -10,20 +10,18 @@
 package entitychain
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"fmt"
-	"path/filepath"
-	"sync"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
-	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/materialize"
+	"github.com/ymsaki/githive/internal/core/projectconfig"
 	"github.com/ymsaki/githive/internal/core/refspace"
 	"github.com/ymsaki/githive/internal/core/sign"
 )
@@ -34,37 +32,40 @@ var ErrRetriesExhausted = errors.New("entitychain: local ref update retries exha
 
 const defaultRetries = 10
 
-// SchemaUnsupportedError is returned by Append when refs/projects/meta/config
-// declares a schema_version newer than this build supports
-// (docs/02-data-model.md「meta/config ref」「ツールは操作前に schema_version
-// を確認し、自分の対応バージョンより新しければ操作を拒否する」). The CLI maps
-// it to exit code 5 and error.code "schema_unsupported"
-// (docs/10-cli-spec.md「終了コード」).
-type SchemaUnsupportedError struct {
-	Found     int
-	Supported int
-}
+// SchemaUnsupportedError is returned when refs/projects/meta/config (or its
+// remote-tracking counterpart, during sync) declares a repository
+// schema_version newer than this build supports (docs/01-architecture.md
+// 「バージョニングと互換性」, docs/02-data-model.md「meta/config ref」, ADR-0018).
+// Every operation that folds events - Append, Fold, sync's event-union merge
+// - checks it first, so a tool that predates a fold-semantics change stops
+// instead of silently rendering a different tree. The CLI maps it to exit
+// code 5 and error.code "schema_unsupported" (docs/10-cli-spec.md「終了コー
+// ド」).
+type SchemaUnsupportedError = projectconfig.UnsupportedError
 
-func (e *SchemaUnsupportedError) Error() string {
-	return fmt.Sprintf("entitychain: meta/config schema_version %d is newer than the %d this build supports", e.Found, e.Supported)
-}
+// InvalidConfigError distinguishes an existing broken config from day-zero
+// repositories that have no meta/config ref yet.
+type InvalidConfigError = projectconfig.InvalidError
 
-// checkSchemaSupported rejects a write when refs/projects/meta/config's
-// config.json declares a schema_version newer than initapp.SchemaVersion -
-// the config schema's own version counter, independent of the envelope
-// schema counter event.SchemaVersion (docs/01-architecture.md「Go モジュール
-// は...データスキーマはこの v と schema_version で、それぞれ独立に管理する」).
+// CheckSchemaSupported rejects an operation when refs/projects/meta/config's
+// config.json declares a repository schema_version newer than
+// initapp.SchemaVersion. That is the repository-wide minimum, distinct from
+// the envelope version event.SchemaVersion (ADR-0018 keeps the two terms
+// apart and raises both on a fold-semantics change).
 //
-// A repository with no meta/config ref yet (pre-`githive init`, or a partial
-// clone that never fetched it) skips the check entirely, preserving prior
-// behavior for those repositories. Likewise, a meta/config tree this
-// function cannot make sense of (missing/malformed config.json, no integer
-// schema_version) is left for `githive fsck` to report; Append's job here is
-// only to block writes against a config it can positively identify as too
-// new, not to duplicate fsck's broader validation.
-func checkSchemaSupported(ctx context.Context, dir string) error {
+// An absent ref remains supported for bootstrap. An existing ref must carry
+// a valid positive integer version; unknown compatibility is never permission
+// to fold or mutate the repository.
+func CheckSchemaSupported(ctx context.Context, dir string) error {
+	return CheckSchemaSupportedAt(ctx, dir, refspace.MetaConfigRef)
+}
+
+// CheckSchemaSupportedAt is CheckSchemaSupported against an arbitrary ref
+// holding a meta/config tree - sync uses it on the remote-tracking copy so a
+// newer remote is refused before anything is merged.
+func CheckSchemaSupportedAt(ctx context.Context, dir, ref string) error {
 	r := gitx.New(dir)
-	oid, err := r.RevParse(ctx, refspace.MetaConfigRef)
+	oid, err := r.RevParse(ctx, ref)
 	if err != nil {
 		return err
 	}
@@ -81,67 +82,9 @@ func checkSchemaSupported(ctx context.Context, dir string) error {
 	}
 	raw, ok := files["config.json"]
 	if !ok {
-		return nil
+		return &projectconfig.InvalidError{Ref: ref, Reason: "config.json is missing"}
 	}
-	decoded, err := event.DecodeGeneric(raw)
-	if err != nil {
-		return nil
-	}
-	m, ok := decoded.(map[string]any)
-	if !ok {
-		return nil
-	}
-	sv, ok := schemaVersionAsInt(m["schema_version"])
-	if !ok {
-		return nil
-	}
-	if sv > initapp.SchemaVersion {
-		return &SchemaUnsupportedError{Found: sv, Supported: initapp.SchemaVersion}
-	}
-	return nil
-}
-
-// schemaVersionAsInt reads schema_version out of a map decoded by
-// event.DecodeGeneric, which yields json.Number for numbers (probed via its
-// Float64 method here without importing encoding/json).
-func schemaVersionAsInt(v any) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int64:
-		return int(n), true
-	case float64:
-		return int(n), true
-	default:
-		type float64er interface{ Float64() (float64, error) }
-		if f, ok := v.(float64er); ok {
-			if got, err := f.Float64(); err == nil {
-				return int(got), true
-			}
-		}
-		return 0, false
-	}
-}
-
-// writeLocks serializes Append calls that target the same repository
-// directory, across all Writer instances and features. This is purely an
-// in-process safeguard: go-git's loose-object writer (temp file + rename)
-// is not safe against concurrent goroutines writing into the same
-// repository - on Windows this fails outright ("Access is denied" on the
-// rename) rather than merely racing. Cross-process concurrency (e.g. two
-// separate `githive` invocations, docs/03-sync-and-concurrency.md「クラッ
-// シュ安全性とローカル競合」) is unaffected and continues to rely on git's
-// atomic compare-and-swap ref update, since other processes have their own
-// independent lock table.
-var writeLocks sync.Map // map[string]*sync.Mutex
-
-func lockFor(dir string) *sync.Mutex {
-	key := dir
-	if abs, err := filepath.Abs(dir); err == nil {
-		key = abs
-	}
-	v, _ := writeLocks.LoadOrStore(key, &sync.Mutex{})
-	return v.(*sync.Mutex)
+	return projectconfig.Check(ref, raw)
 }
 
 // Writer drives reads and CAS-safe writes for one feature's ref(s).
@@ -173,44 +116,97 @@ type Writer struct {
 // append; it participates in the shortcut's ordering check just like the
 // events already on the chain.
 func (w *Writer) foldInputs(ctx context.Context, id, newEventID string) (base *materialize.State, events []*event.Envelope, oid string, err error) {
-	r := gitx.New(w.Dir)
-	ref := w.RefFor(id)
-	oid, err = r.RevParse(ctx, ref.String())
+	oid, err = w.headOID(ctx, id)
 	if err != nil {
 		return nil, nil, "", err
 	}
+	base, events, err = w.foldInputsAt(oid, newEventID, nil)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return base, events, oid, nil
+}
+
+// headOID returns id's ref OID, or gitx.ZeroOID when the ref does not exist.
+func (w *Writer) headOID(ctx context.Context, id string) (string, error) {
+	oid, err := gitx.New(w.Dir).RevParse(ctx, w.RefFor(id).String())
+	if err != nil {
+		return "", err
+	}
 	if oid == "" {
-		return nil, nil, gitx.ZeroOID, nil
+		return gitx.ZeroOID, nil
+	}
+	return oid, nil
+}
+
+// foldInputsAt is foldInputs for a head OID the caller has already read, so
+// that everything one Append attempt computes refers to the same commit.
+func (w *Writer) foldInputsAt(oid, newEventID string, newEvent *event.Envelope) (base *materialize.State, events []*event.Envelope, err error) {
+	if oid == gitx.ZeroOID {
+		return nil, nil, nil
 	}
 	repo, err := chain.OpenRepository(w.Dir)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
 	head := plumbing.NewHash(oid)
-
-	start, err := chain.FindCheckpointStart(repo, head)
+	// A checkpoint cannot hide colliding event identities in covered history.
+	events, err = chain.WalkChain(repo, head)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
-	if start != nil {
-		if base, ok := w.checkpointBase(start, newEventID); ok {
-			return base, start.After, oid, nil
+	// Compare a new event with the full history, including checkpoint envelopes
+	// and events hidden behind the snapshot, before selecting the shortcut.
+	if newEvent != nil {
+		var ids event.IDSet
+		if _, err := ids.Add(newEvent); err != nil {
+			return nil, nil, err
+		}
+		for _, prior := range events {
+			if prior.ID == newEvent.ID {
+				if _, err := ids.Add(prior); err != nil {
+					return nil, nil, err
+				}
+			}
+		}
+		if err := validateNewEventOrder(newEvent, events); err != nil {
+			return nil, nil, err
+		}
+		if err := event.ValidateEntityOrder(append(append([]*event.Envelope(nil), events...), newEvent)); err != nil {
+			return nil, nil, err
 		}
 	}
 
-	events, err = chain.WalkChain(repo, head)
+	start, err := chain.FindCheckpointStart(repo, head)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, err
 	}
-	return nil, events, oid, nil
+	if start != nil {
+		if base, ok := w.checkpointBase(start, newEventID); ok {
+			return base, start.After, nil
+		}
+	}
+
+	return nil, events, nil
 }
 
 // checkpointBase restores start's snapshot if it is safe to fold from
-// (ADR-0016 条件 2・3). Any doubt - an older checkpoint format, a snapshot
-// this tool cannot decode, or an event after the checkpoint that would sort
-// before something the checkpoint already subsumed - answers "no", and the
-// caller falls back to walking the whole chain.
+// (ADR-0016 条件 2・3・4). Any doubt - an older checkpoint format, a snapshot
+// this tool cannot decode, a snapshot taken at a different commit than the
+// one the checkpoint actually sits on, or an event after the checkpoint
+// that would sort before something the checkpoint already subsumed -
+// answers "no", and the caller falls back to walking the whole chain.
 func (w *Writer) checkpointBase(start *chain.CheckpointStart, newEventID string) (*materialize.State, bool) {
+	// Snapshots from older fold semantics cannot seed the current reducer.
+	if start.Checkpoint.V != event.SchemaVersion {
+		return nil, false
+	}
+	// Condition 4: the snapshot must describe exactly the checkpoint's
+	// parent. A checkpoint written from a stale read (issue #95) sits on a
+	// commit holding events its state never saw.
+	if head, ok := start.Checkpoint.Data["head"].(string); !ok || head != start.Parent.String() {
+		return nil, false
+	}
 	maxID, ok := start.Checkpoint.Data["max_event_id"].(string)
 	if !ok || !event.IsValidULID(maxID) {
 		return nil, false
@@ -234,10 +230,42 @@ func (w *Writer) checkpointBase(start *chain.CheckpointStart, newEventID string)
 	if !ok {
 		return nil, false
 	}
-	base, err := w.Registry.StateFromMap(raw)
+	// A well-shaped snapshot, a valid signature, or a matching parent OID
+	// does not establish that its contents are the fold of that parent. Until
+	// independently verified checkpoints can be cached locally, reconstruct
+	// that state from the immutable event history before trusting the hint.
+	repo, err := chain.OpenRepository(w.Dir)
 	if err != nil {
 		return nil, false
 	}
+	covered, err := chain.WalkChain(repo, start.Parent)
+	if err != nil {
+		return nil, false
+	}
+	actualMax := ""
+	for _, e := range covered {
+		if e.ID > actualMax {
+			actualMax = e.ID
+		}
+	}
+	if actualMax != maxID {
+		return nil, false
+	}
+	base := w.Registry.Fold(covered)
+	wantMap, err := materialize.StateToMap(base)
+	if err != nil {
+		return nil, false
+	}
+	want, err := event.Encode(wantMap)
+	if err != nil {
+		return nil, false
+	}
+	got, err := event.Encode(raw)
+	if err != nil || !bytes.Equal(want, got) {
+		return nil, false
+	}
+	// Return the independently reconstructed typed state, never maps supplied
+	// by the remote checkpoint (which may omit required collections/scratch).
 	return base, true
 }
 
@@ -271,17 +299,31 @@ func (w *Writer) CurrentEvents(ctx context.Context, id string) (events []*event.
 // the resulting fold state so callers can detect no-op writes (e.g. an
 // invalid status transition, which fold silently ignores).
 func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*event.Envelope, string)) (*materialize.State, error) {
-	mu := lockFor(w.Dir)
-	mu.Lock()
-	defer mu.Unlock()
+	return w.AppendOnto(ctx, id, func(string) (*event.Envelope, string, error) {
+		env, summary := buildEvent()
+		return env, summary, nil
+	})
+}
 
-	if err := checkSchemaSupported(ctx, w.Dir); err != nil {
+// AppendOnto is Append for events whose content depends on the exact commit
+// they will be appended to. buildEvent receives the parent OID of this
+// attempt (gitx.ZeroOID for a new chain) and is called again on every CAS
+// retry, so it always describes the commit the event really lands on. fsck
+// --compact uses it to snapshot the chain it is checkpointing (issue #95).
+func (w *Writer) AppendOnto(ctx context.Context, id string, buildEvent func(parentOID string) (*event.Envelope, string, error)) (*materialize.State, error) {
+	unlock := chain.LockRepository(w.Dir)
+	defer unlock()
+
+	if err := CheckSchemaSupported(ctx, w.Dir); err != nil {
 		return nil, err
 	}
 
 	r := gitx.New(w.Dir)
 	repo, err := chain.OpenRepository(w.Dir)
 	if err != nil {
+		return nil, err
+	}
+	if err := chain.RequireCompleteProjects(repo); err != nil {
 		return nil, err
 	}
 	sig, err := identity.Resolve(ctx, w.Dir)
@@ -299,13 +341,32 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 	ref := w.RefFor(id)
 
 	for attempt := 0; attempt < defaultRetries; attempt++ {
-		env, summary := buildEvent()
+		oid, err := w.headOID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		env, summary, err := buildEvent(oid)
+		if err != nil {
+			return nil, err
+		}
 		env.Actor = sig.Email
-		base, existingEvents, oid, err := w.foldInputs(ctx, id, env.ID)
+		if err := event.ValidateWriteData(env); err != nil {
+			return nil, err
+		}
+		if _, err := event.ValidateDataSchema(env); err != nil {
+			return nil, &event.InvalidInputError{Kind: env.Kind, Field: "data", Rule: err.Error()}
+		}
+		base, existingEvents, err := w.foldInputsAt(oid, env.ID, env)
 		if err != nil {
 			return nil, err
 		}
 		allEvents := append(append([]*event.Envelope(nil), existingEvents...), env)
+		var ids event.IDSet
+		for _, input := range allEvents {
+			if _, err := ids.Add(input); err != nil {
+				return nil, err
+			}
+		}
 		state := w.Registry.FoldFrom(base, allEvents)
 		if w.NotFoundErr != nil && state.Meta == nil {
 			return nil, w.NotFoundErr
@@ -335,8 +396,14 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 }
 
 // Fold returns the current fold state for id without writing anything,
-// taking the checkpoint shortcut when the chain offers one.
+// taking the checkpoint shortcut when the chain offers one. Like Append it
+// refuses a repository whose schema_version is newer than this build: a
+// read folds too, and an old fold over new-semantics events would show a
+// state the writers never meant (ADR-0018).
 func (w *Writer) Fold(ctx context.Context, id string) (*materialize.State, error) {
+	if err := CheckSchemaSupported(ctx, w.Dir); err != nil {
+		return nil, err
+	}
 	base, events, _, err := w.foldInputs(ctx, id, "")
 	if err != nil {
 		return nil, err

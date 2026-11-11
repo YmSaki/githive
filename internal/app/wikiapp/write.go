@@ -51,7 +51,7 @@ func (e *ValidationError) Error() string {
 // ConflictError reports that the merge of the remote wiki into the local edit
 // left conflict markers a human must resolve. The local commit is already
 // saved and the worktree keeps the markers + MERGE_HEAD, so the human resolves
-// them and re-runs save. Maps to exit 3 (retryable).
+// them and re-runs save. Maps to exit 3 (manual resolution required).
 type ConflictError struct {
 	Paths []string
 }
@@ -61,10 +61,14 @@ func (e *ConflictError) Error() string {
 }
 
 var (
+	// ErrPushRejected means a server refused the wiki push for a permanent
+	// reason, such as a pre-receive hook. The local commit and edit are kept.
+	ErrPushRejected = errors.New("wikiapp: push rejected")
+
 	// ErrPushRaceExhausted means the remote wiki advanced faster than we could
 	// push after wikiPushRetries clean re-merges. The merged commit is saved
 	// locally; re-running save retries. Maps to exit 3 (retryable).
-	ErrPushRaceExhausted = errors.New("wikiapp: wiki push retries exhausted (remote kept advancing); local commit saved, re-run `githive wiki save`")
+	ErrPushRaceExhausted = errors.New("wikiapp: wiki push was rejected on every retry (remote kept advancing); the commit is saved on the local wiki ref - re-run `githive wiki save`, which resumes the merge and push")
 
 	// ErrNoEditInProgress means Save was invoked without a prior `wiki edit`
 	// (no worktree recorded). Maps to exit 1.
@@ -86,6 +90,12 @@ var (
 type SaveResult struct {
 	CommitHash string
 	Pushed     bool
+	// Warning is set when the save completed locally but publishing to the
+	// remote failed (unreachable remote, push error). The commit is on
+	// refs/projects/wiki/main and the edit worktree has been removed;
+	// `githive sync` pushes it later (docs/10-cli-spec.md「基本設計」:
+	// 同期の失敗は警告として分けて報告する).
+	Warning string
 }
 
 // Edit creates a temporary git worktree checked out at the wiki ref (or at an
@@ -110,6 +120,13 @@ type SaveResult struct {
 // it the worktree is still the handoff between edit and save. keep is surfaced
 // so a future inline-editor integration can auto-remove a non-kept worktree.
 func (s *Service) Edit(ctx context.Context, keep bool) (string, error) {
+	return s.EditWithRemote(ctx, keep, "origin", false)
+}
+
+// EditWithRemote starts an edit using the selected remote's wiki when no
+// local wiki exists. noSync skips the initial fetch and uses cached refs.
+// An unavailable remote does not prevent offline editing.
+func (s *Service) EditWithRemote(ctx context.Context, keep bool, remote string, noSync bool) (string, error) {
 	r := gitx.New(s.Dir)
 
 	existing, err := r.ConfigGet(ctx, worktreeConfigKey)
@@ -117,18 +134,37 @@ func (s *Service) Edit(ctx context.Context, keep bool) (string, error) {
 		return "", err
 	}
 	if existing != "" {
+		existing = s.resolveWorktreePath(existing)
 		stillThere, err := worktreeDirExists(existing)
 		if err != nil {
 			return "", err
 		}
 		if stillThere {
-			return "", fmt.Errorf("%w: %s (run `githive wiki save` first, or discard it with `git -C %s worktree remove --force %s` and `git -C %s config --unset %s`)",
+			return "", fmt.Errorf("%w: %s (run `githive wiki save` first - it also resumes a save whose merge/push failed - or discard it with `git -C %s worktree remove --force %s` and `git -C %s config --unset %s`)",
 				ErrWorktreeExists, existing, s.Dir, existing, s.Dir, worktreeConfigKey)
 		}
 		// existing was removed by hand (e.g. `rm -rf`, or a manual `git
 		// worktree remove`) without going through `wiki save`; the recorded
 		// path is stale, so fall through and record a fresh worktree instead
 		// of deadlocking every future Edit on a path that no longer exists.
+	}
+
+	local, err := r.RevParse(ctx, refspace.WikiMainRef)
+	if err != nil {
+		return "", err
+	}
+	if local == "" && !noSync {
+		tracking, err := refspace.RemoteTrackingRef(refspace.WikiMainRef)
+		if err != nil {
+			return "", err
+		}
+		// A plain clone does not fetch refs/projects. Fetch the explicit wiki
+		// ref before choosing an edit base, independent of remote HEAD.
+		// Missing/unreachable remotes keep the existing offline behavior.
+		_ = r.Fetch(ctx, remote, "+"+refspace.WikiMainRef+":"+tracking)
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 	}
 
 	dir, err := r.WorktreeAdd(ctx, refspace.WikiMainRef)
@@ -178,6 +214,7 @@ func (s *Service) Save(ctx context.Context, msg, remote string, noSync bool) (Sa
 	if worktreeDir == "" {
 		return SaveResult{}, ErrNoEditInProgress
 	}
+	worktreeDir = s.resolveWorktreePath(worktreeDir)
 
 	inMerge, err := r.MergeInProgress(ctx, worktreeDir)
 	if err != nil {
@@ -187,6 +224,13 @@ func (s *Service) Save(ctx context.Context, msg, remote string, noSync bool) (Sa
 		return s.finishConflictRerun(ctx, r, worktreeDir, msg, remote, noSync)
 	}
 	return s.saveNormal(ctx, r, worktreeDir, msg, remote, noSync)
+}
+
+func (s *Service) resolveWorktreePath(dir string) string {
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(s.Dir, dir)
+	}
+	return filepath.Clean(dir)
 }
 
 // saveNormal handles a first save of an edit: validate, commit, then merge/push.
@@ -200,10 +244,18 @@ func (s *Service) saveNormal(ctx context.Context, r *gitx.Runner, worktreeDir, m
 		return SaveResult{}, err
 	}
 	if !changed {
-		return SaveResult{}, ErrNothingToSave
-	}
-
-	if _, err := r.CommitAll(ctx, worktreeDir, msg); err != nil {
+		// A previous save may have committed in the worktree and then failed
+		// to merge/push (#119). Its commit is not new work for HasChanges,
+		// but it is unpublished, so resume from merge/push instead of
+		// reporting "no changes" and stranding it.
+		pending, err := s.hasUnpublishedCommit(ctx, r, worktreeDir, noSync)
+		if err != nil {
+			return SaveResult{}, err
+		}
+		if !pending {
+			return SaveResult{}, ErrNothingToSave
+		}
+	} else if _, err := r.CommitAll(ctx, worktreeDir, msg); err != nil {
 		return SaveResult{}, err
 	}
 
@@ -223,15 +275,15 @@ func (s *Service) finishConflictRerun(ctx context.Context, r *gitx.Runner, workt
 	if err != nil {
 		return SaveResult{}, err
 	}
-	// Stage the human's edits so the resolved files leave the unmerged state.
-	if err := r.StageAll(ctx, worktreeDir); err != nil {
-		return SaveResult{}, err
-	}
-	// Refuse to record a merge that still carries conflict markers: staging
-	// alone would silently commit them, so verify the human actually resolved
-	// the previously-conflicted files.
+	// Check before staging: a rejected save must keep the unmerged index,
+	// otherwise the next retry loses the list of conflicted paths and can
+	// publish unresolved markers (#118).
 	if bad := filesWithConflictMarkers(worktreeDir, unmerged); len(bad) > 0 {
 		return SaveResult{}, &ConflictError{Paths: bad}
+	}
+	// Only resolved files may leave the unmerged state.
+	if err := r.StageAll(ctx, worktreeDir); err != nil {
+		return SaveResult{}, err
 	}
 	if err := validateTree(worktreeDir); err != nil {
 		return SaveResult{}, err
@@ -256,7 +308,7 @@ func (s *Service) mergeAndPush(ctx context.Context, r *gitx.Runner, worktreeDir,
 	for attempt := 0; attempt < wikiPushRetries; attempt++ {
 		conflicts, err := r.MergeWikiRemote(ctx, worktreeDir, remote, refspace.WikiMainRef, trackingRef)
 		if err != nil {
-			return SaveResult{}, err
+			return s.saveLocallyAfterSyncFailure(ctx, r, worktreeDir, err)
 		}
 		if len(conflicts) > 0 {
 			// Leave the worktree (markers + MERGE_HEAD) for the human.
@@ -296,11 +348,7 @@ func (s *Service) pushMergedOnce(ctx context.Context, r *gitx.Runner, worktreeDi
 	if err != nil {
 		return SaveResult{}, false, err
 	}
-	curTip, err := r.RevParse(ctx, refspace.WikiMainRef)
-	if err != nil {
-		return SaveResult{}, false, err
-	}
-	if err := r.UpdateRef(ctx, refspace.WikiMainRef, merged, orZero(curTip)); err != nil {
+	if err := advanceWikiRef(ctx, r, worktreeDir, merged); err != nil {
 		return SaveResult{}, false, err
 	}
 
@@ -314,15 +362,121 @@ func (s *Service) pushMergedOnce(ctx context.Context, r *gitx.Runner, worktreeDi
 
 	results, err := r.Push(ctx, remote, refspace.WikiMainRef+":"+refspace.WikiMainRef)
 	if err != nil {
-		return SaveResult{}, false, err
+		// The local ref already holds the commit; only publishing failed.
+		if cErr := s.cleanup(ctx, r, worktreeDir); cErr != nil {
+			return SaveResult{}, false, cErr
+		}
+		return SaveResult{CommitHash: merged, Warning: syncFailureWarning(err)}, false, nil
 	}
-	if !pushOK(results) {
-		return SaveResult{}, true, nil // rejected: race, caller retries
+	if retry, err := pushOutcome(results); retry || err != nil {
+		return SaveResult{}, retry, err
+	}
+	// The remote now has merged; record that in the remote-tracking ref so a
+	// later save can tell published from unpublished (hasUnpublishedCommit).
+	if trackingRef, err := refspace.RemoteTrackingRef(refspace.WikiMainRef); err == nil {
+		if old, err := r.RevParse(ctx, trackingRef); err == nil {
+			_ = r.UpdateRef(ctx, trackingRef, merged, orZero(old))
+		}
 	}
 	if err := s.cleanup(ctx, r, worktreeDir); err != nil {
 		return SaveResult{}, false, err
 	}
 	return SaveResult{CommitHash: merged, Pushed: true}, false, nil
+}
+
+// hasUnpublishedCommit reports whether the worktree HEAD carries commits a
+// previous save made but did not finish publishing: HEAD is not yet in the
+// local wiki ref, or (when syncing) not yet in the last-fetched remote wiki.
+// A worktree still sitting on the empty root that Edit creates for a
+// brand-new wiki has nothing to publish.
+func (s *Service) hasUnpublishedCommit(ctx context.Context, r *gitx.Runner, worktreeDir string, noSync bool) (bool, error) {
+	head, err := r.WorktreeHead(ctx, worktreeDir)
+	if err != nil {
+		return false, err
+	}
+	localTip, err := r.RevParse(ctx, refspace.WikiMainRef)
+	if err != nil {
+		return false, err
+	}
+	if localTip == "" {
+		tree, err := r.RevParse(ctx, head+"^{tree}")
+		if err != nil {
+			return false, err
+		}
+		if tree == emptyTreeOID {
+			return false, nil
+		}
+		return true, nil
+	}
+	inLocal, err := r.IsAncestor(ctx, head, localTip)
+	if err != nil {
+		return false, err
+	}
+	if !inLocal {
+		return true, nil
+	}
+	if noSync {
+		return false, nil
+	}
+	trackingRef, err := refspace.RemoteTrackingRef(refspace.WikiMainRef)
+	if err != nil {
+		return false, err
+	}
+	trackTip, err := r.RevParse(ctx, trackingRef)
+	if err != nil {
+		return false, err
+	}
+	if trackTip == "" {
+		return true, nil
+	}
+	inRemote, err := r.IsAncestor(ctx, head, trackTip)
+	if err != nil {
+		return false, err
+	}
+	return !inRemote, nil
+}
+
+// emptyTreeOID is git's well-known empty tree (SHA-1), the tree of the root
+// commit Edit creates for a wiki that does not exist yet.
+const emptyTreeOID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// saveLocallyAfterSyncFailure handles a fetch/merge failure that left no
+// merge in progress (typically an unreachable remote): the edit is
+// committed in the worktree, so advance the local wiki ref to it and remove
+// the worktree, reporting the sync failure as a warning rather than leaving
+// the commit only on a detached worktree HEAD (#119). If the local ref
+// moved to something the worktree does not contain, fast-forwarding would
+// drop commits, so the original error is returned and the worktree kept.
+func (s *Service) saveLocallyAfterSyncFailure(ctx context.Context, r *gitx.Runner, worktreeDir string, syncErr error) (SaveResult, error) {
+	inMerge, err := r.MergeInProgress(ctx, worktreeDir)
+	if err != nil || inMerge {
+		return SaveResult{}, syncErr
+	}
+	head, err := r.WorktreeHead(ctx, worktreeDir)
+	if err != nil {
+		return SaveResult{}, syncErr
+	}
+	curTip, err := r.RevParse(ctx, refspace.WikiMainRef)
+	if err != nil {
+		return SaveResult{}, syncErr
+	}
+	if curTip != "" {
+		ff, err := r.IsAncestor(ctx, curTip, head)
+		if err != nil || !ff {
+			return SaveResult{}, syncErr
+		}
+	}
+	if err := r.UpdateRef(ctx, refspace.WikiMainRef, head, orZero(curTip)); err != nil {
+		return SaveResult{}, err
+	}
+	if err := s.cleanup(ctx, r, worktreeDir); err != nil {
+		return SaveResult{}, err
+	}
+	return SaveResult{CommitHash: head, Warning: syncFailureWarning(syncErr)}, nil
+}
+
+func syncFailureWarning(err error) string {
+	return fmt.Sprintf("saved to %s locally but could not publish it (%v); run `githive sync` to push it once the remote is reachable", refspace.WikiMainRef, err)
 }
 
 // advanceLocalAndFinish is the --no-sync tail: advance the local wiki ref to
@@ -332,11 +486,7 @@ func (s *Service) advanceLocalAndFinish(ctx context.Context, r *gitx.Runner, wor
 	if err != nil {
 		return SaveResult{}, err
 	}
-	curTip, err := r.RevParse(ctx, refspace.WikiMainRef)
-	if err != nil {
-		return SaveResult{}, err
-	}
-	if err := r.UpdateRef(ctx, refspace.WikiMainRef, merged, orZero(curTip)); err != nil {
+	if err := advanceWikiRef(ctx, r, worktreeDir, merged); err != nil {
 		return SaveResult{}, err
 	}
 	if err := s.cleanup(ctx, r, worktreeDir); err != nil {
@@ -443,16 +593,29 @@ func hasConflictMarker(content []byte) bool {
 	return false
 }
 
-func pushOK(results []gitx.PushResult) bool {
+// pushOutcome follows sync's rejection policy: only remote advancement or
+// ref-lock races can be repaired by fetching and retrying. Unknown rejection
+// reasons fail immediately (docs/10-cli-spec.md「終了コード」).
+func pushOutcome(results []gitx.PushResult) (bool, error) {
 	if len(results) == 0 {
-		return false
+		return false, fmt.Errorf("%w: git push reported no result", ErrPushRejected)
 	}
 	for _, res := range results {
-		if !res.OK {
-			return false
+		if res.OK {
+			continue
 		}
+		lower := strings.ToLower(res.Reason)
+		for _, race := range []string{
+			"non-fast-forward", "fetch first", "stale info",
+			"failed to update ref", "incorrect old value provided", "cannot lock ref",
+		} {
+			if strings.Contains(lower, race) {
+				return true, nil
+			}
+		}
+		return false, fmt.Errorf("%w: %s; the commit is saved locally; resolve the rejection and re-run `githive wiki save`", ErrPushRejected, res.Reason)
 	}
-	return true
+	return false, nil
 }
 
 // orZero maps an empty (absent) OID to git's zero OID, the compare-and-swap

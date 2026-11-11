@@ -202,7 +202,7 @@ func (s *Service) checkIdentity(ctx context.Context) Check {
 // unsigned commits still work, they just get flagged by `githive verify`.
 func (s *Service) checkSigning(ctx context.Context) Check {
 	r := gitx.New(s.Dir)
-	gpgsign, err := r.ConfigGet(ctx, "commit.gpgsign")
+	gpgsign, err := r.ConfigBool(ctx, "commit.gpgsign", false)
 	if err != nil {
 		return Check{Name: "signing", Severity: SeverityWarning, Detail: "could not read commit.gpgsign: " + err.Error()}
 	}
@@ -215,7 +215,7 @@ func (s *Service) checkSigning(ctx context.Context) Check {
 		return Check{Name: "signing", Severity: SeverityWarning, Detail: "could not read user.signingkey: " + err.Error()}
 	}
 
-	if gpgsign != "true" {
+	if !gpgsign {
 		return Check{Name: "signing", Severity: SeverityWarning, Detail: "commit.gpgsign is not enabled; commits will be unsigned (optional, docs/11)"}
 	}
 	if format != "ssh" || signingKey == "" {

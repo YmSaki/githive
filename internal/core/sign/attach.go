@@ -50,11 +50,11 @@ func ResolveSigner(ctx context.Context, dir string) (chain.Signer, func(), error
 	noop := func() {}
 	r := gitx.New(dir)
 
-	gpgsign, err := r.ConfigGet(ctx, "commit.gpgsign")
+	gpgsign, err := r.ConfigBool(ctx, "commit.gpgsign", false)
 	if err != nil {
 		return nil, noop, err
 	}
-	if !parseGitBool(gpgsign) {
+	if !gpgsign {
 		return nil, noop, nil
 	}
 
@@ -208,16 +208,4 @@ func expandHome(path string) (string, error) {
 		return home, nil
 	}
 	return filepath.Join(home, path[2:]), nil
-}
-
-// parseGitBool interprets a git config boolean the way git does for
-// `--type=bool`: the listed spellings are true, everything else (including
-// an unset key, which ConfigGet reports as "") is false.
-func parseGitBool(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "true", "yes", "on", "1":
-		return true
-	default:
-		return false
-	}
 }

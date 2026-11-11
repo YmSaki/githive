@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -37,10 +38,26 @@ func issueLabelEvent(entity string, seq int, add string) *event.Envelope {
 	}
 }
 
+func issueEditEvent(entity string, seq int, title string) *event.Envelope {
+	return &event.Envelope{
+		V: 1, Kind: "issue.edit", ID: newULID(seq), TS: "2026-07-04T00:00:00.000Z",
+		Actor: "a@example.com", Entity: entity,
+		Data: map[string]any{"title": title}, Extra: map[string]any{},
+	}
+}
+
+// genEventSet mixes set-like label adds with last-write-wins title edits, so
+// that a merge which loses or reorders events changes the folded title, not
+// just a commutative label set.
 func genEventSet(rng *rand.Rand, entity string, n int) []*event.Envelope {
 	events := []*event.Envelope{issueCreateEvent(entity, 0)}
 	for i := 1; i <= n; i++ {
-		events = append(events, issueLabelEvent(entity, i*1000+rng.Intn(999), fmt.Sprintf("l%d", i)))
+		seq := i*1000 + rng.Intn(999)
+		if i%2 == 0 {
+			events = append(events, issueEditEvent(entity, seq, fmt.Sprintf("title-%d", i)))
+		} else {
+			events = append(events, issueLabelEvent(entity, seq, fmt.Sprintf("l%d", i)))
+		}
 	}
 	return events
 }
@@ -62,8 +79,8 @@ func TestMergeCommutative(t *testing.T) {
 	a := all[:3]
 	b := all[3:]
 
-	s1 := Fold(materialize.IssueRegistry, a, b)
-	s2 := Fold(materialize.IssueRegistry, b, a)
+	s1 := mustFold(t, materialize.IssueRegistry, a, b)
+	s2 := mustFold(t, materialize.IssueRegistry, b, a)
 
 	got1, got2 := metaSignature(t, s1), metaSignature(t, s2)
 	if got1 != got2 {
@@ -78,8 +95,8 @@ func TestMergeAssociative(t *testing.T) {
 	all := genEventSet(rng, entity, 9)
 	a, b, c := all[0:3], all[3:6], all[6:9]
 
-	left := Fold(materialize.IssueRegistry, UnionEvents(a, b), c)
-	right := Fold(materialize.IssueRegistry, a, UnionEvents(b, c))
+	left := mustFold(t, materialize.IssueRegistry, mustUnion(t, a, b), c)
+	right := mustFold(t, materialize.IssueRegistry, a, mustUnion(t, b, c))
 
 	gotLeft, gotRight := metaSignature(t, left), metaSignature(t, right)
 	if gotLeft != gotRight {
@@ -93,8 +110,8 @@ func TestMergeIdempotent(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	all := genEventSet(rng, entity, 5)
 
-	once := Fold(materialize.IssueRegistry, all)
-	twice := Fold(materialize.IssueRegistry, all, all)
+	once := mustFold(t, materialize.IssueRegistry, all)
+	twice := mustFold(t, materialize.IssueRegistry, all, all)
 
 	gotOnce, gotTwice := metaSignature(t, once), metaSignature(t, twice)
 	if gotOnce != gotTwice {
@@ -117,7 +134,7 @@ func TestMergeConvergesAcrossSplits(t *testing.T) {
 		rng.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
 		splitAt := 1 + rng.Intn(len(shuffled)-1)
 		a, b := shuffled[:splitAt], shuffled[splitAt:]
-		got := metaSignature(t, Fold(materialize.IssueRegistry, a, b))
+		got := metaSignature(t, mustFold(t, materialize.IssueRegistry, a, b))
 		if got != want {
 			t.Fatalf("trial %d: split merge diverged from whole-set fold:\nwant: %s\ngot:  %s", trial, want, got)
 		}
@@ -140,8 +157,8 @@ func TestMergeConvergesFromSharedAncestor(t *testing.T) {
 	sideA := []*event.Envelope{root, evA}
 	sideB := []*event.Envelope{root, evB}
 
-	stateAB := Fold(materialize.IssueRegistry, sideA, sideB)
-	stateBA := Fold(materialize.IssueRegistry, sideB, sideA)
+	stateAB := mustFold(t, materialize.IssueRegistry, sideA, sideB)
+	stateBA := mustFold(t, materialize.IssueRegistry, sideB, sideA)
 
 	gotAB, gotBA := metaSignature(t, stateAB), metaSignature(t, stateBA)
 	if gotAB != gotBA {
@@ -151,5 +168,39 @@ func TestMergeConvergesFromSharedAncestor(t *testing.T) {
 	labels, _ := stateAB.Meta["labels"].([]any)
 	if len(labels) != 2 {
 		t.Errorf("expected both labels to survive the merge, got %v", labels)
+	}
+}
+
+func mustFold(t *testing.T, registry *materialize.Registry, sets ...[]*event.Envelope) *materialize.State {
+	t.Helper()
+	state, err := Fold(registry, sets...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+func mustUnion(t *testing.T, sets ...[]*event.Envelope) []*event.Envelope {
+	t.Helper()
+	events, err := UnionEvents(sets...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
+
+func TestMergeRejectsConflictingEventIdentitiesInBothDirections(t *testing.T) {
+	a := issueLabelEvent("01j8x0a2b3c4d5e6f7g8h9j0ka", 1, "from-a")
+	b := issueLabelEvent(a.Entity, 1, "from-b")
+	for _, sets := range [][][]*event.Envelope{{{a}, {b}}, {{b}, {a}}, {{a, b}}, {{b, a}}} {
+		if events, err := UnionEvents(sets...); !errors.Is(err, event.ErrConflictingEventID) || events != nil {
+			t.Fatalf("union silently selected a winner: %v %v", events, err)
+		}
+		if state, err := Fold(materialize.IssueRegistry, sets...); !errors.Is(err, event.ErrConflictingEventID) || state != nil {
+			t.Fatalf("fold silently selected a winner: %v %v", state, err)
+		}
+	}
+	copies, err := UnionEvents([]*event.Envelope{a}, []*event.Envelope{a})
+	if err != nil || len(copies) != 1 {
+		t.Fatalf("identical copies: %v %v", copies, err)
 	}
 }

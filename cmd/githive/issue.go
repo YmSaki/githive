@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/cliout"
@@ -64,10 +64,12 @@ func newIssueNewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, issueRef(id))
+			warnings, syncErr := syncIfEnabled(dir, issueRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"id": id}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
 			fmt.Println(id)
 			printWarnings(warnings)
@@ -94,17 +96,29 @@ func newIssueListCmd() *cobra.Command {
 				return err
 			}
 			svc := issueapp.New(dir)
-			items, err := svc.List(context.Background(), issueapp.ListFilter{Status: status, Label: label, Assignee: assignee})
+			resolvedAssignee, source, err := resolveUserRefView(context.Background(), dir, assignee)
 			if err != nil {
 				return err
 			}
-			if flags.json {
-				cliout.PrintList(items, nil)
-				return nil
+			items, ownSource, err := svc.ListView(context.Background(), issueapp.ListFilter{Status: status, Label: label, Assignee: resolvedAssignee})
+			if ownSource != "" {
+				source = ownSource
 			}
-			fmt.Printf("%-10s %-12s %-40s %s\n", "ID", "STATUS", "TITLE", "ASSIGNEE")
+			if err != nil {
+				return err
+			}
+			printViewSource(source)
+			if flags.json {
+				return cliout.PrintSuccess(viewList(items, source), nil)
+			}
+			displayIDs, err := idresolve.DisplayIDs(context.Background(), dir, "issue")
+			if err != nil {
+				return err
+			}
+			width := displayIDWidth(displayIDs, items)
+			fmt.Printf("%-*s %-12s %-40s %s\n", width, "ID", "STATUS", "TITLE", "ASSIGNEE")
 			for _, m := range items {
-				fmt.Printf("%-10s %-12v %-40v %v\n", shortID(m["id"]), m["status"], m["title"], m["assignees"])
+				fmt.Printf("%-*s %-12v %-40v %v\n", width, displayID(displayIDs, m["id"]), m["status"], m["title"], m["assignees"])
 			}
 			return nil
 		},
@@ -131,25 +145,26 @@ func newIssueShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return err
 			}
+			printViewSource(show.ReadSource)
 			if flags.json {
 				comments := make([]any, len(show.Comments))
 				for i, c := range show.Comments {
 					comments[i] = c
 				}
-				cliout.PrintSuccess(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, nil)
-				return nil
+				return cliout.PrintSuccess(viewData(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, show.ReadSource), nil)
 			}
+			eventIDs := itemDisplayIDs(show.Comments)
 			fmt.Printf("%v  %v  %v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"])
 			if show.Body != "" {
 				fmt.Println()
 				fmt.Println(show.Body)
 			}
 			for _, c := range show.Comments {
-				fmt.Printf("\n--- %v (%v) ---\n%v\n", c["author"], c["ts"], c["body"])
+				fmt.Printf("\n--- %s %v (%v) ---\n%v\n", displayID(eventIDs, c["id"]), c["author"], c["ts"], c["body"])
 			}
 			return nil
 		},
@@ -181,15 +196,25 @@ func newIssueCommentCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Keep the resolved target for notification before the newly appended
+			// comment can itself make the original short prefix ambiguous.
+			if replyTo != "" {
+				replyTo, err = svc.ResolveCommentID(ctx, id, replyTo)
+				if err != nil {
+					return err
+				}
+			}
 			if err := svc.Comment(ctx, id, message, replyTo, supersedes); err != nil {
 				return err
 			}
 			warnStrings := notifyReplyTarget(ctx, dir, svc, id, replyTo)
-			warnings := syncIfEnabled(dir, issueRef(id))
+			warnings, syncErr := syncIfEnabled(dir, issueRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			warnings = append(warnings, notifyWarnings(warnStrings)...)
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -226,10 +251,13 @@ func newIssueStatusCmd() *cobra.Command {
 			if !ok {
 				warnings = append(warnings, cliout.Warning{Code: "invalid_transition", Message: fmt.Sprintf("transition to %q was rejected", args[1])})
 			}
-			warnings = append(warnings, syncIfEnabled(dir, issueRef(id))...)
+			syncedWarnings, syncErr := syncIfEnabled(dir, issueRef(id), warnings)
+			if syncErr != nil {
+				return syncErr
+			}
+			warnings = syncedWarnings
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"applied": ok}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"applied": ok}, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -266,10 +294,12 @@ func newIssueEditCmd() *cobra.Command {
 			if err := svc.Edit(ctx, id, titlePtr, bodyPtr); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, issueRef(id))
+			warnings, syncErr := syncIfEnabled(dir, issueRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -353,10 +383,13 @@ func newIssueAssignCmd() *cobra.Command {
 				warnings = append(warnings, notifyWarnings(
 					notifyapp.NotifyAssigned(ctx, dir, "issue", id, selfEmail, assignee))...)
 			}
-			warnings = append(warnings, syncIfEnabled(dir, issueRef(id))...)
+			syncedWarnings, syncErr := syncIfEnabled(dir, issueRef(id), warnings)
+			if syncErr != nil {
+				return syncErr
+			}
+			warnings = syncedWarnings
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -383,10 +416,12 @@ func runSetOp(idArg string, add, remove []string, op func(*issueapp.Service, con
 	if err := op(svc, ctx, id, add, remove); err != nil {
 		return err
 	}
-	warnings := syncIfEnabled(dir, issueRef(id))
+	warnings, syncErr := syncIfEnabled(dir, issueRef(id))
+	if syncErr != nil {
+		return syncErr
+	}
 	if flags.json {
-		cliout.PrintSuccess(nil, warnings)
-		return nil
+		return cliout.PrintSuccess(nil, warnings)
 	}
 	printWarnings(warnings)
 	return nil
@@ -413,10 +448,12 @@ func newIssueLinkCmd() *cobra.Command {
 			if err := svc.Link(ctx, id, rel, args[1], remove); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, issueRef(id))
+			warnings, syncErr := syncIfEnabled(dir, issueRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -446,7 +483,7 @@ func readFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimRight(string(data), "\n"), nil
+	return string(data), nil
 }
 
 // asStringSliceAny converts a decoded JSON []any of strings (as found in a

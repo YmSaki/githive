@@ -2,7 +2,9 @@ package event
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"regexp"
 )
 
@@ -12,6 +14,13 @@ import (
 // .claude/rules/determinism.md「未知の v は読み取り拒否」. It was raised to
 // 2 by ADR-0015 (task の終端 -> cancelled を不正遷移にする fold 意味論変更).
 const SchemaVersion = 2
+
+// MaxEventBytes is the event JSON limit, including canonical whitespace and
+// its trailing LF, but excluding the human commit summary.
+const MaxEventBytes = 256 * 1024
+
+// ErrEventTooLarge means event JSON exceeds the input or canonical byte limit.
+var ErrEventTooLarge = errors.New("event JSON exceeds 256 KiB; split the content or use wiki")
 
 // MinSchemaVersion is the oldest envelope version that still folds
 // correctly under the current reducers. Older events stay readable so that
@@ -121,12 +130,22 @@ func (e *Envelope) ToMap() map[string]any {
 
 // CanonicalJSON encodes the envelope as canonical JSON bytes.
 func (e *Envelope) CanonicalJSON() ([]byte, error) {
-	return Encode(e.ToMap())
+	raw, err := Encode(e.ToMap())
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > MaxEventBytes {
+		return nil, ErrEventTooLarge
+	}
+	return raw, nil
 }
 
 // Decode parses raw JSON bytes (as found in a commit message body) into an
 // Envelope, preserving unknown fields, and validates it.
 func Decode(raw []byte) (*Envelope, error) {
+	if len(raw) > MaxEventBytes {
+		return nil, ErrEventTooLarge
+	}
 	v, err := DecodeGeneric(raw)
 	if err != nil {
 		return nil, fmt.Errorf("event: decode: %w", err)
@@ -135,7 +154,16 @@ func Decode(raw []byte) (*Envelope, error) {
 	if !ok {
 		return nil, fmt.Errorf("event: decode: top-level value is not an object")
 	}
-	return FromMap(m)
+	env, err := FromMap(m)
+	if err != nil {
+		return nil, err
+	}
+	// Compact input can fit the input budget yet expand beyond the canonical
+	// budget; enforce the same limit used by writers.
+	if _, err := env.CanonicalJSON(); err != nil {
+		return nil, err
+	}
+	return env, nil
 }
 
 // FromMap builds an Envelope from a generic decoded JSON object, validating
@@ -207,12 +235,21 @@ func asInt(v any) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("not an integer: %v", n)
 		}
+		if int64(int(i)) != i {
+			return 0, fmt.Errorf("integer out of range: %v", n)
+		}
 		return int(i), nil
 	case int:
 		return n, nil
 	case int64:
+		if int64(int(n)) != n {
+			return 0, fmt.Errorf("integer out of range: %v", n)
+		}
 		return int(n), nil
 	case float64:
+		if math.IsNaN(n) || math.IsInf(n, 0) || math.Trunc(n) != n || n < float64(MinSchemaVersion) || n > float64(SchemaVersion) {
+			return 0, fmt.Errorf("unsupported or non-integer version: %v", n)
+		}
 		return int(n), nil
 	default:
 		return 0, fmt.Errorf("not a number: %T", v)

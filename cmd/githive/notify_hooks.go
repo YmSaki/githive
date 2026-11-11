@@ -35,3 +35,12 @@ func mentionResolver(dir string) notifyapp.MentionResolver {
 		return usersapp.MentionTargets(ctx, dir, name)
 	}
 }
+
+// membershipResolver binds the users registry in dir as notifyapp's
+// "who am I" resolver for unread computation (groups, all of a user's
+// emails).
+func membershipResolver(dir string) notifyapp.MembershipResolver {
+	return func(ctx context.Context, email string) ([]string, []string, error) {
+		return usersapp.Membership(ctx, dir, email)
+	}
+}

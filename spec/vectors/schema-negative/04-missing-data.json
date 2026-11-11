@@ -1,0 +1,11 @@
+{
+  "description": "data は必須（空オブジェクトは可）。空オブジェクトを受理する issue.edit を使い、kind スキーマの必須フィールドによる拒否で封筒の data 必須検査漏れを隠さない。",
+  "event": {
+    "actor": "yuumiya@example.com",
+    "entity": "01m6dqs9m03wq3tk2vd9wrg5s7",
+    "id": "01m6dqs9m03wq3tk2vd9wrg5s6",
+    "kind": "issue.edit",
+    "ts": "2026-11-02T09:00:00.000Z",
+    "v": 2
+  }
+}

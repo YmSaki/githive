@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/cliout"
 	"github.com/ymsaki/githive/internal/core/identity"
@@ -47,10 +48,12 @@ func newChatNewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, chatRef(id))
+			warnings, syncErr := syncIfEnabled(dir, chatRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"id": id}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
 			fmt.Println(id)
 			printWarnings(warnings)
@@ -74,17 +77,22 @@ func newChatListCmd() *cobra.Command {
 				return err
 			}
 			svc := chatapp.New(dir)
-			items, err := svc.List(context.Background(), chatapp.ListFilter{Status: status})
+			items, source, err := svc.ListView(context.Background(), chatapp.ListFilter{Status: status})
 			if err != nil {
 				return err
 			}
+			printViewSource(source)
 			if flags.json {
-				cliout.PrintList(items, nil)
-				return nil
+				return cliout.PrintSuccess(viewList(items, source), nil)
 			}
-			fmt.Printf("%-10s %-10s %-40s %s\n", "ID", "STATUS", "TITLE", "MESSAGES")
+			displayIDs, err := idresolve.DisplayIDs(context.Background(), dir, "chat")
+			if err != nil {
+				return err
+			}
+			width := displayIDWidth(displayIDs, items)
+			fmt.Printf("%-*s %-10s %-40s %s\n", width, "ID", "STATUS", "TITLE", "MESSAGES")
 			for _, m := range items {
-				fmt.Printf("%-10s %-10v %-40v %v\n", shortID(m["id"]), m["status"], m["title"], m["message_count"])
+				fmt.Printf("%-*s %-10v %-40v %v\n", width, displayID(displayIDs, m["id"]), m["status"], m["title"], m["message_count"])
 			}
 			return nil
 		},
@@ -110,7 +118,7 @@ func newChatShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return err
 			}
@@ -118,17 +126,18 @@ func newChatShowCmd() *cobra.Command {
 			if tail > 0 && len(messages) > tail {
 				messages = messages[len(messages)-tail:]
 			}
+			printViewSource(show.ReadSource)
 			if flags.json {
 				anyMessages := make([]any, len(messages))
 				for i, m := range messages {
 					anyMessages[i] = m
 				}
-				cliout.PrintSuccess(map[string]any{"meta": show.Meta, "messages": anyMessages}, nil)
-				return nil
+				return cliout.PrintSuccess(viewData(map[string]any{"meta": show.Meta, "messages": anyMessages}, show.ReadSource), nil)
 			}
+			eventIDs := itemDisplayIDs(show.Messages)
 			fmt.Printf("%v  %v  %v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"])
 			for _, m := range messages {
-				fmt.Printf("\n--- %v (%v) ---\n%v\n", m["author"], m["ts"], m["body"])
+				fmt.Printf("\n--- %s %v (%v) ---\n%v\n", displayID(eventIDs, m["id"]), m["author"], m["ts"], m["body"])
 			}
 			return nil
 		},
@@ -158,10 +167,13 @@ func newChatPostCmd() *cobra.Command {
 				return err
 			}
 			warnings := notifyWarnings(notifyChatMentions(ctx, dir, id, message))
-			warnings = append(warnings, syncIfEnabled(dir, chatRef(id))...)
+			syncedWarnings, syncErr := syncIfEnabled(dir, chatRef(id), warnings)
+			if syncErr != nil {
+				return syncErr
+			}
+			warnings = syncedWarnings
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -193,10 +205,12 @@ func newChatArchiveCmd() *cobra.Command {
 			if err := svc.Archive(ctx, id); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, chatRef(id))
+			warnings, syncErr := syncIfEnabled(dir, chatRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -222,13 +236,22 @@ func newChatEditMetaCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := svc.EditMeta(ctx, id, title, status); err != nil {
+			var titleField, statusField *string
+			if cmd.Flags().Changed("title") {
+				titleField = &title
+			}
+			if cmd.Flags().Changed("status") {
+				statusField = &status
+			}
+			if err := svc.EditMetaFields(ctx, id, titleField, statusField); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, chatRef(id))
+			warnings, syncErr := syncIfEnabled(dir, chatRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil

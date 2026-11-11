@@ -17,7 +17,7 @@ git 層  go-git（ローカル）+ system git（通信、internal/core/gitx 経�
 
 - 依存は `cmd` → `app` → `core` の一方向のみ。逆方向の import は禁止。
 - `internal/core` パッケージから `internal/app` を import してはならない。`core/materialize` と `core/merge` は純粋関数として書き、I/O（git 読み書き）は `core/chain` に隔離する（依存規則）。
-- `internal/core` と `internal/app` から `internal/forge` を import してはならない。forge とクライアントの両方が使うロジック（policy 評価、範囲検証など）は `core` か `app` に置く（[ADR-0019](../../docs/adr/0019-forge-in-monorepo.md)）。
+- `internal/core` と `internal/app` から `internal/forge` を import してはならない。MIT のクライアントも Forge 専用コード・`web/` を依存に含めない。共用する処理は MIT の `core` または `app` に置く（[ADR-0019](../../docs/adr/0019-forge-in-monorepo.md)）。
 - クライアント層（`cmd/githive`、`cmd/githive-forge`、TUI、MCP サーバー）は `app` のサービスだけを呼び、`core` を直接呼ばない。例外は VSCode 拡張で、プロセス境界（CLI `--json`）越しに `app` を利用する。
 - 上記の例外として、**状態を持たない薄い変換・解決に限り** クライアント層から `core` を直接呼んでよい。許容リストは `identity.Resolve`／`event.Encode`・`DecodeGeneric`・`SchemaVersion`（canonical JSON の一元化のため）／`refspace` の定数と `Parse`・`RemoteTrackingRef`・`LocalRefFromTracking`／`core` 各パッケージのセンチネルエラー値（終了コード対応付けのため）。git I/O（`gitx`）・`chain`・`materialize`・`merge` は必ず `app` 経由にする（[docs/01-architecture.md](../../docs/01-architecture.md)「依存規則」に同じ表がある）。
 - 通信（fetch/push/clone）は `core/gitx` 経由で system git を呼ぶ。go-git はローカルのオブジェクト・ref 操作にのみ使う（[ADR-0002](../../docs/adr/0002-go-and-hybrid-git-access.md)）。
@@ -47,6 +47,6 @@ w := &entitychain.Writer{
 state, err := w.Append(ctx, id, buildEvent)
 ```
 
-`Writer.Append` はプロセス内の同時書き込みを直列化する in-process ロック（Windows で go-git のローカルオブジェクト書き込みが並行に弱いための対策）と、プロセス間競合に対する git 側 CAS（`gitx.ErrRefCASMismatch` での再試行、最大 10 回）の両方を扱う。同じ形のループを feature ごとに再実装しないこと（[docs/03-sync-and-concurrency.md](../../docs/03-sync-and-concurrency.md)「クラッシュ安全性とローカル競合」、[docs/14-testing.md](../../docs/14-testing.md) シナリオ11）。
+`Writer.Append` は、sync のマージと共有するプロセス内ロック `chain.LockRepository`（Windows で go-git のローカルオブジェクト書き込みが並行に弱いための対策）と、プロセス間競合に対する git 側 CAS（`gitx.ErrRefCASMismatch` での再試行、最大 10 回）の両方を扱う。同じ形のループを feature ごとに再実装しないこと（[docs/03-sync-and-concurrency.md](../../docs/03-sync-and-concurrency.md)「クラッシュ安全性とローカル競合」、[docs/14-testing.md](../../docs/14-testing.md) シナリオ11）。
 
 singleton ref（例：notify/stream）を扱う場合は `RefFor` が id を無視して常に同じ ref 名を返すようにする。

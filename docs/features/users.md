@@ -46,6 +46,7 @@ tree:
 - **kind**：`human` または `agent`。Agent はそれを運用する人間とは別ユーザーとして登録し、専用の鍵を持たせる。表示と監査で区別できることが目的で、権限体系は共通。
 - **status**：`active` / `suspended`。suspended のユーザーの新規イベントは検証で警告になる。
 - **emails**：identity の正であり、「email → username・表示名」のマップを成す。イベントの `actor`（= git の `user.email`）はこの配列との突合で台帳ユーザーに解決される。複数登録可（端末ごとの使い分け）。到達可能な受信箱である必要はなく、email 形式の識別子であればよい（[ADR-0009](../adr/0009-identity-user-email.md) の追記）。
+  同じ email を異なる username が所有する登録は拒否する。raw 履歴・並行更新から衝突した場合、fsck / verify は `ambiguous_email` を報告し、その email の鍵・admin 判定を許可しない。自動的に所有者を選んだり履歴を消したりはしない。一人のユーザーの複数 alias は引き続き正当であり、署名検証は対象コミットの email を principal とする（[ADR-0029](../adr/0029-unambiguous-email-ownership.md)）。email 追加・削除専用操作と全機能の alias 判定統一は #92 の残課題である。
 - **notify_email**：forge がメール配信に使う宛先（任意）。省略時は emails[] の先頭。noreply 系と `.invalid` ドメインは配信対象から除外される。
 - ユーザー名は `[a-z0-9][a-z0-9-]{1,38}` に制限する（ファイル名と target 指定に安全な範囲）。
 
@@ -96,6 +97,7 @@ registry 型 ref もイベントソーシングで管理する（形式は他機
 
 policy は部分編集イベントにせず全置換とする。
 ルールの順序が意味を持つため、部分編集の合併で順序が壊れることを避ける。
+CLI と MCP の書き込みは `rules` の配列・各ルールの必須フィールドと型・`actions` と `default` の値を保存前に検証する。これは policy の形式検証であり、hosted モードのサーバー側権限制御ではない。
 
 ## 信頼の根（trust anchor）
 
@@ -114,7 +116,7 @@ revoke された鍵による「revoke 時刻より後の」署名は無効と判
 
 1. identity の自動鋳造。既定は `<name>@agents.<プロジェクト名>.invalid`（RFC 6761 により実在しないことが保証されたドメイン。`--email` で上書き可）。
 2. Agent 専用の SSH 鍵ペアを生成し、公開鍵を台帳に登録する。
-3. Agent の実行環境に貼る git config スニペット（`user.name` / `user.email` / `user.signingkey` / `commit.gpgsign`）を出力する。
+3. Agent の実行環境の POSIX shell（sh/bash 等）へ貼る git config スニペット（`user.name` / `user.email` / `user.signingkey` / `commit.gpgsign`）を出力する。値はシェル展開されない引用形式にする。PowerShell 等ではこのスニペットを直接実行せず、JSON の `username`・`email`・`private_key` を使って各設定値をそのシェルの引用方法で渡す。
 
 人間と Agent が同じマシンを共有する場合も、Agent の実行環境（コンテナ、CI、エージェントセッション）には必ず専用の設定を与える。
 設定を怠ると Agent のイベントが人間の identity で記録され、kind による監査上の区別が壊れる。
@@ -134,7 +136,15 @@ githive users policy edit          # $EDITOR で rules を編集し policy_set �
 githive whoami                     # 自分のユーザー特定結果と鍵の状態を表示
 ```
 
+`users policy edit` は明示的な `EDITOR`（実行ファイルのパス）を要求し、未設定時に vi を自動起動しない。
+エディタの出力は stderr に送り、`--json` の stdout と分離する。
+エディタ・JSON・形式検証・保存の失敗時は編集したファイルを残し、エラーに保存先を表示する。成功時と未変更時は一時ファイルを削除する。
+非対話クライアントから直接 JSON を設定する場合は MCP の `users_policy_set` を使える。
+
 - `--kind`：`human` または `agent`（`--agent` を使わず直接指定する場合）。
+- `--email`：docs/02 の actor 規則（空白を含まない、`@` を含む、320 byte 以下）に加え、allowed_signers の principal パターンで特別な意味を持つ文字（`,` `*` `?` `!` `"`）を拒否する（`invalid_email`、exit 2）。
+- `--pub`：公開鍵 1 行（`<type> <base64> [comment]`）か、その内容を持つファイルのパス。秘密鍵（`-----BEGIN` や `PRIVATE KEY` を含む入力）は `private_key_rejected`、存在しないパスや鍵の形をしない文字列は `invalid_key` で拒否する（exit 2）。台帳の履歴は消せないため、書き込む前に止める。MCP の `users_key_add` / `users_key_revoke` はファイルパスを受け付けず、鍵の行だけを受け付ける。
+- 鍵の同一性は「型 + base64」（コメントを除いた先頭 2 フィールド）で判定する。`key add` は同じ鍵材が登録済み（失効済みを含む）なら `already_exists` で拒否する。`key revoke` はコメントが違っても同じ鍵材の有効な鍵を失効させ、該当する有効な鍵が無ければ `not_found` を返す。fold の照合は従来どおり pub 文字列の完全一致なので、app 層が登録済みの文字列そのものを key_revoke イベントに書く（fold 意味論は変えない）。
 - `--agent`：Agent 用の identity・鍵ペアを一括生成する（「Agent のセットアップ」参照）。`--project` は鋳造する email のプロジェクト名部分（省略時は meta/config から読む）、`--key-dir` は鍵ペアの出力先（省略時は `~/.ssh`）を指定する。
 
 ## 素の git での読み方
@@ -148,3 +158,13 @@ git show refs/projects/users/registry:policy.json
 
 - ユーザーごとに ref を分ける案（`refs/projects/users/<name>`）は退けた。グループと policy が単一ビューを要求すること、hosted モードでは ref 分割しても書き込み制限にならないことが理由である。forge モードの書き込み制御は policy ルールで registry ref 全体を admin に限定すれば足りる。
 - メールアドレスは identity の突合（actor 解決）と通知配信に使う。本人性の証明は常に鍵で行い、email の自己申告は署名検証（actor と鍵の持ち主の一致、[11](../11-security.md)）で裏が取れる。
+
+## 生の鍵履歴の受け入れ検査
+
+完全なイベント集合を ID 順で検査し、key_add/key_revoke は同じ username の user_set の後、key_revoke は同じ username の matching key_add の後でなければ拒否する。生の revoke イベントの pub は登録済みの文字列と完全一致しなければならない。コメント・空白の違いで fold が失効を無視する履歴は受け入れない。通常の CLI/MCP は従来どおり鍵材で利用者の入力を解決し、登録済み pub をイベントへ書く。
+
+同じ username の同じ鍵材（型 + base64 token）を別 pub 文字列で追加することも拒否する。完全一致する key_add の反復、同じ ID と canonical 内容のコピー、完全一致する key_revoke の反復は冪等な履歴として受け入れる。user_set の更新で鍵の登録状態はリセットされず、checkpoint の state は依存関係の証拠にしない。異なる username 間での同じ鍵材の利用は既存のポリシーを維持する。
+
+違反は `event_order_violation`（exit 4）として read/sync/init で拒否し、fsck/verify にも表示する。署名が正しいだけでは、この検査を通らない台帳を信頼状態へ採用しない。元のイベントや fold 規則を変更するものではない（[ADR-0027](../adr/0027-reject-ignored-users-key-events.md)）。
+
+違反した既存履歴は診断対象として隔離し、元の ref/OID を監査用に保持する。`git log` / `git show` で最初に違反する操作と時計・pub の不一致を確認する。後から正常な revoke を追記しても過去の違反は消えないため、通常操作での自動修復・履歴の書き換えは行わず、監査可能な移行方針を別途決める。

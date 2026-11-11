@@ -4,6 +4,7 @@
 package syncapp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
+	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
@@ -24,6 +26,7 @@ import (
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/merge"
+	"github.com/ymsaki/githive/internal/core/projectconfig"
 	"github.com/ymsaki/githive/internal/core/refspace"
 	"github.com/ymsaki/githive/internal/core/sign"
 )
@@ -82,13 +85,19 @@ type Result struct {
 	Ref     string
 	Action  Action
 	Warning string
+	// Trust-root resolutions preserve both concrete tips for publication
+	// reporting and recovery; adapters must not extract facts from Warning.
+	LocalOID  string
+	RemoteOID string
+	BackupRef string
+	Recovery  string
 }
 
 // ErrRetriesExhausted is returned (exit code 3 at the CLI layer,
-// docs/10-cli-spec.md「終了コード」) when push kept losing to a concurrent
-// remote update after Retries attempts. Local state is left as-is; sync can
-// simply be re-run.
-var ErrRetriesExhausted = errors.New("syncapp: push retries exhausted")
+// docs/10-cli-spec.md「終了コード」) when local CAS or remote push updates
+// keep losing after the initial attempt and Retries retries. Local state is
+// left as-is; sync can simply be re-run.
+var ErrRetriesExhausted = errors.New("syncapp: sync retries exhausted")
 
 // ErrPushRejected is returned when the remote rejects a push for a reason
 // other than a non-fast-forward race - a pre-receive hook, a permission
@@ -154,7 +163,9 @@ func SkipInitialFetch() Option {
 	return func(o *syncOptions) { o.skipInitialFetch = true }
 }
 
-// Sync runs the fetch/merge/push algorithm for refs against remote.
+// Sync runs the fetch/merge/push algorithm for refs against remote. retries is
+// the retry budget after the initial attempt; zero disables retries, and a
+// negative value selects DefaultRetries.
 //
 // Work is batched per round rather than per ref
 // (docs/03-sync-and-concurrency.md「全 ref 一括の sync は、fetch を 1 回の
@@ -162,7 +173,8 @@ func SkipInitialFetch() Option {
 // git は ref ごとに受理・拒否を返すため、拒否された ref だけを再試行する」):
 // one wildcard fetch, then every ref that needs one is pushed in a single
 // `git push` with several refspecs, and only the refs git rejected for a
-// racing reason go into the next round. A ref rejected permanently (a
+// racing reason, or refs that lost a local CAS, go into the next round.
+// A ref rejected permanently (a
 // pre-receive hook, a permission error) drops out immediately and does not
 // hold up the others.
 //
@@ -170,7 +182,7 @@ func SkipInitialFetch() Option {
 // other refs failed; the error aggregates every per-ref failure
 // (docs/01-architecture.md「部分的成功は正常系として報告する」).
 func Sync(ctx context.Context, dir, remote string, refs []string, retries int, opts ...Option) ([]Result, error) {
-	if retries <= 0 {
+	if retries < 0 {
 		retries = DefaultRetries
 	}
 	var o syncOptions
@@ -183,17 +195,25 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 	var failures []error
 
 	pending := append([]string(nil), refs...)
-	for round := 0; round < retries && len(pending) > 0; round++ {
+	for round := 0; len(pending) > 0; round++ {
 		if round > 0 || !o.skipInitialFetch {
 			if err := fetchNamespace(ctx, r, remote); err != nil {
 				return orderedResults(refs, done), errors.Join(append(failures, err)...)
 			}
 		}
+		if err := checkSchemaBothSides(ctx, dir); err != nil {
+			return orderedResults(refs, done), errors.Join(append(failures, err)...)
+		}
 
 		var toPush []*pushPlan
+		var next []string
 		for _, ref := range pending {
 			plan, res, err := planRef(ctx, dir, r, ref)
 			switch {
+			case errors.Is(err, gitx.ErrRefCASMismatch):
+				// A local writer advanced after planning. Read its new head
+				// and reapply the remote events in the next bounded round.
+				next = append(next, ref)
 			case err != nil:
 				failures = append(failures, err)
 			case plan != nil:
@@ -202,16 +222,17 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 				done[ref] = res
 			}
 		}
-		if len(toPush) == 0 {
-			pending = nil
+		if len(toPush) > 0 {
+			retryable, err := pushBatch(ctx, r, remote, toPush, done, &failures)
+			if err != nil {
+				return orderedResults(refs, done), errors.Join(append(failures, err)...)
+			}
+			next = append(next, retryable...)
+		}
+		pending = next
+		if round == retries {
 			break
 		}
-
-		retryable, err := pushBatch(ctx, r, remote, toPush, done, &failures)
-		if err != nil {
-			return orderedResults(refs, done), errors.Join(append(failures, err)...)
-		}
-		pending = retryable
 	}
 
 	if len(pending) > 0 {
@@ -227,18 +248,36 @@ type pushPlan struct {
 	warning string
 }
 
+// checkSchemaBothSides refuses to merge anything when either the local or
+// the just-fetched remote meta/config declares a repository schema_version
+// newer than this build (ADR-0018). Event-union merge re-folds every ref, so
+// an outdated tool merging a newer repository would write trees under the
+// old fold semantics - and the meta/config merge itself would then carry
+// the newer schema_version into the local ref.
+func checkSchemaBothSides(ctx context.Context, dir string) error {
+	if err := entitychain.CheckSchemaSupported(ctx, dir); err != nil {
+		return err
+	}
+	tracking, err := refspace.RemoteTrackingRef(refspace.MetaConfigRef)
+	if err != nil {
+		return err
+	}
+	return entitychain.CheckSchemaSupportedAt(ctx, dir, tracking)
+}
+
 // fetchNamespace pulls the whole refs/projects/ namespace in one wildcard
 // refspec. A wildcard rather than a specific ref because it tolerates the
 // remote not having a given ref yet (no error) and covers every ref of the
-// round in one round trip.
+// round in one round trip. Pruning only the tracking namespace ensures a
+// deleted remote ref is re-pushed from the authoritative local ref.
 func fetchNamespace(ctx context.Context, r *gitx.Runner, remote string) error {
-	return r.Fetch(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot))
+	return r.FetchPruned(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot))
 }
 
 // planRef decides what one ref needs, doing any purely local work (a
 // fast-forward of the local ref, an event-union merge, a trust-root
 // resolution) immediately. It returns exactly one of: a plan to push, a
-// finished Result, or a permanent error for this ref.
+// finished Result, or an error (a local CAS mismatch must be replanned).
 func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*pushPlan, Result, error) {
 	trackingRef, err := refspace.RemoteTrackingRef(ref)
 	if err != nil {
@@ -257,6 +296,12 @@ func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*push
 		return nil, Result{}, err
 	}
 
+	if parsed.Feature != refspace.FeatureWiki {
+		if err := validateEventIDs(dir, parsed, localOID, remoteOID); err != nil {
+			return nil, Result{}, err
+		}
+	}
+
 	if localOID == remoteOID {
 		return nil, Result{Ref: ref, Action: ActionUpToDate}, nil
 	}
@@ -272,7 +317,26 @@ func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*push
 		return &pushPlan{ref: ref, action: ActionFastForwardOut}, Result{}, nil
 	}
 
+	// users/registry: whatever we are about to adopt from the remote
+	// (first fetch, fast-forward or merge) must not carry a root commit the
+	// local side doesn't trust (#113). Diverged-with-no-merge-base is
+	// resolveTrustRoots' case below and is skipped here.
+	if parsed.Feature == refspace.FeatureUsers && localOID != "" {
+		if _, err := r.MergeBase(ctx, localOID, remoteOID); err == nil {
+			if err := checkIncomingRegistryRoots(ctx, dir, r, ref, localOID, remoteOID); err != nil {
+				return nil, Result{}, err
+			}
+		} else if !errors.Is(err, gitx.ErrNoMergeBase) {
+			return nil, Result{}, err
+		}
+	}
+
 	if localOID == "" {
+		if parsed.Feature == refspace.FeatureUsers {
+			if err := checkIncomingRegistryRoots(ctx, dir, r, ref, "", remoteOID); err != nil {
+				return nil, Result{}, err
+			}
+		}
 		if err := chain.AdvanceRef(dir, plumbing.ReferenceName(ref), plumbing.NewHash(remoteOID), gitx.ZeroOID); err != nil {
 			return nil, Result{}, err
 		}
@@ -424,6 +488,9 @@ func classifyPushRejection(reason string) error {
 }
 
 func mergeAndAdvance(ctx context.Context, dir, ref string, feature refspace.Feature, localOID, remoteOID string) error {
+	unlock := chain.LockRepository(dir)
+	defer unlock()
+
 	repo, err := chain.OpenRepository(dir)
 	if err != nil {
 		return err
@@ -475,11 +542,16 @@ func mergedTree(ctx context.Context, dir string, repo *git.Repository, feature r
 	if err != nil {
 		return nil, err
 	}
-	return treeWriter(merge.Fold(registry, localEvents, remoteEvents))
+	state, err := merge.Fold(registry, localEvents, remoteEvents)
+	if err != nil {
+		return nil, err
+	}
+	return treeWriter(state)
 }
 
 // metaMergeFiles picks the config.json of whichever side declares the higher
-// schema_version, local winning a tie.
+// schema_version. Equal-version configs must have identical canonical bytes;
+// differing values require an explicit resolution instead of a directional win.
 //
 // Higher wins because schema_version is the repository's *minimum* required
 // version (docs/01-architecture.md「バージョニングと互換性」) and a tool that
@@ -490,13 +562,11 @@ func metaMergeFiles(ctx context.Context, dir, localOID, remoteOID string) (map[s
 	local, localErr := r.Show(ctx, localOID, metaConfigPath)
 	remote, remoteErr := r.Show(ctx, remoteOID, metaConfigPath)
 
-	switch {
-	case localErr != nil && remoteErr != nil:
-		return nil, fmt.Errorf("syncapp: neither side of %s has %s: %v", refspace.MetaConfigRef, metaConfigPath, localErr)
-	case localErr != nil:
-		return map[string][]byte{metaConfigPath: remote}, nil
-	case remoteErr != nil:
-		return map[string][]byte{metaConfigPath: local}, nil
+	if localErr != nil {
+		return nil, fmt.Errorf("syncapp: read local config: %w", localErr)
+	}
+	if remoteErr != nil {
+		return nil, fmt.Errorf("syncapp: read remote config: %w", remoteErr)
 	}
 
 	localVersion, err := configSchemaVersion(local)
@@ -510,38 +580,36 @@ func metaMergeFiles(ctx context.Context, dir, localOID, remoteOID string) (map[s
 	if remoteVersion > localVersion {
 		return map[string][]byte{metaConfigPath: remote}, nil
 	}
-	return map[string][]byte{metaConfigPath: local}, nil
+	if localVersion > remoteVersion {
+		return map[string][]byte{metaConfigPath: local}, nil
+	}
+	localValue, err := event.DecodeGeneric(local)
+	if err != nil {
+		return nil, err
+	}
+	remoteValue, err := event.DecodeGeneric(remote)
+	if err != nil {
+		return nil, err
+	}
+	localCanonical, err := event.Encode(localValue)
+	if err != nil {
+		return nil, err
+	}
+	remoteCanonical, err := event.Encode(remoteValue)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(localCanonical, remoteCanonical) {
+		return nil, &MetaConfigConflictError{LocalOID: localOID, RemoteOID: remoteOID}
+	}
+	return map[string][]byte{metaConfigPath: localCanonical}, nil
 }
 
 const metaConfigPath = "config.json"
 
-// configSchemaVersion reads schema_version out of a config.json blob. A
-// missing or non-numeric value counts as 0 so a malformed side never wins.
+// configSchemaVersion shares the exact positive-integer version contract used
+// by init, fold guards, and fsck. Missing, malformed, and fractional versions
+// return typed invalid-config errors; they never become version zero.
 func configSchemaVersion(blob []byte) (int, error) {
-	decoded, err := event.DecodeGeneric(blob)
-	if err != nil {
-		return 0, fmt.Errorf("syncapp: decode %s: %w", metaConfigPath, err)
-	}
-	obj, ok := decoded.(map[string]any)
-	if !ok {
-		return 0, fmt.Errorf("syncapp: %s is not a JSON object", metaConfigPath)
-	}
-	n, ok := obj["schema_version"]
-	if !ok {
-		return 0, nil
-	}
-	switch v := n.(type) {
-	case float64:
-		return int(v), nil
-	case int:
-		return v, nil
-	default:
-		// json.Number and anything else: fall back to its text form.
-		s := fmt.Sprintf("%v", v)
-		parsed := 0
-		if _, err := fmt.Sscanf(s, "%d", &parsed); err != nil {
-			return 0, nil
-		}
-		return parsed, nil
-	}
+	return projectconfig.Version(refspace.MetaConfigRef, blob)
 }

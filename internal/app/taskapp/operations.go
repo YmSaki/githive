@@ -3,6 +3,7 @@ package taskapp
 import (
 	"context"
 
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/idgen"
 )
@@ -22,16 +23,20 @@ func (s *Service) mutate(ctx context.Context, id, kind, summary string, data map
 // transition is invalid, the event is still recorded (for audit) but fold
 // ignores it and ok reports false (docs/features/task.md「ステータス機械」).
 func (s *Service) Status(ctx context.Context, id, to, note string) (ok bool, err error) {
-	data := map[string]any{"to": to}
-	if note != "" {
-		data["note"] = note
-	}
-	state, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
+	state, err := s.writer.AppendOnto(ctx, id, func(parentOID string) (*event.Envelope, string, error) {
+		from, err := s.statusAtParent(parentOID)
+		if err != nil {
+			return nil, "", err
+		}
+		data := map[string]any{"from": from, "to": to}
+		if note != "" {
+			data["note"] = note
+		}
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
 			V: event.SchemaVersion, Kind: "task.status", ID: eid, TS: ts,
 			Entity: id, Data: data, Extra: map[string]any{},
-		}, "task.status: -> " + to
+		}, "task.status: " + from + " -> " + to, nil
 	})
 	if err != nil {
 		return false, err
@@ -71,6 +76,16 @@ func (s *Service) Edit(ctx context.Context, id string, title, body, due, priorit
 
 // Link adds or removes a {rel,id} link (rel is "task"/"issue"/"chat").
 func (s *Service) Link(ctx context.Context, id, rel, linkedID string, remove bool) error {
+	resolved, err := s.ResolveID(ctx, id)
+	if err != nil {
+		return err
+	}
+	linkedID, err = idresolve.Related(ctx, s.Dir, rel, linkedID, false)
+	if err != nil {
+		return err
+	}
+	id = resolved
+
 	data := map[string]any{"rel": rel, "id": linkedID}
 	if remove {
 		data["remove"] = true

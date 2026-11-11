@@ -1,0 +1,27 @@
+{
+  "events": [
+    {
+      "v": 2,
+      "kind": "issue.edit",
+      "id": "01j8xq4d3nbz9k7w2m5e8h1t62",
+      "ts": "2026-07-04T12:00:00.000Z",
+      "actor": "a@example.com",
+      "entity": "01j8x0a2b3c4d5e6f7g8h9j0ka",
+      "data": {
+        "title": "A"
+      }
+    },
+    {
+      "v": 2,
+      "kind": "issue.edit",
+      "id": "01j8xq4d3nbz9k7w2m5e8h1t62",
+      "ts": "2026-07-04T12:00:00.000Z",
+      "actor": "b@example.com",
+      "entity": "01j8x0a2b3c4d5e6f7g8h9j0ka",
+      "data": {
+        "title": "A"
+      }
+    }
+  ],
+  "conflicting": true
+}

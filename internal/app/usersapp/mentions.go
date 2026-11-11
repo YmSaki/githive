@@ -3,6 +3,8 @@ package usersapp
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
 )
 
 // MentionTargets resolves an @name from a chat body into notify targets
@@ -44,4 +46,47 @@ func MentionTargets(ctx context.Context, dir, name string) ([]string, error) {
 		return targets, nil
 	}
 	return nil, fmt.Errorf("%w: %q is neither a user nor a group", ErrUserNotFound, name)
+}
+
+// Membership returns who "me" is for email when reading notifications
+// (docs/features/notify.md「未読の判定」): every email of the registry user(s)
+// that list email, and the groups those users belong to. A group member is
+// matched by username or by any of the user's emails. An email the registry
+// does not know yields just itself and no groups.
+func Membership(ctx context.Context, dir, email string) (emails, groups []string, err error) {
+	users, groupList, _, err := New(dir).List(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	emails = []string{email}
+	ids := map[string]bool{email: true}
+	for _, u := range users {
+		userEmails := asStringSlice(u["emails"])
+		if !slices.Contains(userEmails, email) {
+			continue
+		}
+		if name, _ := u["username"].(string); name != "" {
+			ids[name] = true
+		}
+		for _, e := range userEmails {
+			if !ids[e] {
+				ids[e] = true
+				emails = append(emails, e)
+			}
+		}
+	}
+	for _, g := range groupList {
+		name, _ := g["name"].(string)
+		if name == "" {
+			continue
+		}
+		for _, member := range asStringSlice(g["members"]) {
+			if ids[member] {
+				groups = append(groups, name)
+				break
+			}
+		}
+	}
+	sort.Strings(groups)
+	return emails, groups, nil
 }

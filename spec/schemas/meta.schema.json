@@ -11,7 +11,7 @@
         "schema_version": {
           "type": "integer",
           "minimum": 1,
-          "description": "config.json の schema_version。イベント封筒の v とは別物（docs/02-data-model.md「meta/config ref」）。現行の書き手は常に 1（internal/app/initapp.SchemaVersion）。"
+          "description": "config.json の schema_version。イベント封筒の v とは別物（docs/02-data-model.md「meta/config ref」）。書き手は internal/app/initapp.SchemaVersion を書く（ADR-0018「リポジトリ schema_version」）。"
         },
         "project": {
           "type": "string",

@@ -60,6 +60,7 @@ canonical-compact/ は同じく入力値と圧縮形（encode_compact_line、doc
 ordering/ は ULID の辞書順ソートに関するケースを持つ。events_common.sort_events（の ID 抽出版）で再検証する。
 fold-issue/・fold-task/・fold-chat/・fold-notify/・fold-users/ は、イベント列と期待される fold 結果（上の対応表を参照）のペアを持つ。
 イベント順をシャッフルしても同じ結果になることを、これらのベクタで確認できる。
+schema-negative/ は、スキーマが拒否すべき不正イベントを 1 件ずつ持つ（description と event）。validate.py は、各イベントが envelope か kind のスキーマのどちらかで拒否されることを確認する。正しいイベントを通す検証だけでは、スキーマが何も拒否しなくなっても PASS してしまうためである。
 meta-events/ は fold ベクタではない。実際に `githive init` を実行して得た `meta.init` イベント実例を events 配列 1 件だけ持ち、run_schema_validation の対象として envelope + meta.schema.json による検証のみを受ける（fold が無いため run_fold_validation の対象外）。
 
 ## validate.py の実行方法
@@ -86,3 +87,9 @@ fold の結果は、上の対応表のとおり spec/vectors/fold-<kind>/*.json 
 JSON の構造比較では、キーの順序ではなく値の等価性で比較してよい。
 ただし canonical JSON エンコードの出力そのものは、キー順序を含めて byte 一致が必要である。
 ULID の辞書順ソートは spec/vectors/ordering/*.json を internal/core/event.SortEvents（materialize.Registry.Fold が実際に呼ぶのと同じ関数）に通して検証すること（internal/core/event/envelope_test.go の TestOrderingVectors）。
+
+## Domain validation（受け入れ境界）
+
+`vectors/domain-validation/01-users-key-order.json` は ADR-0027 の user_set/key_add/key_revoke の依存順序と pub の一致を固定する。Go の `event.ValidateEntityOrder` と Python の `reference/domain_validation.py` が同じ正例・負例を検査する。`validate.py` は元の入力順と逆順の両方で判定する。
+
+これは fold の仕様変更ではない。旧履歴がどのように無視されるかを示す既存の fold ベクタは保持し、取り込み時にその危険な履歴を拒否する検査を別に置く。鍵材は既存 users API と同じ先頭2フィールド（型 + base64 token）とし、暗号鍵パーサーの新設は含まない。Go `strings.Fields` の Unicode 空白集合を Python 側でも明示して、コメント・空白違いによる判定差を作らない。

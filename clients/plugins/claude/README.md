@@ -12,6 +12,9 @@ it's on `PATH`:
 go install github.com/ymsaki/githive/cmd/githive@latest
 ```
 
+Requires Go 1.25+ and Git 2.34+. See [installation and updates](../../../docs/installation.md)
+for PATH setup, revision checks, and removing the executable while keeping repository data.
+
 ## Contents
 
 - `.claude-plugin/plugin.json` - plugin manifest.

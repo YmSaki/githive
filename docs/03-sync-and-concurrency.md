@@ -29,6 +29,8 @@ sync(ref):
 
 - マージの計算は一時オブジェクトとして行い、ローカル ref の更新は最後の 1 回の compare-and-swap（`update-ref` の旧値検証つき更新）だけにする。途中でプロセスが落ちても ref は旧状態のまま残る。
 - 同一マシンで複数の githive プロセス（例：人間の CLI と Agent の MCP）が同じ ref に書く場合も、この CAS が衝突を検出し、負けた側は読み直して再適用する。
+- sync の初回取得・fast-forward・マージでローカル CAS に負けた ref も、push 競合と同じ回数制限の中で再計画する。処理済み ref の結果は保持し、上限に達した競合は終了コード 3 で返す。
+- 同じリポジトリディレクトリのイベント追記と sync のマージは、`chain.LockRepository` を共有して go-git のオブジェクト書き込みを直列化する。このロックはプロセス内だけに作用し、別プロセスとの競合には引き続き CAS が必要である。
 
 ### 共通祖先が無い場合
 
@@ -36,7 +38,9 @@ sync(ref):
 event-union マージは空状態を共通祖先とみなし、通常どおり和集合で合流する。
 例外は users/registry で、信頼の根が 2 つある状態は自動解決しない。`githive.trust.root` の pin と一致する側を正とし、pin が無ければ検証エラーとして人間の判断を求める（[11](11-security.md)）。
 
-「信頼の根が 2 つ」の判定は**ゼロ親コミットの本数ではなく共通祖先の有無**で行う。過去に正当な合流を経たチェーンは履歴内に複数のルートを含みうるが、ローカルとリモートの head に共通コミットがあれば正常な分岐である。`git merge-base` が共通祖先を返さないときだけ、2 つの無関係な台帳とみなす。
+「ローカルとリモートが無関係な 2 つの台帳か」の判定は共通祖先の有無で行う。`git merge-base` が共通祖先を返さないときは、下記の pin による決着に進む。
+
+共通祖先がある場合（fast-forward・通常のマージ）と、ローカルに registry がまだ無い初回取り込みでも、**取り込む側の履歴に含まれるルートが信頼済みのルートに収まること**を確認する。信頼済みのルートは、pin があれば pin、無ければローカル側のルートである。ローカルに registry が無く pin も無い初回は、ルートが 1 本なら TOFU で受け入れ、2 本以上なら拒否する。これは、正規の head を第 1 親にしたマージで無関係な台帳を接ぎ木する攻撃（fast-forward に見えるため共通祖先の判定をすり抜ける）を止めるためである。拒否は `trust_root_conflict`（`error.data` は同じ形）で、ローカル ref は動かさない。sync は無関係な台帳を自動で合流させないので、正常な運用で registry の履歴に複数のルートが入ることは無い。
 
 決着のしかたは pin 次第である。
 
@@ -55,6 +59,7 @@ event-union マージは空状態を共通祖先とみなし、通常どおり�
 - sync とマージは、now + 5 分を超える ts のイベントを警告付きで受け入れる（hosted モードでは拒否できないため検出に留める。未実装。Horizon 2 以降、[13-roadmap.md](13-roadmap.md) P4）。
 - forge は now + 5 分を超える ts のイベントを含む push を拒否する（[12](12-forge-server.md)。forge 自体が未実装。Horizon 4、[13-roadmap.md](13-roadmap.md) P8）。
 - ULID 生成器はプロセス内で単調性を保証する（同一ミリ秒内の連番、時計巻き戻り時は前回値+1）。
+- 通常の変更追記の ID が、同じチェーンで既知の非 checkpoint イベントの最大 ID 以下なら、`clock_skew`（終了コード 5、再試行不可）で保存前に拒否する。元の操作と本文は保存されていないため、元の端末と自端末の時計を確認し、新しい ID が既知の履歴より後になる状態で操作を再実行する（[ADR-0026](adr/0026-reject-lossy-event-order.md)）。
 
 ## event-union マージ
 
@@ -80,7 +85,7 @@ CRDT の用語では、イベント集合を grow-only set とする operation-b
 
 - kind は `<機能>.checkpoint`。data に「この時点の完全な状態」（state。meta / collections / scratch の 3 部構成）と、「event_count」「直前ヘッドコミット OID（head）」「包含する全イベント ID の最大値（max_event_id）」を持つ（[ADR-0013](adr/0013-checkpoint-envelope-convention.md)、[ADR-0016](adr/0016-checkpoint-read-shortcut.md)）。
 - チェックポイント以降のイベントだけ fold すれば現在状態を再構成できる。読み出し側は `internal/app/entitychain` がこれを行う。
-- 近道が成立する条件は 3 つある（[ADR-0016](adr/0016-checkpoint-read-shortcut.md)）。head からチェックポイントまでの経路が線形であること、state が復元できること、チェックポイント以降の全イベントの ID が `max_event_id` より大きいこと。ひとつでも欠ければ黙ってルートまでの全走査に落ちる（結果は同じで、遅いだけ）。
+- 近道が成立する条件は 4 つある（[ADR-0016](adr/0016-checkpoint-read-shortcut.md)）。head からチェックポイントまでの経路が線形であること、state が復元できること、チェックポイント以降の全イベントの ID が `max_event_id` より大きいこと、`data.head` がチェックポイントコミットの実際の親と一致すること。ひとつでも欠ければ黙ってルートまでの全走査に落ちる（結果は同じで、遅いだけ）。
 - 作成条件：直前のチェックポイントから 500 イベント、または 90 日経過。`githive fsck --compact` が作成する。
 - チェックポイントは履歴を削除しない。単なる読み出しの近道である。`githive log` のようにイベント列そのものを必要とする読み手は近道を使わない。
 
@@ -91,9 +96,13 @@ CRDT の用語では、イベント集合を grow-only set とする operation-b
 
 ## shallow / partial clone との関係
 
-- `--depth 1` の fetch でも、先頭コミットのツリーに現在状態が完全に含まれるため、一覧と閲覧は動く。
+- issue/task/chat の一覧・Show、notify/users の一覧、status、whoami は `--depth 1` でも head tree の読み取り専用 view を表示する。CLI/MCP の data は `read_source: "snapshot"`・`history_complete: false`・`verified: false` を明示し、人間向け CLI は警告する。これは履歴や署名の検証ではない（[ADR-0028](adr/0028-shallow-read-views.md)）。完全な履歴がある通常応答は変えない。
 - 履歴表示、検証（署名、チェーン整合）、分岐マージは深い履歴を要求する。必要時に `git fetch --deepen` で追加取得する。
-- ツールは「浅い履歴しかない」状態を検出し、自動 deepen するか、明示的なエラーで知らせる（未実装。Horizon 2 以降、[13-roadmap.md](13-roadmap.md) P4）。
+- Markdown のコメント・ノート・メッセージは、元の本文の末尾に LF を補った投影であり、元が `x` と `x\n` のどちらかを区別できない。snapshot view は保存された本文を trim せず返し、各本文に `body_source: "rendered_markdown"` を付ける。元のイベント本文との byte 一致は保証しない。issue/task の body.md と JSON/JSONL の値はそのまま返す。ツリー形式や fold 規則は変更しない。
+
+- 参照解決・書き込み・署名・log・verify・fsck・merge は view を使わない。対象 project ref に到達可能な shallow 境界がある場合、`shallow_history`（CLI 終了5）と復旧案内を返す。書き込みは別の浅い registry にも依存させないため、project refs の履歴が不完全なら新規チェーンの作成も拒否する。ソースブランチだけが浅く project refs が完全な場合は阻害しない。
+
+- 自動 deepen・remote の推測・閲覧時の通信は行わない。必要に応じて、利用者が意図する設定済み remote を選び `git fetch --unshallow <remote> '+refs/projects/*:refs/projects/*'`（または `--deepen`）で履歴を補う。普通の破損や、不正な snapshot からの自動 fallback はしない。
 
 ## notify ストリームの競合特性
 
@@ -120,3 +129,16 @@ event-union マージは通知の性質（追記のみ、順序の厳密性が�
 - GitHub / GitLab は任意の refs 名前空間の push を受け付ける（`refs/pull/*` 等の予約名前空間を除く）。`refs/projects/*` は安全に使える。
 - ホスティングの Web UI にはこれらの ref は表示されない。閲覧はローカルで行う。
 - サーバー側フックが使えないため、push の直列化や検証はできない。整合性はこの章のクライアント側マージと、署名検証（[11](11-security.md)）で担保する。
+
+
+### checkpoint の容量上限
+
+checkpoint を含む全イベントに、canonical JSON 256 KiB の上限とネスト128段の上限を適用する（[ADR-0021](adr/0021-strict-json-and-event-bounds.md)）。完全な state が上限を超える場合、compact は対象 ref と元の履歴を変更せずエラーを返す。checkpoint を作れなくても、通常の全走査による読み取り・追記は続けられる。
+### イベント ID 衝突時の同期
+
+同一 ID で canonical bytes の異なる封筒が両側または片側の履歴にある場合、`conflicting_event_id` としてその ref の同期を拒否する。fast-forward も検証対象で、失敗した ref は更新しない。他の正常な ref の処理は継続する。内容が一致するコピーは和集合で一つに数える（ADR-0023）。
+
+
+### meta/config の同版競合
+
+同じ schema_version の config.json が canonical 化後も異なる場合、sync は `meta_config_conflict` で対象 ref を変更せず停止する。両側の OID を調べ、両方を親に持つ解決コミットを作ってから再同期する（[ADR-0025](adr/0025-meta-config-conflict.md)）。同じ設定は自動合流し、異版は従来どおり大きい版を採る。対応していない schema_version は合流より前に拒否する。

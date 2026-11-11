@@ -75,13 +75,18 @@ func newVerifyCmd() *cobra.Command {
 					for _, iss := range r.Issues {
 						fmt.Printf("  %s %s: %s\n", shortID(iss.CommitHash), iss.Code, iss.Message)
 					}
+					for _, warning := range r.Warnings {
+						fmt.Printf("  warning %s: %s\n", warning.Code, warning.Message)
+					}
 				}
 			}
 			if !ok {
 				return &verifyFailedError{reports: reports}
 			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"reports": reportsToAny(reports)}, nil)
+				if err := cliout.PrintSuccess(map[string]any{"reports": reportsToAny(reports)}, nil); err != nil {
+					return err
+				}
 			}
 			return nil
 		},
@@ -103,6 +108,13 @@ func reportsToAny(reports []verifyapp.RefReport) []any {
 			"commit_count":    r.CommitCount,
 			"trust_root_hash": r.TrustRootHash,
 			"issues":          issues,
+		}
+		if len(r.Warnings) > 0 {
+			warnings := make([]any, len(r.Warnings))
+			for j, warning := range r.Warnings {
+				warnings[j] = map[string]any{"commit": warning.CommitHash, "code": warning.Code, "message": warning.Message}
+			}
+			out[i].(map[string]any)["warnings"] = warnings
 		}
 	}
 	return out

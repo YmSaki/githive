@@ -63,7 +63,9 @@ func newDoctorCmd() *cobra.Command {
 				return &environmentUnhealthyError{checks: report.Checks}
 			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"checks": checksToAny(report.Checks)}, nil)
+				if err := cliout.PrintSuccess(map[string]any{"checks": checksToAny(report.Checks)}, nil); err != nil {
+					return err
+				}
 			}
 			return nil
 		},

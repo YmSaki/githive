@@ -36,7 +36,7 @@ P3（署名）まで到達すると他者と安心して共有できる状態に
 - **Horizon 1（賭けの検証）**：P0、P1、P2、P5。Agent が clone 直後に文脈を持てる体験を最短で成立させ、実際の Agent 運用で検証する。ここまでが確定コミットメント。
 - **Horizon 2（他者と使える化）**：P3、P4。署名・検証・wiki・運用コマンド。Horizon 1 の検証が有望な場合に進む。
 - **Horizon 3（需要駆動のクライアント）**：P6（TUI）、P7（VSCode 拡張）。需要が見えてから着手する。
-- **Horizon 4（構想）**：P8〜P11（forge、LFS、CI）。設計文書（[12](12-forge-server.md)）は資産として維持する。現時点ではコミットメントではないが、着手する場合は同じリポジトリ・同じ Go モジュールで作り、バイナリを分ける（[ADR-0019](adr/0019-forge-in-monorepo.md)）。
+- **Horizon 4（構想）**：P8〜P11（forge、LFS、CI）。設計文書（[12](12-forge-server.md)）は資産として維持する。現時点ではコミットメントではないが、着手する場合は同じリポジトリ・同じ Go モジュールで作り、バイナリを分ける（[ADR-0019](adr/0019-forge-in-monorepo.md)）。共有 core/CLI は MIT、Forge 専用部分は AGPL-3.0-or-later とする（[ADR-0010](adr/0010-licensing.md)）。
 
 ### Horizon 2 着手の判断（2026-07-10）
 
@@ -97,7 +97,7 @@ P0 --> P1 --> P2 --> P5 --> P3 --> P4
 
 各フェーズ開始時に、このドキュメントと対象設計書（12、15）から同粒度の作業分解を起こす。
 P8 以降は forge の詳細設計（12a: CI 仕様、12b: Web UI 仕様）を先行して書く。
-リポジトリ構成・バイナリ分割・Web UI のビルドと CI の方針は [ADR-0019](adr/0019-forge-in-monorepo.md) で確定済みである。P8 の pre-receive のうち署名・スキーマ・ツリー照合は、監査（#67）で見つかった検証側の不具合が直ってから着手する（同 ADR「帰結」）。
+リポジトリ構成・バイナリ分割・Web UI のビルドと CI は [ADR-0019](adr/0019-forge-in-monorepo.md) に従う。P8 の最初の実装 PR で、[ADR-0010](adr/0010-licensing.md) のファイル別ライセンス表示・依存分離・対応ソース/notice を検査する。pre-receive の署名・スキーマ・ツリー照合は、監査（#67）で見つかった検証側の不具合の修正と回帰検証を確認し、同 ADR に列挙した範囲 API・隔離領域の設計を決めてから着手する。
 
 ### P4 着手中：設計書に記載があるが未実装の項目
 
@@ -125,4 +125,4 @@ policy.json のルール評価（[00-vision.md](00-vision.md)「動作モード�
 | forge とクライアントの検証ロジック乖離 | 検証は core に置き、pre-receive はそれを呼ぶだけにする（P8 の構造要件） |
 | IDE の自動 fetch によるローカル ref 破壊 | 追跡名前空間の分離で設計段階で解消済み（[ADR-0008](adr/0008-remote-tracking-separation.md)）。シナリオ 7 で回帰防止 |
 | チェックポイントがマージでイベントを消す | 「fold ではチェックポイントを常に無視」を規則化（[03](03-sync-and-concurrency.md)）。シナリオ 8 で回帰防止 |
-| ツールのバージョン混在による実体化分岐 | fold 意味論の変更に schema_version 昇格を必須化（[01](01-architecture.md)） |
+| ツールのバージョン混在による実体化分岐 | fold 意味論の変更に封筒 v とリポジトリ schema_version の両方の昇格を必須化し、読み書きと sync の前に検査（[01](01-architecture.md)、[ADR-0018](adr/0018-schema-version-bump-rule.md)） |

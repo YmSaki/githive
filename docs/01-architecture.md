@@ -59,17 +59,19 @@ githive/
   clients/
     plugins/            # Claude plugin / Codex plugin のマニフェストとテンプレート
     # vscode/ は未着手（Horizon 3、P7）。存在しない
-  # web/ は未着手（forge の Web UI。React ソースと go:embed 用パッケージ。ADR-0019）
+  # web/ は未着手（forge Web UI のソースと go:embed パッケージ。ADR-0019）
   docs/
 ```
 
 MCP サーバーは現状 `cmd/githive/mcp.go` に実装されており、独立パッケージ（`internal/mcpserv` 等への分離）にはなっていない。分離は将来のリファクタ候補であり、コミットメントではない。
 `internal/tui/` と `clients/vscode/` は Horizon 3（P6/P7）に対応し、現時点では未着手（ディレクトリ自体が存在しない）。
-`internal/forge/` と `web/` は Horizon 4（P8〜）に対応し、同じ Go モジュールに置く（[ADR-0019](adr/0019-forge-in-monorepo.md)）。`internal/forge` はクライアント層に属し、`core`・`app` から import してはならない。
+
+`internal/forge/` と `web/` は Horizon 4（P8〜）の未実装部分であり、同じ Go モジュールに置く（[ADR-0019](adr/0019-forge-in-monorepo.md)）。共有 core/app とクライアントは MIT、Forge 専用部分は将来 AGPL-3.0-or-later とし、[ADR-0010](adr/0010-licensing.md) の適用表示・配布境界に従う。
 
 ## 依存規則
 
 - `core` は `app` と クライアント層を import しない。
+- `core` と `app` は `internal/forge` を import しない。MIT のクライアントも Forge 専用コード・`web/` を依存に含めず、共用する処理は MIT の core/app に置く。
 - `core/materialize` と `core/merge` は純粋関数として書く。I/O（git 読み書き）は `chain` に隔離する。
 - 通信（fetch/push/clone）は `gitx` 経由で system git を呼ぶ。go-git はローカルのオブジェクト・ref 操作にのみ使う（理由は [ADR-0002](adr/0002-go-and-hybrid-git-access.md)）。
 - クライアント層は `app` のサービスだけを呼ぶ。`core` を直接呼ばない。
@@ -131,11 +133,14 @@ githive はワークツリーを使わない。
 
 ## バージョニングと互換性
 
-- イベント封筒に `v`（現在は 2）を持たせる。フィールド追加は同一バージョン内で許し、意味変更・削除はバージョンを上げる。
-- 読み手は未知フィールドを保存したまま無視する（forward compatible）。未知の `v` は読み取り拒否し、ツールの更新を促す。
-- `refs/projects/meta/config` の `schema_version` はリポジトリ全体の最低要求バージョンを表す。
-- **fold 意味論の変更（同じイベント集合から異なる実体化ツリーが生まれる変更）は、schema_version の昇格を必須とする**。この規則が無いと、新旧ツールの混在チームで実体化ツリーが分岐し、verify が偽の改竄検出をする。fold の互換性は golden テスト（[14](14-testing.md)）で機械的に守る。
-- Go モジュールはツール本体のバージョンで、データスキーマはこの `v` と `schema_version` で、それぞれ独立に管理する。
+データスキーマのバージョンは 2 つあり、文書では必ずどちらかを明示する（[ADR-0018](adr/0018-schema-version-bump-rule.md)）。現在値はコード（下記の定数）と spec スキーマが正で、文書には直書きしない。
+
+- **封筒 v**：イベント封筒の `v`。書き手は `event.SchemaVersion` を書き、読み手は `event.MinSchemaVersion` 以上 `event.SchemaVersion` 以下を受理する。フィールド追加は同一バージョン内で許し、意味変更・削除はバージョンを上げる。
+- 読み手は未知フィールドを保存したまま無視する（forward compatible）。未知の（より新しい）`v` は読み取り拒否し、ツールの更新を促す。
+- **リポジトリ schema_version**：`refs/projects/meta/config` の `config.json` の `schema_version`。リポジトリ全体の最低要求バージョンを表す。このビルドが対応する最大値は `initapp.SchemaVersion`。
+- fold を行う操作（書き込み、`show` などの読み取り、sync のマージ）は、先にリポジトリ schema_version を検査し、自分の対応より新しければ拒否する（終了コード 5）。sync はローカルと追跡側の両方を、マージの前に検査する。
+- **fold 意味論の変更（同じイベント集合から異なる実体化ツリーが生まれる変更）は、封筒 v とリポジトリ schema_version の両方の昇格を必須とする**。既存 feature の reducer にツリーへ影響する kind を追加することも含む（旧ツールは未知の kind を無視するため）。この規則が無いと、新旧ツールの混在チームで実体化ツリーが分岐し、verify が偽の改竄検出をする。封筒 v だけでは、旧い v のイベントだけでできたチェーンの分岐を防げない。手順は [determinism ルール](../.claude/rules/determinism.md) と [ADR-0018](adr/0018-schema-version-bump-rule.md) に従う。fold の互換性は golden テスト（[14](14-testing.md)）で機械的に守る。
+- Go モジュールはツール本体のバージョンで、データスキーマは封筒 v とリポジトリ schema_version で、それぞれ独立に管理する。
 
 ## プラットフォーム
 

@@ -5,7 +5,7 @@
 - コマンド名は `githive`。cobra でサブコマンドを構成する。
 - 人間向け出力と `--json` は同じ情報を持つ。Agent は `--json` を使う。
 - すべての操作はローカル完結で成功し、同期の失敗は警告として分離報告する（[01](01-architecture.md)）。
-- 書き込み系コマンドは既定で書き込み後に対象 ref を sync する。`--no-sync` で抑止。
+- 書き込み系コマンドは既定で書き込み後に対象 ref と notify/stream をまとめて sync する。担当変更・再割当・メンションが生成した通知も相手に届く。ストリームが無ければ送信は増えない。`--no-sync` は両方を抑止する（[ADR-0024](adr/0024-cli-auto-notify-sync.md)）。
 - リポジトリの特定：`--repo <path>` またはカレントディレクトリから `.git` を探索。
 
 ## グローバルフラグ
@@ -15,12 +15,12 @@
 | --json | JSON 出力（後述の封筒形式） |
 | --repo <path> | 対象リポジトリ |
 | --no-sync | 書き込み後の自動 sync を行わない |
-| --remote <name> | 同期先 remote（既定 origin） |
+| --remote <name> | 同期先 remote（既定 origin）。設定済みの remote 名か URL・パスに限る。`-` で始まる値、空白・制御文字を含む値、未設定の remote 名は `invalid_remote`（exit 2）で拒否する。`mcp serve` に渡した値は、MCP の `sync` / `doctor` が使える唯一の remote になる |
 
 ## コマンド体系
 
 ```
-githive init [--project name]    # fetch refspec 追加、meta/config 作成（無ければ）、初回 fetch
+githive init [--project name]    # fetch refspec 追加、初回 fetch、meta/config 作成（リモートにも無ければ）
                                  # --project 省略時はリポジトリのディレクトリ名
 githive sync [--kind issue,...]  # fetch -> merge -> push（[03] のアルゴリズム）。wiki は fetch と fast-forward のみ（[ADR-0017](adr/0017-wiki-and-meta-sync.md)）
 githive status                   # 未 push の ref、未読 notify、自分の doing task の要約
@@ -43,7 +43,27 @@ githive tui                            # TUI 起動（[15]）
 githive mcp serve                      # MCP サーバー起動（[15]）
 ```
 
+`githive init` の手順（[02](02-data-model.md)「meta.init イベント」、issue #101）：
+
+1. identity を確認する。解決できなければ、何も書かずに終了コード 5 で止まる。
+2. `--remote`（既定 origin）が存在すれば、追跡 refspec を追加する。存在しなければ refspec を追加せず、警告を出してローカルだけのプロジェクトとして続ける（URL の無い `remote.<name>.fetch` を作ると、後の `git remote add` が失敗するため）。
+3. `core.logAllRefUpdates` を設定する。
+4. remote があれば `refs/projects/` を fetch し、その remote に無い追跡 ref を prune してから、ローカルに無い ref をリモートの値で作る（meta/config を含む）。clone 直後でも、init の直後からデータを読める。既にローカルにある ref には触らない（sync が扱う）。
+5. この時点でローカルに meta/config が無いときだけ、新しく作る。fetch に失敗し、ローカルにも meta/config が無い場合は、リモートに既存のプロジェクトがあるかを判断できないので、作らずにエラーで止まる。
+6. remote が設定され、新しい meta/config を作成した場合は、その ref を自動同期する。`--no-sync` は送信を抑止する。送信に失敗してもローカルの初期化を保持して成功を返し、`sync_failed` 警告を出す。ネットワーク回復後は `githive sync` で送信できる。
+
+`--json` の `data` は `refspec_added`・`log_all_ref_updates`・`meta_config_made` に加えて、`remote`（`name`・`configured`・`fetched`・`has_meta_config`・`adopted_refs`）を返す。
+
+
 機能別サブコマンドの引数は各機能仕様に記載済み。
+
+### 書き込み入力の検証
+
+issue/task/chat の新規作成・編集では、指定された空の title を拒否する。編集フィールドの省略は従来どおり受け付ける。status は各機能の既知の値だけを受け付ける。task の priority は low/normal/high、due はスキーマの `YYYY-MM-DD` パターンに従う（暦上の実在日の検査ではない）。issue/task の link は rel=task/issue/chat と完全な小文字 ULID を要求し、issue comment / chat post の reply_to・supersedes も指定時は完全な小文字 ULID を要求する。この検証は CLI と MCP が共有する app 書き込み経路で行い、不正な入力はイベントを追記せず拒否する。CLI は `invalid_input`、終了コード 2 を返す。
+
+notify は非空の title と宛先配列を要求し、宛先は `user:<email>`・`group:<有効なグループ名>`・`all` の形式に限る。source は指定時に kind 文字列と完全小文字 ULID の id を要求する。users の kind は human/agent、status は active/suspended、ユーザー・グループ名とグループのメンバー名はスキーマの名前規則に従う。これらも同じ app 書き込み経路で検証する（グループの存在確認や source.kind の列挙制約は追加しない）。
+
+未知の status と、既知の status 間の不正な遷移は区別する。後者は従来どおり監査イベントを記録し、fold が遷移を無視する（`applied:false` と警告）。既存イベントの fold 規則は変えない。読み取り境界では、ツリーのパスに使えない users の username/group name を含む履歴を破損データとして明示的に拒否し、無言の無視や補正は行わない。この入力検証は全 kind の JSON Schema 検証ではなく、users の他フィールドや一覧フィルタなどは別の検証範囲である。
 
 ### `githive log --since` の完全性について
 
@@ -70,7 +90,11 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 
 - `data` の形は「コマンド名 + スキーマバージョン」で安定させ、破壊的変更をしない。
 - 一覧系は `{ "items": [...], "total": n }` で統一する。例外は `githive users list` で、users/groups/policy という 3 種類の異なる一覧を同時に返す都合上 `{ "users": [...], "groups": [...], "policy": {...} }` の形をとる（[features/users.md](features/users.md)）。
-- ID は常に完全形（26 文字）で出力する。短縮は入力時のみ受け付ける。
+- `sync` の各 item は `ref` と `action` を持ち、対処を要する警告がある場合は `warning` も持つ。成功時は封筒の `warnings` にも同じ警告を返す。
+- 信頼の根の解決では `local_oid`・`remote_oid`・`backup_ref`・`recovery` と `published:false`・`local_write_preserved` を返す。local を保持する解決はローカルの書き込みを保存するが、その台帳を remote に配送したことにはならない。MCP の明示 sync も同じ結果情報を返す（MCP 書き込みは引き続き自動 sync しない）。
+- CLI 書き込み後の自動 sync も、成功経路の warning と部分配送結果を保持する。通信失敗でローカルの書き込みが残る場合は従来どおり成功と `sync_failed` warning を返し、warning の `data` に処理済み ref・`local_written`・`local_write_preserved`・書込対象の `published`・`delivery_complete:false` を含める。pin による remote 台帳採用で直前の書き込みが現在の ref から外れた場合は、`local_write_replaced`（終了1、`retryable:false`）と具体的な OID・回復案内を返す。remote 台帳採用の前に、旧 tip を `refs/githive-recovery/users/<old_oid>` へ CAS で永続退避する。保存済みの同じ OID は再利用し、異なる OID・保存失敗なら採用しない。このローカル専用 ref は自動送信せず、reflog の期限・GC に依存しない。回復案内は退避 ref の閲覧と別ブランチ作成を示し、現在の台帳や既存ブランチを上書きしない（ADR-0033）。
+- `sync` が一部の ref だけで失敗しても、処理済み ref の `items`・`total` と `warnings` を `error.data` に返す。既存のエラーコード・`retryable`・復旧手順は保持する。人間向け出力にも処理済み ref と警告を表示してからエラーを報告する。
+- JSON の ID は常に完全形（26 文字）で出力する。人間向け issue/task/chat list の ID 列は、同 feature の全ローカル ref に対して一意な最短の前方一致（最低 8 文字、最大 26 文字）を表示する。archived やフィルター非表示の ref も比較する。作成結果・show の主 ID は完全形のまま。show のコメント／note／message ヘッダにも一意なイベント ID を表示し、chat --tail では表示外のメッセージも候補に含める。その他の装飾的短縮表示や notify/status/log の表示列は、この一覧 ID 列の保証範囲に含めない（[ADR-0031](adr/0031-unambiguous-entity-list-ids.md)）。
 
 ## 終了コード
 
@@ -79,13 +103,18 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 | 0 | 成功（警告があっても成功は 0） |
 | 1 | 一般エラー。push が非 fast-forward 以外の理由で拒否された場合（pre-receive フック拒否、権限エラーなど）を含み、その場合は `error.code: "push_rejected"`、`retryable: false`（再試行しても成功しない。非 fast-forward の競合は 3 を参照） |
 | 2 | 使い方の誤り（引数、未知フラグ） |
-| 3 | 同期の競合再試行が尽きた（ローカルは保存済み、再実行可能） |
+| 3 | 同期の競合再試行が尽きた（ローカルは保存済み、再実行可能）。wiki の内容競合も含むが、`wiki_conflict` は人による解消を要するため `retryable:false` とする |
 | 4 | 検証失敗（署名不正、スキーマ違反の検出）。`githive sync` が users 台帳に無関係な 2 つの信頼の根を見つけ、`githive.trust.root` の pin で決着できない場合を含み、その場合は `error.code: "trust_root_conflict"`、`error.data` に両側のルート OID と復旧手順（`recovery`）を入れる（[03](03-sync-and-concurrency.md)「共通祖先が無い場合」） |
-| 5 | 環境不備（git が古い、リポジトリでない、schema_version 非対応） |
+| 5 | 環境不備（git が古い、リポジトリでない、schema_version 非対応、時計ずれで新しいイベントが既知の履歴より後に並ばない）。`clock_skew` は保存前に失敗し、既知の ID・時刻と復旧手順を返す |
+
+issue/task/chat の生の履歴に create より前の変更や異なる複数 create がある場合、および users の鍵依存順序・pub 一致に違反する場合は、`event_order_violation`（終了コード 4、再試行不可）として扱う。イベントや履歴は自動修正しない（[ADR-0026](adr/0026-reject-lossy-event-order.md)、[ADR-0027](adr/0027-reject-ignored-users-key-events.md)）。
 
 ## ID の入力解決
 
-- 完全 ULID、先頭 8 文字以上の前方一致を受け付ける。
+- ULID の入力は大文字・小文字を区別せず、小文字の完全 ID に正規化する。issue/task/chat の主 ID、link の参照先、issue comment / chat post の reply_to・supersedes、既知の source.kind（issue/task/chat）の source.id は、一意な 8 文字以上の前方一致を解決する。
+- link と source の完全 ID はオフラインの未取得エンティティも指せる疎な参照として保持する。短縮 ID は指定 feature のローカル ref が必要で、別 feature の一致を代用しない。source.kind は任意の文字列を引き続き許可するが、未知 kind では解決方法が無いため完全 ID を要求する。既存の完全 ID の文字集合は変更しない。
+- reply_to・supersedes は、同じエンティティの issue.comment / chat.post（本文付き chat.create の初回メッセージを含む）イベントを対象にする。完全 ID でも未知・別エンティティ・別 kind のイベントは not_found とし、追記しない。置換済みの原文イベントは履歴から参照できる。
+- 未知の有効な前方一致は not_found、不正な文字列・8文字未満は invalid_input。解決失敗時はイベントを追記しない。notify ack は既存の投稿の完全 ID または一意な 8 文字以上の前方一致を受け付け、同じ小文字の完全形を保存する。
 - 曖昧なら候補一覧を表示して終了コード 2。`--json` 時は candidates を error.data に入れる。
 - `refs/projects/meta/counters`（forge の連番対応表、[12](12-forge-server.md)）が存在する場合は `#123` 形式も受け付け、一覧・詳細に番号を併記する。番号は別名であり、ID（ULID）が常に正である。
 
@@ -95,7 +124,7 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 |------|------|------|
 | githive.notify.auto | true | 操作に伴う自動 notify.post（[features/notify.md](features/notify.md)） |
 | githive.notify.mentions | true | chat 本文の `@username` / `@group` に伴う自動 notify.post（[features/chat.md](features/chat.md)） |
-| githive.sync.retries | 5 | push 競合の再試行回数 |
+| githive.sync.retries | 5 | 初回同期後の競合再試行回数（push 競合とローカル CAS 競合に共通）。0 は再試行なし、N は初回を含め最大 N+1 回。未設定・不正値は 5 |
 | githive.trust.root | （なし） | users 台帳の信頼の根の pin（[11](11-security.md)） |
 
 identity は git の `user.email` を、署名は git 標準の `commit.gpgsign` / `gpg.format` / `user.signingkey` をそのまま使う（[ADR-0009](adr/0009-identity-user-email.md)）。
@@ -113,8 +142,45 @@ $ githive issue show 01j8xq4d --json
 { "ok": true, "data": { "meta": { ... }, "body": "...", "comments": [ ... ] } }
 ```
 
+上の一覧例は先頭 8 文字が互いに異なる場合の表示例である。共通部分がある場合は、一意になる文字数まで ID 列と列幅が伸びる。
+
 ## ライブラリとしての利用
 
 `internal/app` の各サービスが公開 API の実体である。
 将来、外部利用向けに `pkg/githive` として安定化する（v1.0 まで internal のまま。API 凍結を急がない）。
 TUI と MCP サーバーは同一プロセス内で `app` を直接呼ぶため、CLI の JSON 層を経由しない。
+
+
+### イベントの容量超過
+
+1イベントの canonical JSON が256 KiBを超える書き込みは、終了コード2・`error.code: event_too_large` で拒否する。本文は分割するか wiki に保存する。`fsck --compact` の checkpoint が上限を超えた場合も対象 ref を進めない。外部から到着した上限超過イベントは fsck の `event_too_large` finding になる。
+### 履歴内のイベント ID 衝突
+
+同一 ID の異なる封筒を検出した読み出し・書き込み・sync は、終了コード 4、`error.code: "conflicting_event_id"`、`retryable: false` で拒否する。同じ処理を再試行するだけでは修復できないため、fsck / verify の検査結果から競合する履歴を調べる（ADR-0023）。
+
+
+### 共有設定の競合
+
+同版の異なる meta/config は `meta_config_conflict`、`retryable:false` で報告する。単なる再実行では設定を選べない。エラーが示す local/remote の OID を `git show <oid>:config.json` で調べ、[ADR-0025](adr/0025-meta-config-conflict.md) の両親を保存する解決手順に従う。
+
+### verify の破損と部分結果
+
+封筒が壊れたコミットや読めない履歴は、対象 ref の `invalid_envelope` / `walk_failed` issue として報告し、他の ref の検査結果を残す。users 台帳を完全に読み取れない場合は、その台帳を部分的に信用せず、署名を判定できない ref に `invalid_registry` を報告する。これらは終了コード4の検証失敗である。未知の `refs/projects/` ref は report の `warnings` に `unrecognized_ref` を追加し、警告だけで検証失敗にはしない。CLI JSON と MCP は同じ report 形式を使う。
+
+この部分結果の保証は、破損 ref を List 系でスキップする機能や、suspended ユーザーの「新規イベント」の時点を定義するものではない（#114 の残課題）。
+
+### イベントの data と ref の契約検査
+
+既知 kind の data は、バイナリに埋め込んだ `spec/schemas/*.json` の型・required・enum 等で検査する。通常の issue/task/chat/notify/users の共有 writer は、不正 data を保存前に `invalid_input`（終了コード2）で拒否する。Agent の不正 profile も鍵生成前に拒否する。users.roles の定義済み値は admin / member / reader である。
+
+sync / init は既知 kind の不正 data（`invalid_event_data`）や、kind と ref feature・entity と per-entity ref ID の不一致（`event_ref_mismatch`）を採用せず、終了コード4で検査を促す。fsck / verify にも対象コミットの診断を残す。users 台帳の data が検証できない場合、部分的な台帳で署名を正当化しない。
+
+未知 kind は `unknown_event_kind` 警告とし、既存の無視・保持の互換性を維持する。fsck は元のイベント本文の canonical bytes も照合し、`non_canonical_event` を報告する。未知フィールドの破棄、暦上の実在日の強制、opaque な source.kind の列挙追加は行わない（[ADR-0030](adr/0030-embedded-event-contract-validation.md)）。issue/task の有効な enum でも規則上無効な status 遷移は、実際の reducer の判定を使い `ignored_status_transition` 警告として報告する。記録済みのイベントや状態は変更せず、意図された同値更新・集合の重複排除を一般的なエラーにはしない。
+
+### 既存プロジェクト設定の版情報
+
+meta/config ref が無い init 前の day-zero は許可する。存在する ref の config.json 欠損・破損・非 object・schema_version の欠損／型違い／非整数／0 以下は、互換性不明として `invalid_config`（終了コード5）で読み書き・sync・init を拒否する。対応版を超える正の整数は従来の `schema_unsupported` とする。JSON の 1、1.0、1e0 は同じ整数版として扱い、浮動小数点丸めによる小数の切り捨てはしない。これは版情報の検査であり、meta 全 schema や過去イベントと設定 tree の一致を包括的に証明するものではない（ADR-0032）。
+
+### ファイルからの本文入力
+
+Issue の本文・コメントと Task note の `-F/--file` は、ファイル本文の末尾 LF/CRLF を保持する。公開鍵ファイルの一行正規化は鍵専用経路で行い、本文には適用しない。

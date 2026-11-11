@@ -65,6 +65,8 @@ event: 01j8xq4d3nbz9k7w2m5e8h1t6a
 | issue.link | rel, id, remove? | links 集合に適用。rel は task / issue / chat |
 | issue.checkpoint | state（meta/collections/scratch）, event_count, head, max_event_id | 読み出し起点（[03](../03-sync-and-concurrency.md)、[ADR-0013](../adr/0013-checkpoint-envelope-convention.md)） |
 
+新しい status イベントは、追記に成功したコミットの親状態を読み、監査用の `from` と要求した `to` を記録する。CAS 競合の再試行時も親状態を読み直す。`from` は遷移の可否や fold の適用条件には使わず、旧イベントに無くても読み取れる。
+
 ## CLI（対応コマンドの要約、正式仕様は [10](../10-cli-spec.md)）
 
 ```
@@ -94,3 +96,11 @@ ls-tree で comments/ を列挙し show で読む                  # コメン�
 - コメントの編集・削除は `issue.comment` の再発行ではなく、同じ event-id を `data.supersedes` で指す新コメントイベントで表す。fold は supersedes 先を置換表示扱いにする。原文はイベントログに残る。
 - issue 間の重複クローズは `issue.status` + `issue.link (rel=issue)` の組で表現し、専用イベントは作らない。
 - 番号（#123）は持たない。短縮 ULID とタイトルで参照する（[02](../02-data-model.md)）。
+
+## 時計ずれと create の保護
+
+新しい変更 ID が既知の非 checkpoint イベントの最大 ID 以下なら、通常の追記は `clock_skew` で保存前に拒否する。生の履歴の create より前の変更や異なる複数 create は `event_order_violation` として読み取り・同期を拒否し、fsck/verify で報告する。本文や作成者を黙って失うことを避けるための境界検査であり、fold や既存の履歴は変更しない（[ADR-0026](../adr/0026-reject-lossy-event-order.md)）。
+
+### 副参照 ID の入力
+
+link の linked-id と comment の reply_to / supersedes は、大文字も含む完全 ID、または一意な 8 文字以上の前方一致を受け付け、完全な小文字で保存する。link は rel の feature で解決し、完全 ID の疎なリンクは相手未取得でも保持できる。reply_to / supersedes はこの Issue 内のコメントイベントだけを参照し、未知・曖昧な入力は追記前に拒否する。短縮 ID による返信も、解決後のコメント author 宛てに通知する。

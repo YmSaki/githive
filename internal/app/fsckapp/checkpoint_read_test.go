@@ -107,7 +107,7 @@ func TestUsersStateSurvivesCheckpoint(t *testing.T) {
 	if err := svc.AddUser(ctx, "alice", "Alice", "a@example.com", "human", []string{"admin"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.PolicySet(ctx, []any{map[string]any{"ref": "refs/projects/*", "allow": "write"}}, "deny"); err != nil {
+	if err := svc.PolicySet(ctx, []any{map[string]any{"refs": "refs/projects/*", "allow": []any{"role:admin"}, "actions": []any{"push"}}}, "deny"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -208,7 +208,7 @@ func TestCompactSingletonStreams(t *testing.T) {
 				if err := svc.GroupSet(ctx, "reviewers", []string{"alice"}, "reviewers"); err != nil {
 					t.Fatal(err)
 				}
-				if err := svc.PolicySet(ctx, []any{map[string]any{"ref": "refs/projects/*", "allow": "write"}}, "deny"); err != nil {
+				if err := svc.PolicySet(ctx, []any{map[string]any{"refs": "refs/projects/*", "allow": []any{"role:admin"}, "actions": []any{"push"}}}, "deny"); err != nil {
 					t.Fatal(err)
 				}
 			},

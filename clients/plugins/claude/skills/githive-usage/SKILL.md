@@ -7,21 +7,27 @@ description: How to use githive's MCP tools to read and write a project's issues
 
 githive stores project memory (issues, tasks, chat, notifications, a users
 registry) as event-sourced commit chains under `refs/projects/*` in the same
-git repository as the code. It has no server: everything is available the
-moment the repo is cloned.
+git repository as the code. The data is fetched from the Git remote; a plain
+clone normally fetches source branches only, not project refs.
 
 ## First thing in a new session
 
-Right after opening a repository that uses githive (has a `refs/projects/`
-namespace - check with the `status` tool, or look for `.git/refs/projects`):
+Right after opening a repository that uses githive:
 
-1. Call `status` to get a fast summary: unpushed local refs, unread
-   notifications addressed to you, and your own in-progress tasks.
-2. If `status` fails because identity isn't configured, that means
-   `git config user.email` is unset in this repository - tell the user and
-   stop; every githive write requires it (this is also how githive attaches
-   an actor to every event, see `whoami`).
-3. Skim `issue_list` / `task_list` (paginated - see below) for open work
+1. For a newly cloned repository, run `githive init` once in that repository
+   using the CLI, if shell access is available. It fetches and adopts project
+   refs before creating any missing shared configuration. If shell access is
+   unavailable, explain that initialization requires the CLI; MCP has no init
+   tool. Never infer that project memory is empty from `.git/refs/projects`:
+   Git may store refs in packed-refs, and project refs may not be fetched yet.
+2. Call the MCP `sync` tool to obtain current remote project memory. If sync
+   fails, report the failure and distinguish cached local data from current
+   remote state; an empty local list does not prove the project has no work.
+3. Call `whoami` to confirm the identity used for writes. If identity is
+   missing, report the required local Git user.name/user.email configuration
+   before writing; do not invent an actor identity.
+4. Call `status` to get unpushed refs, unread notifications and your tasks.
+5. Skim `issue_list` / `task_list` (paginated - see below) for open work
    before assuming you know the project's state from files alone. githive's
    issues/tasks are the source of truth for planning discussions the user
    may expect you to already know about.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
@@ -69,10 +70,12 @@ func newTaskNewCmd() *cobra.Command {
 					return err
 				}
 			}
-			warnings := syncIfEnabled(dir, taskRef(id))
+			warnings, syncErr := syncIfEnabled(dir, taskRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"id": id}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
 			fmt.Println(id)
 			printWarnings(warnings)
@@ -101,7 +104,11 @@ func newTaskListCmd() *cobra.Command {
 				return err
 			}
 			ctx := context.Background()
-			filter := taskapp.ListFilter{Status: status, Owner: owner, Mine: mine}
+			resolvedOwner, source, err := resolveUserRefView(ctx, dir, owner)
+			if err != nil {
+				return err
+			}
+			filter := taskapp.ListFilter{Status: status, Owner: resolvedOwner, Mine: mine}
 			if mine {
 				sig, err := identity.Resolve(ctx, dir)
 				if err != nil {
@@ -110,17 +117,25 @@ func newTaskListCmd() *cobra.Command {
 				filter.ActorEmail = sig.Email
 			}
 			svc := taskapp.New(dir)
-			items, err := svc.List(ctx, filter)
+			items, ownSource, err := svc.ListView(ctx, filter)
+			if ownSource != "" {
+				source = ownSource
+			}
 			if err != nil {
 				return err
 			}
+			printViewSource(source)
 			if flags.json {
-				cliout.PrintList(items, nil)
-				return nil
+				return cliout.PrintSuccess(viewList(items, source), nil)
 			}
-			fmt.Printf("%-10s %-10s %-40s %s\n", "ID", "STATUS", "TITLE", "OWNER")
+			displayIDs, err := idresolve.DisplayIDs(context.Background(), dir, "task")
+			if err != nil {
+				return err
+			}
+			width := displayIDWidth(displayIDs, items)
+			fmt.Printf("%-*s %-10s %-40s %s\n", width, "ID", "STATUS", "TITLE", "OWNER")
 			for _, m := range items {
-				fmt.Printf("%-10s %-10v %-40v %v\n", shortID(m["id"]), m["status"], m["title"], m["owner"])
+				fmt.Printf("%-*s %-10v %-40v %v\n", width, displayID(displayIDs, m["id"]), m["status"], m["title"], m["owner"])
 			}
 			return nil
 		},
@@ -147,25 +162,26 @@ func newTaskShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return err
 			}
+			printViewSource(show.ReadSource)
 			if flags.json {
 				notes := make([]any, len(show.Notes))
 				for i, n := range show.Notes {
 					notes[i] = n
 				}
-				cliout.PrintSuccess(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, nil)
-				return nil
+				return cliout.PrintSuccess(viewData(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, show.ReadSource), nil)
 			}
+			eventIDs := itemDisplayIDs(show.Notes)
 			fmt.Printf("%v  %v  %v  owner=%v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"], show.Meta["owner"])
 			if show.Body != "" {
 				fmt.Println()
 				fmt.Println(show.Body)
 			}
 			for _, n := range show.Notes {
-				fmt.Printf("\n--- %v (%v) ---\n%v\n", n["author"], n["ts"], n["body"])
+				fmt.Printf("\n--- %s %v (%v) ---\n%v\n", displayID(eventIDs, n["id"]), n["author"], n["ts"], n["body"])
 			}
 			return nil
 		},
@@ -200,10 +216,13 @@ func newTaskStatusCmd() *cobra.Command {
 			} else if args[1] == "done" {
 				warnings = append(warnings, notifyWarnings(notifyTaskDone(ctx, dir, svc, id))...)
 			}
-			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
+			syncedWarnings, syncErr := syncIfEnabled(dir, taskRef(id), warnings)
+			if syncErr != nil {
+				return syncErr
+			}
+			warnings = syncedWarnings
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"applied": ok}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"applied": ok}, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -240,10 +259,12 @@ func newTaskNoteCmd() *cobra.Command {
 			if err := svc.Note(ctx, id, message); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, taskRef(id))
+			warnings, syncErr := syncIfEnabled(dir, taskRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -297,10 +318,13 @@ func newTaskReassignCmd() *cobra.Command {
 				warnings = append(warnings, notifyWarnings(
 					notifyapp.NotifyAssigned(ctx, dir, "task", id, selfEmail, resolvedOwner))...)
 			}
-			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
+			syncedWarnings, syncErr := syncIfEnabled(dir, taskRef(id), warnings)
+			if syncErr != nil {
+				return syncErr
+			}
+			warnings = syncedWarnings
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil
@@ -332,10 +356,12 @@ func newTaskLinkCmd() *cobra.Command {
 			if err := svc.Link(ctx, id, rel, args[1], remove); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, taskRef(id))
+			warnings, syncErr := syncIfEnabled(dir, taskRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(nil, warnings)
-				return nil
+				return cliout.PrintSuccess(nil, warnings)
 			}
 			printWarnings(warnings)
 			return nil

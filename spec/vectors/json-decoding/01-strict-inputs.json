@@ -1,0 +1,74 @@
+{
+  "cases": [
+    {
+      "name": "trailing-garbage",
+      "source": "{\"a\":1} garbage",
+      "accepted": false
+    },
+    {
+      "name": "second-value",
+      "source": "{} {}",
+      "accepted": false
+    },
+    {
+      "name": "duplicate-key",
+      "source": "{\"a\":1,\"a\":2}",
+      "accepted": false
+    },
+    {
+      "name": "escaped-duplicate-key",
+      "source": "{\"a\":1,\"\\u0061\":2}",
+      "accepted": false
+    },
+    {
+      "name": "nested-duplicate",
+      "source": "{\"x\":{\"a\":1,\"a\":2}}",
+      "accepted": false
+    },
+    {
+      "name": "invalid-utf8",
+      "hex": "22ff22",
+      "accepted": false
+    },
+    {
+      "name": "lone-high-surrogate",
+      "source": "\"\\ud800\"",
+      "accepted": false
+    },
+    {
+      "name": "lone-low-surrogate",
+      "source": "\"\\udfff\"",
+      "accepted": false
+    },
+    {
+      "name": "valid-surrogate-pair",
+      "source": "\"\\ud83d\\ude00\"",
+      "accepted": true
+    },
+    {
+      "name": "literal-backslash-u",
+      "source": "\"\\\\ud800\"",
+      "accepted": true
+    },
+    {
+      "name": "empty-containers",
+      "source": "{\"a\":[],\"b\":{}}",
+      "accepted": true
+    },
+    {
+      "name": "trailing-whitespace",
+      "source": "{} \n\t",
+      "accepted": true
+    },
+    {
+      "name": "depth128",
+      "source": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "accepted": true
+    },
+    {
+      "name": "depth129",
+      "source": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "accepted": false
+    }
+  ]
+}

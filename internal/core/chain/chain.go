@@ -13,6 +13,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -102,15 +103,31 @@ func attachSignature(commit *object.Commit, signer Signer) error {
 }
 
 // buildMessage renders the two-part commit message: a human summary line
-// (truncated to 72 runes) followed by a blank line and the event's canonical
-// JSON (docs/02-data-model.md「コミットの規約」「イベント封筒」).
+// (normalized to one line, then truncated to 72 runes) followed by a blank
+// line and the event's canonical JSON (docs/02-data-model.md「コミットの規
+// 約」「イベント封筒」).
 func buildMessage(summary string, env *event.Envelope) (string, error) {
-	line := truncateSummary(summary)
+	line := truncateSummary(normalizeSummary(summary))
 	body, err := env.CanonicalJSON()
 	if err != nil {
 		return "", fmt.Errorf("chain: encode event: %w", err)
 	}
 	return line + "\n\n" + string(body), nil
+}
+
+// normalizeSummary turns every control character (CR and LF included) into
+// a space and trims surrounding ASCII spaces, so the summary is always a
+// single line. Summaries are built from user input (titles, comment
+// bodies), and a blank line inside one used to split the message in the
+// wrong place and make the whole chain undecodable (issue #78).
+func normalizeSummary(s string) string {
+	mapped := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	return strings.Trim(mapped, " ")
 }
 
 func truncateSummary(s string) string {
@@ -131,11 +148,16 @@ func AppendEvent(repo *git.Repository, parent plumbing.Hash, env *event.Envelope
 	if err := env.Validate(); err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("chain: invalid envelope: %w", err)
 	}
-	treeHash, err := WriteTree(repo, files)
+	// Validate/encode the event before storing its tree, so malformed or
+	// oversized events do not leave otherwise-unreachable blobs behind.
+	msg, err := buildMessage(summary, env)
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
-	msg, err := buildMessage(summary, env)
+	if err := verifyRoundTrip(msg, env); err != nil {
+		return plumbing.ZeroHash, err
+	}
+	treeHash, err := WriteTree(repo, files)
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
@@ -195,19 +217,78 @@ func encodeCommit(repo *git.Repository, commit *object.Commit) (plumbing.Hash, e
 // "マージコミットのメッセージは merge: event-union とし、イベントを含まない")
 // have no event body and ExtractEnvelope returns (nil, nil) for them.
 func ExtractEnvelope(commit *object.Commit) (*event.Envelope, error) {
-	idx := strings.Index(commit.Message, "\n\n")
-	if idx < 0 {
-		return nil, nil
-	}
-	body := commit.Message[idx+2:]
-	if strings.TrimSpace(body) == "" {
-		return nil, nil
-	}
-	env, err := event.Decode([]byte(body))
+	env, err := envelopeFromMessage(commit.Message)
 	if err != nil {
 		return nil, fmt.Errorf("chain: commit %s: %w", commit.Hash, err)
 	}
+	if env == nil && len(commit.ParentHashes) <= 1 {
+		return nil, fmt.Errorf("chain: commit %s: non-merge commit has no event envelope", commit.Hash)
+	}
+	if env != nil {
+		if err := event.ValidateStoredData(env); err != nil {
+			return nil, fmt.Errorf("chain: commit %s: %w", commit.Hash, err)
+		}
+	}
 	return env, nil
+}
+
+// envelopeFromMessage locates the event JSON as the text after the *last*
+// "\n\n{". Canonical JSON never contains a blank line (newlines inside
+// strings are escaped) and always starts with "{", so that is the body even
+// when the summary itself carries blank lines - as commits written before
+// summaries were normalized can (issue #78). A message without "\n\n{"
+// falls back to splitting at the first blank line.
+func envelopeFromMessage(msg string) (*event.Envelope, error) {
+	body := eventBodyFromMessage(msg)
+	if strings.TrimSpace(body) == "" {
+		return nil, nil
+	}
+	return event.Decode([]byte(body))
+}
+
+// EventJSON returns the exact event body selected by the envelope parser.
+// It is used for canonical-byte auditing; the original commit is never rewritten.
+func EventJSON(commit *object.Commit) []byte {
+	return []byte(eventBodyFromMessage(commit.Message))
+}
+
+func eventBodyFromMessage(msg string) string {
+	var body string
+	if idx := strings.LastIndex(msg, "\n\n{"); idx >= 0 {
+		body = msg[idx+2:]
+	} else {
+		idx := strings.Index(msg, "\n\n")
+		if idx < 0 {
+			return ""
+		}
+		body = msg[idx+2:]
+	}
+	return body
+}
+
+// verifyRoundTrip checks, before anything is committed, that msg decodes
+// back to exactly env. A write that could not be read back would leave an
+// append-only chain permanently broken and spread to every clone on sync.
+func verifyRoundTrip(msg string, env *event.Envelope) error {
+	got, err := envelopeFromMessage(msg)
+	if err != nil {
+		return fmt.Errorf("chain: commit message does not decode back: %w", err)
+	}
+	if got == nil {
+		return fmt.Errorf("chain: commit message has no event body")
+	}
+	want, err := env.CanonicalJSON()
+	if err != nil {
+		return fmt.Errorf("chain: encode event: %w", err)
+	}
+	have, err := got.CanonicalJSON()
+	if err != nil {
+		return fmt.Errorf("chain: encode decoded event: %w", err)
+	}
+	if string(have) != string(want) {
+		return fmt.Errorf("chain: commit message decodes to a different event")
+	}
+	return nil
 }
 
 // walkDFS is the shared traversal behind WalkChain, WalkChainSince, and
@@ -251,21 +332,36 @@ func walkDFS(repo *git.Repository, head plumbing.Hash, visit func(*object.Commit
 // parents, so it works across event-union merge commits too) and returns
 // every event envelope found, in no particular order. Duplicate commits
 // reachable via multiple paths (diamonds from merges) are visited once.
+// Identical event copies collapse; conflicting same-ID canonical payloads
+// return event.ErrConflictingEventID before any fold can select a winner.
 // Callers must sort by envelope ID before folding
 // (docs/02-data-model.md「イベントの全順序と実体化」).
 func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, error) {
+	if err := RequireCompleteHistory(repo, head); err != nil {
+		return nil, err
+	}
 	var envelopes []*event.Envelope
+	var ids event.IDSet
 	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
 		env, err := ExtractEnvelope(commit)
 		if err != nil {
 			return false, err
 		}
 		if env != nil {
-			envelopes = append(envelopes, env)
+			fresh, err := ids.Add(env)
+			if err != nil {
+				return false, err
+			}
+			if fresh {
+				envelopes = append(envelopes, env)
+			}
 		}
 		return true, nil
 	})
 	if err != nil {
+		return nil, err
+	}
+	if err := event.ValidateEntityOrder(envelopes); err != nil {
 		return nil, err
 	}
 	return envelopes, nil
@@ -295,7 +391,11 @@ func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, err
 // responsibility — mirrors internal/app/logapp.Service.List's existing
 // validation via event.IsValidTimestamp before calling this).
 func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*event.Envelope, error) {
+	if err := RequireCompleteHistory(repo, head); err != nil {
+		return nil, err
+	}
 	var envelopes []*event.Envelope
+	var ids event.IDSet
 	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
 		env, err := ExtractEnvelope(commit)
 		if err != nil {
@@ -307,7 +407,13 @@ func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*
 			return false, nil
 		}
 		if env != nil {
-			envelopes = append(envelopes, env)
+			fresh, err := ids.Add(env)
+			if err != nil {
+				return false, err
+			}
+			if fresh {
+				envelopes = append(envelopes, env)
+			}
 		}
 		return true, nil
 	})
@@ -323,6 +429,9 @@ func WalkChainSince(repo *git.Repository, head plumbing.Hash, since string) ([]*
 // committer identity and time, signature) - e.g. core/sign's per-commit
 // signature verification (docs/11-security.md「SSH 署名」).
 func WalkCommits(repo *git.Repository, head plumbing.Hash) ([]*object.Commit, error) {
+	if err := RequireCompleteHistory(repo, head); err != nil {
+		return nil, err
+	}
 	var commits []*object.Commit
 	err := walkDFS(repo, head, func(commit *object.Commit) (bool, error) {
 		commits = append(commits, commit)
@@ -393,18 +502,36 @@ func newDirNode() *fileTree {
 
 // WriteTree writes files (a flat map of "/"-separated relative path ->
 // content) as nested git tree objects and returns the root tree hash.
+// Invalid paths and file/directory collisions are rejected before any object
+// is written. Ordinary dot-prefixed filenames and directories are allowed.
 func WriteTree(repo *git.Repository, files map[string][]byte) (plumbing.Hash, error) {
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
 	root := newDirNode()
-	for path, content := range files {
+	for _, path := range paths {
 		parts := strings.Split(path, "/")
+		for _, part := range parts {
+			if part == "" || part == "." || part == ".." || strings.EqualFold(part, ".git") || strings.ContainsAny(part, "\x00\\") {
+				return plumbing.ZeroHash, fmt.Errorf("chain: invalid tree path %q", path)
+			}
+		}
 		cur := root
 		for i, part := range parts {
 			if i == len(parts)-1 {
-				cur.children[part] = &fileTree{blob: content, isBlob: true}
+				if _, exists := cur.children[part]; exists {
+					return plumbing.ZeroHash, fmt.Errorf("chain: file/directory collision in tree path %q", path)
+				}
+				cur.children[part] = &fileTree{blob: files[path], isBlob: true}
 				continue
 			}
 			next, ok := cur.children[part]
-			if !ok || next.isBlob {
+			if ok && next.isBlob {
+				return plumbing.ZeroHash, fmt.Errorf("chain: file/directory collision in tree path %q", path)
+			}
+			if !ok {
 				next = newDirNode()
 				cur.children[part] = next
 			}
@@ -446,6 +573,7 @@ func writeTreeNode(repo *git.Repository, node *fileTree) (plumbing.Hash, error) 
 			Hash: h,
 		})
 	}
+	sort.Sort(object.TreeEntrySorter(tree.Entries))
 
 	obj := repo.Storer.NewEncodedObject()
 	if err := tree.Encode(obj); err != nil {

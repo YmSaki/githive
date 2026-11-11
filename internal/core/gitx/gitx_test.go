@@ -209,15 +209,24 @@ func TestDeleteRefBadOldOIDIsCASMismatch(t *testing.T) {
 	}
 }
 
-// TestGitEnvForcesLCAllC checks gitEnv's ordering guarantee: its own
-// LC_ALL=C entry must appear before whatever the process environment
-// contributes, since env lookup returns the first match - a caller-inherited
-// LC_ALL must not silently win and reintroduce locale-dependent git output
-// that isRefUpdateRetryable / syncapp's classifyPushRejection depend on.
+// Exercise os/exec's actual duplicate-environment handling, not slice order.
 func TestGitEnvForcesLCAllC(t *testing.T) {
-	env := gitEnv()
-	if len(env) == 0 || env[0] != "LC_ALL=C" {
-		t.Fatalf("gitEnv()[0] = %q, want \"LC_ALL=C\" (must come first so it wins over any inherited LC_ALL)", env[0])
+	if os.Getenv("GITHIVE_TEST_LOCALE_CHILD") == "1" {
+		if got := os.Getenv("LC_ALL"); got != "C" {
+			t.Fatalf("subprocess LC_ALL=%q, want C", got)
+		}
+		return
+	}
+	t.Setenv("LC_ALL", "ja_JP.UTF-8")
+	t.Setenv("GITHIVE_TEST_LOCALE_CHILD", "1")
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binary, "-test.run=^TestGitEnvForcesLCAllC$")
+	cmd.Env = gitEnv()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("locale subprocess: %v\n%s", err, out)
 	}
 }
 

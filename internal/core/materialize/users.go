@@ -174,27 +174,8 @@ func keysToAny(keys []map[string]any) []any {
 // docs/11-security.md「SSH 署名」).
 func ActiveKeysForEmail(s *State, email string) []string {
 	var pubs []string
-	usernames := make([]string, 0, len(s.Collections["users"]))
-	for username := range s.Collections["users"] {
-		usernames = append(usernames, username)
-	}
-	sort.Strings(usernames) // deterministic iteration for callers that care
-	for _, username := range usernames {
-		user, ok := s.Collections["users"][username].(map[string]any)
-		if !ok {
-			continue
-		}
-		emails := asStringSlice(user["emails"])
-		matches := false
-		for _, e := range emails {
-			if e == email {
-				matches = true
-				break
-			}
-		}
-		if !matches {
-			continue
-		}
+	user := uniqueUserForEmail(s, email)
+	if user != nil {
 		for _, k := range asMapSlice(user["keys"]) {
 			if k["revoked_at"] == nil {
 				if pub, ok := k["pub"].(string); ok {
@@ -209,22 +190,8 @@ func ActiveKeysForEmail(s *State, email string) []string {
 // IsAdmin reports whether the user with the given email currently has the
 // "admin" role (docs/11-security.md「検証規則」4).
 func IsAdmin(s *State, email string) bool {
-	for _, raw := range s.Collections["users"] {
-		user, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		emails := asStringSlice(user["emails"])
-		hasEmail := false
-		for _, e := range emails {
-			if e == email {
-				hasEmail = true
-				break
-			}
-		}
-		if !hasEmail {
-			continue
-		}
+	user := uniqueUserForEmail(s, email)
+	if user != nil {
 		for _, role := range asStringSlice(user["roles"]) {
 			if role == "admin" {
 				return true
@@ -251,6 +218,7 @@ type SignerEntry struct {
 // the caller comparing a commit's timestamp against RevokedAt, not by
 // omitting the key from the file (core/sign).
 func AllowedSigners(s *State) []SignerEntry {
+	owners := EmailOwners(s)
 	usernames := make([]string, 0, len(s.Collections["users"]))
 	for username := range s.Collections["users"] {
 		usernames = append(usernames, username)
@@ -272,6 +240,9 @@ func AllowedSigners(s *State) []SignerEntry {
 			}
 			revokedAt, _ := key["revoked_at"].(string)
 			for _, email := range emails {
+				if len(owners[email]) != 1 {
+					continue // a key must never authenticate another user's identity
+				}
 				out = append(out, SignerEntry{Email: email, Pub: pub, RevokedAt: revokedAt})
 			}
 		}
