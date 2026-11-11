@@ -3,6 +3,7 @@ package taskapp
 import (
 	"context"
 
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/idgen"
 )
@@ -75,6 +76,16 @@ func (s *Service) Edit(ctx context.Context, id string, title, body, due, priorit
 
 // Link adds or removes a {rel,id} link (rel is "task"/"issue"/"chat").
 func (s *Service) Link(ctx context.Context, id, rel, linkedID string, remove bool) error {
+	resolved, err := s.ResolveID(ctx, id)
+	if err != nil {
+		return err
+	}
+	linkedID, err = idresolve.Related(ctx, s.Dir, rel, linkedID, false)
+	if err != nil {
+		return err
+	}
+	id = resolved
+
 	data := map[string]any{"rel": rel, "id": linkedID}
 	if remove {
 		data["remove"] = true

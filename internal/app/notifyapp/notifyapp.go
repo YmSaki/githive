@@ -10,6 +10,7 @@ import (
 
 	"github.com/ymsaki/githive/internal/app/apperr"
 	"github.com/ymsaki/githive/internal/app/entitychain"
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/idgen"
@@ -70,6 +71,27 @@ func New(dir string) *Service {
 // "group:<name>", or "all" strings (docs/features/notify.md「notify.post
 // の data」). source, if non-nil, should have "kind" and "id" keys.
 func (s *Service) Post(ctx context.Context, targets []string, title, body string, source map[string]any, priority string) (string, error) {
+	if source != nil {
+		kind, ok := source["kind"].(string)
+		if !ok {
+			return "", &event.InvalidInputError{Kind: "notify.post", Field: "source.kind", Rule: "must be an entity kind"}
+		}
+		input, ok := source["id"].(string)
+		if !ok {
+			return "", &event.InvalidInputError{Kind: "notify.post", Field: "source.id", Rule: "must be an entity ID"}
+		}
+		resolved, err := idresolve.Related(ctx, s.Dir, kind, input, true)
+		if err != nil {
+			return "", err
+		}
+		normalized := make(map[string]any, len(source))
+		for key, value := range source {
+			normalized[key] = value
+		}
+		normalized["id"] = resolved
+		source = normalized
+	}
+
 	data := map[string]any{
 		"targets": toAnySlice(targets),
 		"title":   title,

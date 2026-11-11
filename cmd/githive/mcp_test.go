@@ -103,7 +103,7 @@ func TestMcpToolsExerciseCrossFeatureFlow(t *testing.T) {
 		t.Fatalf("expected non-empty resource content, got %+v", res.Contents)
 	}
 
-	if _, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "githive://issue/does-not-exist"}); err == nil {
+	if _, err := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "githive://issue/01j8x0a2b3c4d5e6f7g8h9j0ka"}); err == nil {
 		t.Error("expected an error reading a nonexistent issue resource")
 	}
 
@@ -383,7 +383,7 @@ func TestMcpIssueResourceDistinguishesNotFoundFromOtherErrors(t *testing.T) {
 	dir := newCLITestRepo(t)
 	session := newMcpTestSession(t, dir)
 
-	_, genuinelyMissingErr := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "githive://issue/does-not-exist"})
+	_, genuinelyMissingErr := session.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "githive://issue/01j8x0a2b3c4d5e6f7g8h9j0ka"})
 	if genuinelyMissingErr == nil || !strings.Contains(genuinelyMissingErr.Error(), "Resource not found") {
 		t.Fatalf("expected a genuinely missing issue to report \"Resource not found\", got %v", genuinelyMissingErr)
 	}

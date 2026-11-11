@@ -29,7 +29,7 @@ func TestCLIAndMcpRejectInvalidRegistryAndNotifyWrites(t *testing.T) {
 		{"group member", []string{"users", "group", "set", "team", "--member", "../alice"}, "users_group_set", map[string]any{"name": "team", "members": []string{"../alice"}}},
 		{"target", []string{"notify", "post", "--title", "test", "--to", "alice"}, "notify_post", map[string]any{"title": "test", "to": []string{"alice"}}},
 		{"group target", []string{"notify", "post", "--title", "test", "--to", "group:../team"}, "notify_post", map[string]any{"title": "test", "to": []string{"group:../team"}}},
-		{"source", []string{"notify", "post", "--title", "test", "--to", "all", "--source", "issue:01j8xq4d"}, "notify_post", map[string]any{"title": "test", "to": []string{"all"}, "source": map[string]any{"kind": "issue", "id": "01j8xq4d"}}},
+		{"source", []string{"notify", "post", "--title", "test", "--to", "all", "--source", "issue:bad-id"}, "notify_post", map[string]any{"title": "test", "to": []string{"all"}, "source": map[string]any{"kind": "issue", "id": "bad-id"}}},
 		{"notify title", []string{"notify", "post", "--title", "", "--to", "all"}, "notify_post", map[string]any{"title": "", "to": []string{"all"}}},
 	}
 	session := newMcpTestSession(t, dir)

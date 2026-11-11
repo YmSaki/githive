@@ -9,7 +9,7 @@ import (
 	"github.com/ymsaki/githive/internal/core/event"
 )
 
-func TestPostRejectsUndeliverableTargetsAndShortSources(t *testing.T) {
+func TestPostRejectsUndeliverableTargetsAndInvalidSources(t *testing.T) {
 	svc := newTestRepo(t, "a@example.com")
 	refs := func() string {
 		t.Helper()
@@ -26,7 +26,7 @@ func TestPostRejectsUndeliverableTargetsAndShortSources(t *testing.T) {
 	}{
 		{[]string{"alice"}, nil},
 		{[]string{"user:has space@example.com"}, nil},
-		{[]string{"all"}, map[string]any{"kind": "issue", "id": "01j8xq4d"}},
+		{[]string{"all"}, map[string]any{"kind": "issue", "id": "bad id"}},
 	} {
 		_, err := svc.Post(context.Background(), tc.targets, "test", "", tc.source, "")
 		var invalid *event.InvalidInputError

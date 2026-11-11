@@ -4,58 +4,24 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
-	"github.com/ymsaki/githive/internal/app/apperr"
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
-// minIDPrefixLen is the shortest ID prefix githive resolves by itself
-// (docs/10-cli-spec.md「ID の入力解決」).
-const minIDPrefixLen = 8
-
 // ResolveID resolves a full or shortened (>=8 char) ULID to the full ID of
 // exactly one existing chat thread.
 func (s *Service) ResolveID(ctx context.Context, prefix string) (string, error) {
-	if event.IsValidULID(prefix) {
-		r := gitx.New(s.Dir)
-		oid, err := r.RevParse(ctx, refFor(prefix).String())
-		if err != nil {
-			return "", err
-		}
-		if oid == "" {
-			return "", ErrNotFound
-		}
-		return prefix, nil
-	}
-	if len(prefix) < minIDPrefixLen {
-		return "", fmt.Errorf("chatapp: id prefix %q is shorter than %d characters", prefix, minIDPrefixLen)
-	}
-
-	ids, err := s.listIDs(ctx)
-	if err != nil {
-		return "", err
-	}
-	var matches []string
-	for _, id := range ids {
-		if strings.HasPrefix(id, prefix) {
-			matches = append(matches, id)
-		}
-	}
-	switch len(matches) {
-	case 0:
+	id, err := idresolve.Entity(ctx, s.Dir, "chat", prefix)
+	if err == idresolve.ErrNotFound {
 		return "", ErrNotFound
-	case 1:
-		return matches[0], nil
-	default:
-		sort.Strings(matches)
-		return "", &apperr.AmbiguousIDError{Prefix: prefix, Candidates: matches}
 	}
+	return id, err
 }
 
 func (s *Service) listIDs(ctx context.Context) ([]string, error) {

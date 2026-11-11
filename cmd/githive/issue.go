@@ -178,6 +178,14 @@ func newIssueCommentCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Keep the resolved target for notification before the newly appended
+			// comment can itself make the original short prefix ambiguous.
+			if replyTo != "" {
+				replyTo, err = svc.ResolveCommentID(ctx, id, replyTo)
+				if err != nil {
+					return err
+				}
+			}
 			if err := svc.Comment(ctx, id, message, replyTo, supersedes); err != nil {
 				return err
 			}

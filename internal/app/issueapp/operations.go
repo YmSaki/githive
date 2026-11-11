@@ -3,6 +3,7 @@ package issueapp
 import (
 	"context"
 
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/idgen"
 )
@@ -22,6 +23,24 @@ func (s *Service) mutate(ctx context.Context, id, kind, summary string, data map
 // as replacing that earlier comment's displayed content
 // (docs/features/issue.md「設計判断」).
 func (s *Service) Comment(ctx context.Context, id, body, replyTo, supersedes string) error {
+	var err error
+	id, err = s.ResolveID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if replyTo != "" {
+		replyTo, err = s.ResolveCommentID(ctx, id, replyTo)
+		if err != nil {
+			return err
+		}
+	}
+	if supersedes != "" {
+		supersedes, err = s.ResolveCommentID(ctx, id, supersedes)
+		if err != nil {
+			return err
+		}
+	}
+
 	data := map[string]any{"body": body}
 	if replyTo != "" {
 		data["reply_to"] = replyTo
@@ -95,6 +114,16 @@ func (s *Service) Assign(ctx context.Context, id string, add, remove []string) e
 
 // Link adds or removes a {rel,id} link (rel is "task"/"issue"/"chat").
 func (s *Service) Link(ctx context.Context, id, rel, linkedID string, remove bool) error {
+	resolved, err := s.ResolveID(ctx, id)
+	if err != nil {
+		return err
+	}
+	linkedID, err = idresolve.Related(ctx, s.Dir, rel, linkedID, false)
+	if err != nil {
+		return err
+	}
+	id = resolved
+
 	data := map[string]any{"rel": rel, "id": linkedID}
 	if remove {
 		data["remove"] = true
@@ -108,4 +137,14 @@ func summarize(body string) string {
 		return string(runes[:40])
 	}
 	return body
+}
+
+// ResolveCommentID resolves a comment reference within this issue's history.
+func (s *Service) ResolveCommentID(ctx context.Context, id, input string) (string, error) {
+	resolved, err := s.ResolveID(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	id = resolved
+	return idresolve.Event(ctx, s.Dir, "issue", id, input, "issue.comment")
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/ymsaki/githive/internal/app/entitychain"
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/idgen"
@@ -96,6 +97,24 @@ func (s *Service) mutate(ctx context.Context, id, kind, summary string, data map
 // Post adds a message. If supersedes is non-empty, the fold treats this as
 // replacing that earlier message's displayed content.
 func (s *Service) Post(ctx context.Context, id, body, replyTo, supersedes string) error {
+	var err error
+	id, err = s.ResolveID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if replyTo != "" {
+		replyTo, err = s.ResolveMessageID(ctx, id, replyTo)
+		if err != nil {
+			return err
+		}
+	}
+	if supersedes != "" {
+		supersedes, err = s.ResolveMessageID(ctx, id, supersedes)
+		if err != nil {
+			return err
+		}
+	}
+
 	data := map[string]any{"body": body}
 	if replyTo != "" {
 		data["reply_to"] = replyTo
@@ -143,4 +162,14 @@ func summarize(body string) string {
 		return string(runes[:40])
 	}
 	return body
+}
+
+// ResolveMessageID resolves a posted message reference within this thread.
+func (s *Service) ResolveMessageID(ctx context.Context, id, input string) (string, error) {
+	resolved, err := s.ResolveID(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	id = resolved
+	return idresolve.Event(ctx, s.Dir, "chat", id, input, "chat.post")
 }

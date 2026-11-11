@@ -25,7 +25,7 @@
 
 - **[#87 shallow 閲覧](https://github.com/YmSaki/githive/issues/87):** issue/task/chat の一覧は head ツリーを読めるが、Show 系・notify/users の一覧等は履歴 fold を使い、完全なイベント履歴が必要。depth 1 の issue List が表示できても Show は親オブジェクト不足で失敗する。snapshot 閲覧、自動 deepen、専用の復旧案内は未実装の課題として追跡する（[同期仕様](03-sync-and-concurrency.md#shallow--partial-clone-との関係)）。この現状説明を shallow 対応の実装完了や課題の取消しとは扱わない。
 - **[#88 イベント依存順序](https://github.com/YmSaki/githive/issues/88):** 通常追記は既知の最大非 checkpoint ID 以下の新イベントを `clock_skew` で拒否し、raw な issue/task/chat 履歴の create より前の変更・別 create による置換は `event_order_violation` で拒否する。reducer や既存イベントを書き換える対策ではない。raw users の key_add/key_revoke と user_set の依存順序・鍵ローテーション全体の検証は未実装であり、#88 は残課題を含む（[ADR-0026](adr/0026-reject-lossy-event-order.md)）。
-- **[#129 副参照 ID](https://github.com/YmSaki/githive/issues/129):** 主 ID の解決と notify ack は短縮 ID を受け付ける。link の参照先、reply_to、supersedes、notify source.id は現在、完全な小文字 ULID を要求する。これらの短縮 ID 解決は未実装であり、不正値の拒否は解決処理の実装と同義ではない。CLI/MCP の実際の制約は [入力仕様](10-cli-spec.md) に従う。「すべての ID が同じ短縮入力に対応する」とは保証しない。
+- **[#129 副参照 ID](https://github.com/YmSaki/githive/issues/129):** link の参照先、reply_to、supersedes、既知 feature の notify source.id も app 層で前方一致と大文字入力を解決し、完全な小文字 ID を保存する。CLI/MCP で add/remove の同一性、返信通知、未知・曖昧・他エンティティの拒否と追記なしを検証する。完全 ID の弱いリンクや任意 source.kind の完全 ID は既存のオフライン・拡張用契約として保持する。未知 source.kind の短縮入力は完全 ID を要求する。詳細は [入力仕様](10-cli-spec.md) に従う。
 
 このほか、部分的に破損した履歴の検査・一覧継続、fsck の全 data/feature/entity 検査、複数リモートの追跡意味等にも未検証・未完了の範囲がある。Issue が open であることと、特定の候補で緩和されたことを混同しない。
 

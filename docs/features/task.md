@@ -102,3 +102,5 @@ git log --format='%s' refs/projects/task/<id>
 ## 時計ずれと create の保護
 
 新しい変更 ID が既知の非 checkpoint イベントの最大 ID 以下なら、通常の追記は `clock_skew` で保存前に拒否する。生の履歴の create より前の変更や異なる複数 create は `event_order_violation` として読み取り・同期を拒否し、fsck/verify で報告する。本文や作成者を黙って失うことを避けるための境界検査であり、fold や既存の履歴は変更しない（[ADR-0026](../adr/0026-reject-lossy-event-order.md)）。
+
+link の参照先は rel の feature で一意な 8 文字以上の前方一致を解決し、大文字入力も小文字の完全 ID で保存する。追加・削除は同じ解決規則を使うため、短縮 ID と完全 ID で別リンクを作らない。完全 ID の疎な参照はオフラインの相手未取得時も許可する。

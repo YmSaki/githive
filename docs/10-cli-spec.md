@@ -109,7 +109,10 @@ issue/task/chat の生の履歴に create より前の変更や異なる複数 c
 
 ## ID の入力解決
 
-- 完全 ULID、先頭 8 文字以上の前方一致を受け付ける。
+- ULID の入力は大文字・小文字を区別せず、小文字の完全 ID に正規化する。issue/task/chat の主 ID、link の参照先、issue comment / chat post の reply_to・supersedes、既知の source.kind（issue/task/chat）の source.id は、一意な 8 文字以上の前方一致を解決する。
+- link と source の完全 ID はオフラインの未取得エンティティも指せる疎な参照として保持する。短縮 ID は指定 feature のローカル ref が必要で、別 feature の一致を代用しない。source.kind は任意の文字列を引き続き許可するが、未知 kind では解決方法が無いため完全 ID を要求する。既存の完全 ID の文字集合は変更しない。
+- reply_to・supersedes は、同じエンティティの issue.comment / chat.post イベントだけを対象にする。完全 ID でも未知・別エンティティ・別 kind のイベントは not_found とし、追記しない。置換済みの原文イベントは履歴から参照できる。
+- 未知の有効な前方一致は not_found、不正な文字列・8文字未満は invalid_input。解決失敗時はイベントを追記しない。notify ack は既存の投稿の完全 ID または一意な 8 文字以上の前方一致を受け付け、同じ小文字の完全形を保存する。
 - 曖昧なら候補一覧を表示して終了コード 2。`--json` 時は candidates を error.data に入れる。
 - `refs/projects/meta/counters`（forge の連番対応表、[12](12-forge-server.md)）が存在する場合は `#123` 形式も受け付け、一覧・詳細に番号を併記する。番号は別名であり、ID（ULID）が常に正である。
 

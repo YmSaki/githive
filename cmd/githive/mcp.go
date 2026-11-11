@@ -289,6 +289,14 @@ func registerIssueTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
+			// Resolve before appending so the new comment cannot make a short
+			// reply prefix ambiguous when its notification is prepared.
+			if args.ReplyTo != "" {
+				args.ReplyTo, err = svc.ResolveCommentID(ctx, id, args.ReplyTo)
+				if err != nil {
+					return nil, nil, err
+				}
+			}
 			if err := svc.Comment(ctx, id, args.Message, args.ReplyTo, args.Supersedes); err != nil {
 				return nil, nil, err
 			}
