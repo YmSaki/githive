@@ -37,8 +37,7 @@ func (s *Service) ListView(ctx context.Context) (users []User, groups []Group, p
 		}
 		groups = append(groups, g)
 	}
-	sort.Slice(users, func(i, j int) bool { return users[i]["username"].(string) < users[j]["username"].(string) })
-	sort.Slice(groups, func(i, j int) bool { return groups[i]["name"].(string) < groups[j]["name"].(string) })
+	sortRegistryLists(users, groups)
 	return users, groups, materialize.Policy(state), "snapshot", nil
 }
 

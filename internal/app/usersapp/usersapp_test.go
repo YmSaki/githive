@@ -167,3 +167,27 @@ func TestValidNameHelpers(t *testing.T) {
 		t.Error("expected valid group name to pass")
 	}
 }
+
+func TestRegistryListsHaveStableNameOrder(t *testing.T) {
+	svc := newTestRepo(t)
+	ctx := context.Background()
+	for _, name := range []string{"zulu", "alpha", "mike"} {
+		if err := svc.AddUser(ctx, name, name, name+"@example.com", "human", []string{"member"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.GroupSet(ctx, "team-"+name, []string{name}, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 10 {
+		users, groups, _, err := svc.List(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, name := range []string{"alpha", "mike", "zulu"} {
+			if users[i]["username"] != name || groups[i]["name"] != "team-"+name {
+				t.Fatalf("unordered registry: users=%v groups=%v", users, groups)
+			}
+		}
+	}
+}

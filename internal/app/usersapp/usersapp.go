@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
@@ -283,6 +284,7 @@ func (s *Service) List(ctx context.Context) (users []User, groups []Group, polic
 			groups = append(groups, g)
 		}
 	}
+	sortRegistryLists(users, groups)
 	return users, groups, materialize.Policy(state), nil
 }
 
@@ -337,4 +339,10 @@ func toAnySlice(ss []string) []any {
 		out[i] = s
 	}
 	return out
+}
+
+// sortRegistryLists gives CLI, MCP and shallow views the same name order.
+func sortRegistryLists(users []User, groups []Group) {
+	sort.Slice(users, func(i, j int) bool { return users[i]["username"].(string) < users[j]["username"].(string) })
+	sort.Slice(groups, func(i, j int) bool { return groups[i]["name"].(string) < groups[j]["name"].(string) })
 }

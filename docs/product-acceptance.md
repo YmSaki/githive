@@ -19,7 +19,7 @@
 ## 現在の通常利用に関係する追跡項目
 
 - #87 の明示的な shallow snapshot 閲覧、#129 の副参照の短縮 ID、#88 の raw users の依存順序検査、#130 の一意な表示 ID を候補へ統合した。実際の depth1 fixture と CLI/MCP の回帰テストを根拠とし、後続の配布物・CI は新 SHA に固定して再確認する。
-- #142 は status の from、users 一覧順、chat archived 既定の複合 Issue。今回の status 監査と chat の現挙動の明文化だけで users 一覧順も修正済みとはしない。
+- #142 の status.from、users/groups の名前順、chat archived の既定表示を候補へ反映した。whoami の重複 email は所有者を任意選択せず拒否する。
 - policy 編集の入力喪失や、署名検証とツリー検証の混同は現機能に直結する。機能が存在しない CLI set や、verify が実行しない再計算を案内しない。
 
 ## 将来機能
