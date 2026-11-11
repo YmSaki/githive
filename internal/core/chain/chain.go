@@ -453,18 +453,36 @@ func newDirNode() *fileTree {
 
 // WriteTree writes files (a flat map of "/"-separated relative path ->
 // content) as nested git tree objects and returns the root tree hash.
+// Invalid paths and file/directory collisions are rejected before any object
+// is written. Ordinary dot-prefixed filenames and directories are allowed.
 func WriteTree(repo *git.Repository, files map[string][]byte) (plumbing.Hash, error) {
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
 	root := newDirNode()
-	for path, content := range files {
+	for _, path := range paths {
 		parts := strings.Split(path, "/")
+		for _, part := range parts {
+			if part == "" || part == "." || part == ".." || strings.EqualFold(part, ".git") || strings.ContainsAny(part, "\x00\\") {
+				return plumbing.ZeroHash, fmt.Errorf("chain: invalid tree path %q", path)
+			}
+		}
 		cur := root
 		for i, part := range parts {
 			if i == len(parts)-1 {
-				cur.children[part] = &fileTree{blob: content, isBlob: true}
+				if _, exists := cur.children[part]; exists {
+					return plumbing.ZeroHash, fmt.Errorf("chain: file/directory collision in tree path %q", path)
+				}
+				cur.children[part] = &fileTree{blob: files[path], isBlob: true}
 				continue
 			}
 			next, ok := cur.children[part]
-			if !ok || next.isBlob {
+			if ok && next.isBlob {
+				return plumbing.ZeroHash, fmt.Errorf("chain: file/directory collision in tree path %q", path)
+			}
+			if !ok {
 				next = newDirNode()
 				cur.children[part] = next
 			}
@@ -506,6 +524,7 @@ func writeTreeNode(repo *git.Repository, node *fileTree) (plumbing.Hash, error) 
 			Hash: h,
 		})
 	}
+	sort.Sort(object.TreeEntrySorter(tree.Entries))
 
 	obj := repo.Storer.NewEncodedObject()
 	if err := tree.Encode(obj); err != nil {
