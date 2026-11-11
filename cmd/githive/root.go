@@ -18,6 +18,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/app/wikiapp"
 	"github.com/ymsaki/githive/internal/cliout"
+	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/sign"
@@ -172,6 +173,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 	var wikiValidation *wikiapp.ValidationError
 	var wikiConflict *wikiapp.ConflictError
 	switch {
+	case errors.Is(err, event.ErrEventTooLarge):
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "event_too_large", Message: err.Error()}
 	case errors.Is(err, errVerifyAllWithRef):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "usage_error", Message: err.Error()}
 	case errors.As(err, &ambiguous):

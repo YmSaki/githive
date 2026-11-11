@@ -208,7 +208,8 @@ front matter は人間の閲覧と grep のためであり、機械処理はイ�
 
 ## サイズと成長の制約
 
-- 1 イベントの JSON は 256 KiB を上限とする。超える本文は分割するか wiki へ誘導する。
+- 1 イベントの JSON は 256 KiB（262144 bytes）を上限とする。canonical JSON のインデント・末尾 LF を含み、コミット summary は含まない。raw 入力にも同じ上限を適用する。超える本文は分割するか wiki へ誘導する。checkpoint も例外ではなく、上限を超える compaction は ref を変更せず失敗する（[ADR-0021](adr/0021-strict-json-and-event-bounds.md)）。
+- JSON の配列・オブジェクトの入れ子は最大128段。末尾データ・重複キー・不正 UTF-8・孤立 surrogate を拒否する。重複キーは escape を解いた文字列で比較する。正しい surrogate pair は受け付ける。
 - バイナリはツリーに置かない。添付は forge の LFS 対応まで対象外（[00](00-vision.md) の非目標）。
 - チェーンの成長対策（チェックポイント）は [03](03-sync-and-concurrency.md) で定義する。
 

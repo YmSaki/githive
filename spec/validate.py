@@ -425,6 +425,25 @@ def run_ordering_validation(results: Results) -> None:
         results.ok(name)
 
 
+def run_strict_json_validation(results: Results) -> None:
+    from strict_json import decode_strict
+    path = VECTORS_DIR / "json-decoding" / "01-strict-inputs.json"
+    with open(path, encoding="utf-8") as source:
+        cases = json.load(source)["cases"]
+    for case in cases:
+        raw = bytes.fromhex(case["hex"]) if "hex" in case else case["source"].encode("utf-8")
+        try:
+            decode_strict(raw)
+            accepted = True
+        except (ValueError, UnicodeError):
+            accepted = False
+        name = f"strict-json[{case['name']}]"
+        if accepted != case["accepted"]:
+            results.fail(name, f"accepted={accepted}, expected={case['accepted']}")
+        else:
+            results.ok(name)
+
+
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
@@ -437,6 +456,7 @@ def main() -> int:
     run_canonical_compact_validation(results)
     run_fold_validation(results)
     run_ordering_validation(results)
+    run_strict_json_validation(results)
     return results.print_summary()
 
 

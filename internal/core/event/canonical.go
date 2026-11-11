@@ -42,6 +42,9 @@ func Encode(v any) ([]byte, error) {
 
 // EncodeString is the string form of Encode.
 func EncodeString(v any) (string, error) {
+	if err := validateJSONValue(v, 0); err != nil {
+		return "", err
+	}
 	var b strings.Builder
 	if err := encodeValue(&b, v, 0); err != nil {
 		return "", err
@@ -303,6 +306,9 @@ func encodeArray(b *strings.Builder, arr []any, indent int) error {
 // implementation (docs/13-roadmap.md 手戻りリスク表), just two renderings
 // of it (pretty vs. compact).
 func EncodeCompactLine(v any) (string, error) {
+	if err := validateJSONValue(v, 0); err != nil {
+		return "", err
+	}
 	var b strings.Builder
 	if err := encodeValueCompact(&b, v); err != nil {
 		return "", err
@@ -408,11 +414,5 @@ func encodeArrayCompact(b *strings.Builder, arr []any) error {
 // []any, json.Number, string, bool, nil), preserving number literals so that
 // re-encoding via Encode round-trips through the same canonical form.
 func DecodeGeneric(raw []byte) (any, error) {
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return nil, err
-	}
-	return v, nil
+	return decodeStrict(raw)
 }

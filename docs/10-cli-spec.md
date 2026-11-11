@@ -132,3 +132,8 @@ $ githive issue show 01j8xq4d --json
 `internal/app` の各サービスが公開 API の実体である。
 将来、外部利用向けに `pkg/githive` として安定化する（v1.0 まで internal のまま。API 凍結を急がない）。
 TUI と MCP サーバーは同一プロセス内で `app` を直接呼ぶため、CLI の JSON 層を経由しない。
+
+
+### イベントの容量超過
+
+1イベントの canonical JSON が256 KiBを超える書き込みは、終了コード2・`error.code: event_too_large` で拒否する。本文は分割するか wiki に保存する。`fsck --compact` の checkpoint が上限を超えた場合も対象 ref を進めない。外部から到着した上限超過イベントは fsck の `event_too_large` finding になる。

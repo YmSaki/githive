@@ -38,6 +38,7 @@ package fsckapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -236,9 +237,13 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 	for _, c := range commits {
 		env, err := chain.ExtractEnvelope(c)
 		if err != nil {
+			code := "invalid_envelope"
+			if errors.Is(err, event.ErrEventTooLarge) {
+				code = "event_too_large"
+			}
 			findings = append(findings, Finding{
 				Ref: ref, Feature: string(feature), Commit: c.Hash.String(),
-				Code: "invalid_envelope", Message: err.Error(),
+				Code: code, Message: err.Error(),
 			})
 			continue
 		}
