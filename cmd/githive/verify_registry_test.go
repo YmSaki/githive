@@ -27,28 +27,28 @@ func actAs(t *testing.T, dir, email, keyPath string) {
 	}
 }
 
-type verifyIssue struct {
+type registryVerifyIssue struct {
 	Commit string `json:"commit"`
 	Code   string `json:"code"`
 }
 
 // registryIssues runs `githive verify --ref <registry> --json` and returns
 // the exit code and the registry report's issue codes.
-func registryIssues(t *testing.T, dir string) (int, []verifyIssue) {
+func registryIssues(t *testing.T, dir string) (int, []registryVerifyIssue) {
 	t.Helper()
 	res := runCLI(t, dir, "verify", "--ref", "refs/projects/users/registry", "--json")
 	var env struct {
 		OK   bool `json:"ok"`
 		Data struct {
 			Reports []struct {
-				Issues []verifyIssue `json:"issues"`
+				Issues []registryVerifyIssue `json:"issues"`
 			} `json:"reports"`
 		} `json:"data"`
 		Error struct {
 			Code string `json:"code"`
 			Data struct {
 				Reports []struct {
-					Issues []verifyIssue `json:"issues"`
+					Issues []registryVerifyIssue `json:"issues"`
 				} `json:"reports"`
 			} `json:"data"`
 		} `json:"error"`
@@ -63,14 +63,14 @@ func registryIssues(t *testing.T, dir string) (int, []verifyIssue) {
 		}
 		reports = env.Error.Data.Reports
 	}
-	var out []verifyIssue
+	var out []registryVerifyIssue
 	for _, r := range reports {
 		out = append(out, r.Issues...)
 	}
 	return res.code, out
 }
 
-func countCode(issues []verifyIssue, code string) int {
+func countCode(issues []registryVerifyIssue, code string) int {
 	n := 0
 	for _, i := range issues {
 		if i.Code == code {
