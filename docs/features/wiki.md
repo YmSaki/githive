@@ -113,3 +113,11 @@ wiki は全機能の中で最も「素の git」に近く、専用ツールな�
 - ページごとの ref 分割はしない。wiki は横断的な一貫性（リンク、目次）が重要で、単一ツリーの原子的コミットがそれを守る。
 - 履歴の粒度はコミットに任せ、ページ単位の履歴は `git log -- <path>` で得る。
 - 承認フロー（レビュー付き編集）は v1 では持たない。forge モードで wiki への push を group 制限すれば、最低限の統制はできる（[users.md](users.md) の policy）。
+
+保存直前に別のローカル writer が wiki ref を更新し、その履歴が編集 worktree に
+含まれていなければ、`wiki_local_conflict`（exit 3、`retryable:false`）で停止する。
+ローカル ref と編集 worktree は両方保持される。表示された worktree で
+`git merge refs/projects/wiki/main` を行い、必要な競合を解消してから
+`githive wiki save` を再実行する。保存は、検査した現在 tip からの fast-forward
+だけを許可し、検査後に tip が変わった場合も CAS により拒否する
+（[ADR-0034](../adr/0034-wiki-local-fast-forward-save.md)）。

@@ -214,6 +214,7 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 	var trustRootConflict *syncapp.TrustRootConflictError
 	var wikiValidation *wikiapp.ValidationError
 	var wikiConflict *wikiapp.ConflictError
+	var wikiLocalConflict *wikiapp.LocalAdvanceConflictError
 	switch {
 	case errors.Is(err, event.ErrEventTooLarge):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "event_too_large", Message: err.Error()}
@@ -295,6 +296,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "wiki_validation_failed", Message: err.Error(), Data: map[string]any{"violations": items}}
 	case errors.As(err, &wikiConflict):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_conflict", Message: err.Error(), Retryable: false, Data: map[string]any{"paths": toAnySlice(wikiConflict.Paths)}}
+	case errors.As(err, &wikiLocalConflict):
+		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_local_conflict", Message: err.Error(), Retryable: false, Data: map[string]any{"current": wikiLocalConflict.Current, "head": wikiLocalConflict.Head, "worktree": wikiLocalConflict.Worktree}}
 	case errors.Is(err, wikiapp.ErrPushRaceExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_push_race", Message: err.Error(), Retryable: true}
 	case errors.Is(err, wikiapp.ErrWorktreeExists):

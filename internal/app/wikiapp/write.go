@@ -348,11 +348,7 @@ func (s *Service) pushMergedOnce(ctx context.Context, r *gitx.Runner, worktreeDi
 	if err != nil {
 		return SaveResult{}, false, err
 	}
-	curTip, err := r.RevParse(ctx, refspace.WikiMainRef)
-	if err != nil {
-		return SaveResult{}, false, err
-	}
-	if err := r.UpdateRef(ctx, refspace.WikiMainRef, merged, orZero(curTip)); err != nil {
+	if err := advanceWikiRef(ctx, r, worktreeDir, merged); err != nil {
 		return SaveResult{}, false, err
 	}
 
@@ -490,11 +486,7 @@ func (s *Service) advanceLocalAndFinish(ctx context.Context, r *gitx.Runner, wor
 	if err != nil {
 		return SaveResult{}, err
 	}
-	curTip, err := r.RevParse(ctx, refspace.WikiMainRef)
-	if err != nil {
-		return SaveResult{}, err
-	}
-	if err := r.UpdateRef(ctx, refspace.WikiMainRef, merged, orZero(curTip)); err != nil {
+	if err := advanceWikiRef(ctx, r, worktreeDir, merged); err != nil {
 		return SaveResult{}, err
 	}
 	if err := s.cleanup(ctx, r, worktreeDir); err != nil {
