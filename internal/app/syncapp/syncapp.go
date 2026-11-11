@@ -235,9 +235,10 @@ type pushPlan struct {
 // fetchNamespace pulls the whole refs/projects/ namespace in one wildcard
 // refspec. A wildcard rather than a specific ref because it tolerates the
 // remote not having a given ref yet (no error) and covers every ref of the
-// round in one round trip.
+// round in one round trip. Pruning only the tracking namespace ensures a
+// deleted remote ref is re-pushed from the authoritative local ref.
 func fetchNamespace(ctx context.Context, r *gitx.Runner, remote string) error {
-	return r.Fetch(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot))
+	return r.FetchPruned(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot))
 }
 
 // planRef decides what one ref needs, doing any purely local work (a
