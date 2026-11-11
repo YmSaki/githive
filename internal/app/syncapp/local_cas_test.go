@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +31,11 @@ func injectLocalCASContenders(t *testing.T, dir, ref string, contenders []string
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
-	wrapper := filepath.Join(bin, "git")
+	name := "git"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	wrapper := filepath.Join(bin, name)
 	for suffix, value := range map[string]string{
 		".realgit": realGit, ".repo": dir, ".ref": ref,
 		".contenders": strings.Join(contenders, "\n") + "\n",
@@ -38,29 +44,97 @@ func injectLocalCASContenders(t *testing.T, dir, ref string, contenders []string
 			t.Fatal(err)
 		}
 	}
-	const script = `#!/bin/sh
-set -eu
-realgit=$(cat "$0.realgit")
-ref=$(cat "$0.ref")
-if [ "${1-}" = -C ] && [ "${3-}" = update-ref ] && [ "${4-}" = "$ref" ]; then
-  count=0
-  if [ -f "$0.count" ]; then count=$(cat "$0.count"); fi
-  next_count=$((count + 1))
-  contender=$(sed -n "${next_count}p" "$0.contenders")
-  if [ -n "$contender" ]; then
-    repo=$(cat "$0.repo")
-    if old=$("$realgit" -C "$repo" rev-parse --verify "$ref" 2>/dev/null); then :; else old=0000000000000000000000000000000000000000; fi
-    "$realgit" -C "$repo" update-ref "$ref" "$contender" "$old"
-    printf '%s' "$next_count" > "$0.count"
-  fi
-fi
-exec "$realgit" "$@"
-`
-	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+	// Re-execute a copy of this native test binary. Windows LookPath does
+	// not select extensionless POSIX scripts ahead of git.exe.
+	executable, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
 	}
+	native, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapper, native, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(localCASGitHelperEnv, wrapper)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	selected, err := exec.LookPath("git")
+	samePath := selected == wrapper
+	if runtime.GOOS == "windows" {
+		samePath = strings.EqualFold(filepath.Clean(selected), filepath.Clean(wrapper))
+	}
+	if err != nil || !samePath {
+		t.Fatalf("native CAS helper was not selected: got %q want %q (%v)", selected, wrapper, err)
+	}
 	return wrapper + ".count"
+}
+
+const localCASGitHelperEnv = "GITHIVE_TEST_LOCAL_CAS_GIT_HELPER"
+
+// runLocalCASGitHelper runs before testing parses Git's arguments. All
+// operations still use the real Git executable in a separate process.
+func runLocalCASGitHelper(prefix string) int {
+	fail := func(err error) int {
+		fmt.Fprintln(os.Stderr, "local CAS git helper:", err)
+		return 1
+	}
+	read := func(suffix string) (string, error) {
+		value, err := os.ReadFile(prefix + suffix)
+		return strings.TrimSpace(string(value)), err
+	}
+	realGit, err := read(".realgit")
+	if err != nil {
+		return fail(err)
+	}
+	ref, err := read(".ref")
+	if err != nil {
+		return fail(err)
+	}
+	args := os.Args[1:]
+	if len(args) >= 4 && args[0] == "-C" && args[2] == "update-ref" && args[3] == ref {
+		count := 0
+		if raw, err := read(".count"); err == nil {
+			count, err = strconv.Atoi(raw)
+			if err != nil {
+				return fail(err)
+			}
+		} else if !os.IsNotExist(err) {
+			return fail(err)
+		}
+		raw, err := read(".contenders")
+		if err != nil {
+			return fail(err)
+		}
+		contenders := strings.Split(raw, "\n")
+		if count < len(contenders) && contenders[count] != "" {
+			dir, err := read(".repo")
+			if err != nil {
+				return fail(err)
+			}
+			old := gitx.ZeroOID
+			if out, err := exec.Command(realGit, "-C", dir, "rev-parse", "--verify", ref).Output(); err == nil {
+				old = strings.TrimSpace(string(out))
+			} else if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 128 {
+				return fail(err)
+			}
+			if out, err := exec.Command(realGit, "-C", dir, "update-ref", ref, contenders[count], old).CombinedOutput(); err != nil {
+				return fail(fmt.Errorf("inject contender: %w: %s", err, out))
+			}
+			if err := os.WriteFile(prefix+".count", []byte(strconv.Itoa(count+1)), 0o600); err != nil {
+				return fail(err)
+			}
+		}
+	}
+	command := exec.Command(realGit, args...)
+	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := command.Run(); err != nil {
+		if exit, ok := err.(*exec.ExitError); ok {
+			return exit.ExitCode()
+		}
+		return fail(err)
+	}
+	return 0
 }
 
 func TestSyncReplansLocalCASWithoutDroppingConcurrentEvents(t *testing.T) {

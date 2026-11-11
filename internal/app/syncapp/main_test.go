@@ -13,6 +13,9 @@ import (
 // signing set the config they need on their own test repository, which this
 // does not affect.
 func TestMain(m *testing.M) {
+	if prefix := os.Getenv(localCASGitHelperEnv); prefix != "" {
+		os.Exit(runLocalCASGitHelper(prefix))
+	}
 	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	os.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
 	os.Exit(m.Run())
