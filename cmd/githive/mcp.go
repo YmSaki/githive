@@ -858,15 +858,17 @@ func registerUsersTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "users_add", Description: "Add or update a registry user (or set up a dedicated Agent identity with agent=true)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args usersAddParams) (*mcp.CallToolResult, map[string]any, error) {
 			if args.Agent {
-				setup, err := usersapp.AddAgent(ctx, dir, args.Name, args.Project, args.Email, args.KeyDir)
+				setup, err := usersapp.AddAgentWithProfile(ctx, dir, args.Name, args.Project, args.Email, args.KeyDir, usersapp.AgentProfile{Display: args.Display, Roles: args.Roles})
 				if err != nil {
 					return nil, nil, err
 				}
 				return nil, map[string]any{
-					"username":   setup.Username,
-					"email":      setup.Email,
-					"public_key": setup.PublicKey,
-					"pub_line":   setup.PubLine,
+					"username":       setup.Username,
+					"email":          setup.Email,
+					"public_key":     setup.PublicKey,
+					"pub_line":       setup.PubLine,
+					"private_key":    setup.PrivateKey,
+					"config_snippet": setup.ConfigSnippet,
 				}, nil
 			}
 			if err := usersapp.New(dir).AddUser(ctx, args.Name, args.Display, args.Email, args.Kind, args.Roles); err != nil {

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ymsaki/githive/internal/app/usersapp"
 )
 
 func TestCLIAgentSetupPreservesRequestedProfile(t *testing.T) {
@@ -41,5 +44,28 @@ func TestCLIAgentSetupPreservesRequestedProfile(t *testing.T) {
 	roles, _ := user["roles"].([]any)
 	if len(roles) != 2 || roles[0] != "member" || roles[1] != "automation" {
 		t.Fatalf("requested roles ignored: %s", data)
+	}
+}
+
+func TestMCPAgentSetupPreservesRequestedProfile(t *testing.T) {
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		t.Skip("ssh-keygen required")
+	}
+	dir := newCLITestRepo(t)
+	session := newMcpTestSession(t, dir)
+	data := callMcpTool(t, session, "users_add", map[string]any{
+		"name": "mcp-agent", "agent": true, "project": "quality", "key_dir": filepath.Join(t.TempDir(), "keys"),
+		"display": "MCP Agent", "roles": []any{"member", "automation"},
+	})
+	if data["private_key"] == nil || data["config_snippet"] == nil {
+		t.Fatalf("missing setup information: %v", data)
+	}
+	user, err := usersapp.New(dir).GetUser(context.Background(), "mcp-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles, _ := user["roles"].([]any)
+	if user["display"] != "MCP Agent" || len(roles) != 2 || roles[0] != "member" || roles[1] != "automation" {
+		t.Fatalf("profile ignored: %v", user)
 	}
 }
