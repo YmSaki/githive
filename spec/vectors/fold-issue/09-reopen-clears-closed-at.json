@@ -1,0 +1,57 @@
+{
+  "description": "再オープン（closed→open）で closed_at は null に戻る（docs/features/issue.md「ステータス機械」）。08 は再オープン後に再び close するため、この規則を単独では固定できない。",
+  "events": [
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "assignees": [],
+        "labels": [],
+        "title": "再オープンで closed_at が消える"
+      },
+      "entity": "01m6dv75805wq3tk2vd9wrg5s7",
+      "id": "01m6dv7580mpjtb9d5mpjtb980",
+      "kind": "issue.create",
+      "ts": "2026-11-02T10:00:00.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "from": "open",
+        "to": "closed"
+      },
+      "entity": "01m6dv75805wq3tk2vd9wrg5s7",
+      "id": "01m6dv7678mpjtb9d5mpjtb981",
+      "kind": "issue.status",
+      "ts": "2026-11-02T10:00:01.000Z",
+      "v": 2
+    },
+    {
+      "actor": "yuumiya@example.com",
+      "data": {
+        "from": "closed",
+        "to": "open"
+      },
+      "entity": "01m6dv75805wq3tk2vd9wrg5s7",
+      "id": "01m6dv776gmpjtb9d5mpjtb982",
+      "kind": "issue.status",
+      "ts": "2026-11-02T10:00:02.000Z",
+      "v": 2
+    }
+  ],
+  "expected_comments": {},
+  "expected_meta": {
+    "assignees": [],
+    "closed_at": null,
+    "comment_count": 0,
+    "created_at": "2026-11-02T10:00:00.000Z",
+    "created_by": "yuumiya@example.com",
+    "id": "01m6dv75805wq3tk2vd9wrg5s7",
+    "labels": [],
+    "links": [],
+    "status": "open",
+    "title": "再オープンで closed_at が消える",
+    "updated_at": "2026-11-02T10:00:02.000Z"
+  },
+  "name": "09-reopen-clears-closed-at"
+}

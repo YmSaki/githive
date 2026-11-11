@@ -1,0 +1,14 @@
+{
+  "description": "ID は小文字 Crockford Base32 の ULID に限る（docs/02「ID：ULID」）。",
+  "event": {
+    "actor": "yuumiya@example.com",
+    "data": {
+      "to": "closed"
+    },
+    "entity": "01m6dqs9m03wq3tk2vd9wrg5s7",
+    "id": "01M6DQS9M03WQ3TK2VD9WRG5S6",
+    "kind": "issue.status",
+    "ts": "2026-11-02T09:00:00.000Z",
+    "v": 2
+  }
+}

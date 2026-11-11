@@ -1,0 +1,14 @@
+{
+  "description": "未知の（より新しい）封筒バージョンは拒否する（docs/01「バージョニングと互換性」）。",
+  "event": {
+    "actor": "yuumiya@example.com",
+    "data": {
+      "to": "closed"
+    },
+    "entity": "01m6dqs9m03wq3tk2vd9wrg5s7",
+    "id": "01m6dqs9m03wq3tk2vd9wrg5s6",
+    "kind": "issue.status",
+    "ts": "2026-11-02T09:00:00.000Z",
+    "v": 3
+  }
+}
