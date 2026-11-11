@@ -10,6 +10,7 @@
 package entitychain
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -242,6 +243,10 @@ func (w *Writer) foldInputsAt(oid, newEventID string) (base *materialize.State, 
 // that would sort before something the checkpoint already subsumed -
 // answers "no", and the caller falls back to walking the whole chain.
 func (w *Writer) checkpointBase(start *chain.CheckpointStart, newEventID string) (*materialize.State, bool) {
+	// Snapshots from older fold semantics cannot seed the current reducer.
+	if start.Checkpoint.V != event.SchemaVersion {
+		return nil, false
+	}
 	// Condition 4: the snapshot must describe exactly the checkpoint's
 	// parent. A checkpoint written from a stale read (issue #95) sits on a
 	// commit holding events its state never saw.
@@ -271,10 +276,42 @@ func (w *Writer) checkpointBase(start *chain.CheckpointStart, newEventID string)
 	if !ok {
 		return nil, false
 	}
-	base, err := w.Registry.StateFromMap(raw)
+	// A well-shaped snapshot, a valid signature, or a matching parent OID
+	// does not establish that its contents are the fold of that parent. Until
+	// independently verified checkpoints can be cached locally, reconstruct
+	// that state from the immutable event history before trusting the hint.
+	repo, err := chain.OpenRepository(w.Dir)
 	if err != nil {
 		return nil, false
 	}
+	covered, err := chain.WalkChain(repo, start.Parent)
+	if err != nil {
+		return nil, false
+	}
+	actualMax := ""
+	for _, e := range covered {
+		if e.ID > actualMax {
+			actualMax = e.ID
+		}
+	}
+	if actualMax != maxID {
+		return nil, false
+	}
+	base := w.Registry.Fold(covered)
+	wantMap, err := materialize.StateToMap(base)
+	if err != nil {
+		return nil, false
+	}
+	want, err := event.Encode(wantMap)
+	if err != nil {
+		return nil, false
+	}
+	got, err := event.Encode(raw)
+	if err != nil || !bytes.Equal(want, got) {
+		return nil, false
+	}
+	// Return the independently reconstructed typed state, never maps supplied
+	// by the remote checkpoint (which may omit required collections/scratch).
 	return base, true
 }
 
