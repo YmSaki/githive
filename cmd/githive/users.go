@@ -44,17 +44,19 @@ func newUsersAddCmd() *cobra.Command {
 			ctx := context.Background()
 			username := args[0]
 			if agent {
-				setup, err := usersapp.AddAgent(ctx, dir, username, project, email, keyDir)
+				setup, err := usersapp.AddAgentWithProfile(ctx, dir, username, project, email, keyDir, usersapp.AgentProfile{Display: display, Roles: roles})
 				if err != nil {
 					return err
 				}
 				warnings := syncIfEnabled(dir, usersapp.RegistryRef)
 				if flags.json {
 					return cliout.PrintSuccess(map[string]any{
-						"username":   setup.Username,
-						"email":      setup.Email,
-						"public_key": setup.PublicKey,
-						"pub_line":   setup.PubLine,
+						"username":       setup.Username,
+						"email":          setup.Email,
+						"public_key":     setup.PublicKey,
+						"pub_line":       setup.PubLine,
+						"private_key":    setup.PrivateKey,
+						"config_snippet": setup.ConfigSnippet,
 					}, warnings)
 				}
 				fmt.Printf("created agent %s <%s>\n", setup.Username, setup.Email)

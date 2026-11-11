@@ -40,6 +40,18 @@ type AgentSetup struct {
 // exist there), generates a dedicated ed25519 SSH keypair, registers the
 // user and public key in the registry, and returns a config snippet.
 func AddAgent(ctx context.Context, dir, username, project, email, keyDir string) (*AgentSetup, error) {
+	return AddAgentWithProfile(ctx, dir, username, project, email, keyDir, AgentProfile{})
+}
+
+// AgentProfile contains the optional display name and roles supplied at setup.
+type AgentProfile struct {
+	Display string
+	Roles   []string
+}
+
+// AddAgentWithProfile creates an agent and records its requested profile in the
+// same initial identity event, preserving the identity and key safety guards.
+func AddAgentWithProfile(ctx context.Context, dir, username, project, email, keyDir string, profile AgentProfile) (*AgentSetup, error) {
 	if !ValidUsername(username) {
 		return nil, fmt.Errorf("%w: username %q", ErrInvalidName, username)
 	}
@@ -146,9 +158,20 @@ func AddAgent(ctx context.Context, dir, username, project, email, keyDir string)
 		return nil, err
 	}
 	publicCreated = true
+	fields := map[string]any{"emails": []any{email}, "kind": "agent"}
+	if profile.Display != "" {
+		fields["display"] = profile.Display
+	}
+	if profile.Roles != nil {
+		roles := make([]any, len(profile.Roles))
+		for i, role := range profile.Roles {
+			roles[i] = role
+		}
+		fields["roles"] = roles
+	}
 	if err := svc.mutateChecked(ctx, "users.user_set", "users.user_set: "+username, map[string]any{
 		"username": username,
-		"fields":   map[string]any{"emails": []any{email}, "kind": "agent"},
+		"fields":   fields,
 	}, nameFree); err != nil {
 		return nil, err
 	}
