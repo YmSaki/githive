@@ -51,7 +51,7 @@ func (e *ValidationError) Error() string {
 // ConflictError reports that the merge of the remote wiki into the local edit
 // left conflict markers a human must resolve. The local commit is already
 // saved and the worktree keeps the markers + MERGE_HEAD, so the human resolves
-// them and re-runs save. Maps to exit 3 (retryable).
+// them and re-runs save. Maps to exit 3 (manual resolution required).
 type ConflictError struct {
 	Paths []string
 }
@@ -275,15 +275,15 @@ func (s *Service) finishConflictRerun(ctx context.Context, r *gitx.Runner, workt
 	if err != nil {
 		return SaveResult{}, err
 	}
-	// Stage the human's edits so the resolved files leave the unmerged state.
-	if err := r.StageAll(ctx, worktreeDir); err != nil {
-		return SaveResult{}, err
-	}
-	// Refuse to record a merge that still carries conflict markers: staging
-	// alone would silently commit them, so verify the human actually resolved
-	// the previously-conflicted files.
+	// Check before staging: a rejected save must keep the unmerged index,
+	// otherwise the next retry loses the list of conflicted paths and can
+	// publish unresolved markers (#118).
 	if bad := filesWithConflictMarkers(worktreeDir, unmerged); len(bad) > 0 {
 		return SaveResult{}, &ConflictError{Paths: bad}
+	}
+	// Only resolved files may leave the unmerged state.
+	if err := r.StageAll(ctx, worktreeDir); err != nil {
+		return SaveResult{}, err
 	}
 	if err := validateTree(worktreeDir); err != nil {
 		return SaveResult{}, err

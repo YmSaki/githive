@@ -239,7 +239,7 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		}
 		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "wiki_validation_failed", Message: err.Error(), Data: map[string]any{"violations": items}}
 	case errors.As(err, &wikiConflict):
-		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_conflict", Message: err.Error(), Retryable: true, Data: map[string]any{"paths": toAnySlice(wikiConflict.Paths)}}
+		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_conflict", Message: err.Error(), Retryable: false, Data: map[string]any{"paths": toAnySlice(wikiConflict.Paths)}}
 	case errors.Is(err, wikiapp.ErrPushRaceExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "wiki_push_race", Message: err.Error(), Retryable: true}
 	case errors.Is(err, wikiapp.ErrWorktreeExists):

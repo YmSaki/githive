@@ -51,7 +51,9 @@ githive wiki log [<path>]
 初回 clone にローカル wiki ref が無い場合、`wiki edit` は `--remote`（既定 origin）の wiki ref を取得して編集を開始する。ソースコードのデフォルトブランチや remote HEAD の名前には依存しない。`--no-sync` または取得失敗時は、取得済み追跡 ref があればそれを使い、無ければ固定の空ルートを使う（[ADR-0022](../adr/0022-wiki-initial-edit-base.md)）。
 
 `githive wiki edit --keep` で worktree を残し、通常の git 操作（`git -C <worktree> ...`）で作業してもよい。
-競合したら `githive wiki save` が通常の git コンフリクトマーカーを提示し、解決後の再実行で完了する。
+競合したら `githive wiki save` が通常の git コンフリクトマーカーを提示し、解決後の再実行で完了する。`wiki_conflict` は終了コード 3 だが `retryable:false` とし、機械的な再試行ではなく人による解消を求める。
+
+競合中の再保存では、Git が unmerged として保持しているパスを staging 前に検査する。マーカーが残っていれば index と worktree を変更せず拒否するため、何度再実行しても未解決の内容は公開されない。通常の変更ファイル全体にはマーカー検査を広げない。競合マーカーを説明する wiki ページなど、意図的にマーカー例を含む本文まで拒否しないためである。
 
 `githive wiki edit` は編集中の worktree を1つだけ記録する（`githive.wiki.worktree` という git config キー）。
 このキーは githive が管理する値であり、通常は `wiki edit` が絶対パスを設定する。
