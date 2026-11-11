@@ -792,7 +792,8 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 				}
 				return nil, nil, fmt.Errorf("notify_ack: no event ids given (pass ids or all=true)")
 			}
-			if err := svc.Ack(ctx, ids); err != nil {
+			ids, err := svc.AckIDs(ctx, ids)
+			if err != nil {
 				return nil, nil, err
 			}
 			anyIDs := make([]any, len(ids))

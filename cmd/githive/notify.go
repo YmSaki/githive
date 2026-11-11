@@ -160,7 +160,8 @@ func newNotifyAckCmd() *cobra.Command {
 			if len(ids) == 0 {
 				return fmt.Errorf("no event ids given (pass ids or --all)")
 			}
-			if err := svc.Ack(ctx, ids); err != nil {
+			ids, err = svc.AckIDs(ctx, ids)
+			if err != nil {
 				return err
 			}
 			warnings := syncIfEnabled(dir, notifyapp.StreamRef)

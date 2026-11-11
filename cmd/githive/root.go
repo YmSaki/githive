@@ -13,6 +13,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/logapp"
+	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/syncapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/app/wikiapp"
@@ -221,7 +222,7 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_priority", Message: err.Error()}
 	case errors.Is(err, logapp.ErrInvalidSince):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_since", Message: err.Error()}
-	case errors.Is(err, issueapp.ErrNotFound), errors.Is(err, usersapp.ErrUserNotFound), errors.Is(err, usersapp.ErrGroupNotFound), errors.Is(err, usersapp.ErrKeyNotFound), errors.Is(err, wikiapp.ErrNotFound):
+	case errors.Is(err, notifyapp.ErrNotFound), errors.Is(err, issueapp.ErrNotFound), errors.Is(err, usersapp.ErrUserNotFound), errors.Is(err, usersapp.ErrGroupNotFound), errors.Is(err, usersapp.ErrKeyNotFound), errors.Is(err, wikiapp.ErrNotFound):
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "not_found", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrRetriesExhausted), errors.Is(err, syncapp.ErrRetriesExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "conflict_retry_exhausted", Message: err.Error(), Retryable: true}
