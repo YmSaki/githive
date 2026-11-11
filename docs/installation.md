@@ -14,6 +14,15 @@ go install github.com/ymsaki/githive/cmd/githive@latest
 
 GitHub 上の所有者表記が `YmSaki` でも、Go モジュールのパスは **`github.com/ymsaki/githive`** と小文字で指定する。大文字のパスでは `module declares its path as` エラーになる。
 公開タグがない期間の `@latest` は開発中のリビジョンを指す。安定版リリースを意味しない。
+公開 main に未反映の PR・統合候補が `@latest` に含まれるとは限らない。候補の確認には、レビュー対象の commit を checkout したうえで、そのソースからインストールする。
+
+```sh
+# 対象リポジトリの clone 内で、確認する commit を明示する
+git checkout <reviewed-commit>
+go install ./cmd/githive
+```
+
+この方法のビルド情報は通常 `(devel)` になる。以下の `go version -m` の `vcs.revision` と、別途 `git rev-parse HEAD` で確認した commit を記録する。未コミット変更がある場合も同じバイナリとは扱わない。
 
 ## PATH と起動確認
 

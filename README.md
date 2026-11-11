@@ -2,7 +2,7 @@
 
 **git リポジトリの refs にプロジェクト記憶を保存するシステム。**
 
-issue、タスク、通知、ユーザー情報、チャット、wiki を `refs/projects/` 配下に追記専用のコミットチェーンとして格納する。`git clone` した時点で、人間も AI Agent も専用ツールなしで同じ記憶を読める。
+issue、タスク、通知、ユーザー情報、チャット、wiki を `refs/projects/` 配下に追記専用のコミットチェーンとして格納する。通常の `git clone` の後に `githive init` で記憶を fetch すれば、人間も AI Agent も素の Git でその内容を読める。
 
 ---
 
@@ -50,8 +50,8 @@ githive --help
 
 | 機能 | hosted モード（GitHub 等） | forge モード（自作サーバー・将来） |
 |------|--------------------------|---------------------------|
-| issue / task / chat / wiki | 完全動作 | 完全動作 |
-| notify の記録 | 完全動作（配信は fetch 時に検出） | push 時に配信 |
+| issue / task / chat / wiki | クライアント実装あり（実ホスト同期は準備状況を参照） | 実装予定 |
+| notify の記録 | 記録対応（配信は fetch 時に検出） | push 時配信を設計 |
 | 権限制御 | 助言的（ローカル・署名検証のみ） | 強制（pre-receive で拒否） |
 | 署名検証 | クライアント側で `githive verify` | サーバー側で push 時に強制 |
 
