@@ -143,6 +143,16 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		}
 		return code, info
 	}
+	if errors.Is(err, syncapp.ErrMetaConfigConflict) {
+		data := map[string]any{"ref": refspace.MetaConfigRef}
+		var conflict *syncapp.MetaConfigConflictError
+		if errors.As(err, &conflict) {
+			data["local_oid"] = conflict.LocalOID
+			data["remote_oid"] = conflict.RemoteOID
+			data["recovery"] = conflict.Recovery()
+		}
+		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "meta_config_conflict", Message: err.Error(), Data: data}
+	}
 
 	var invalidInput *event.InvalidInputError
 	if errors.As(err, &invalidInput) {
