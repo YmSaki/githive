@@ -50,6 +50,7 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 3. `core.logAllRefUpdates` を設定する。
 4. remote があれば `refs/projects/` を fetch し、その remote に無い追跡 ref を prune してから、ローカルに無い ref をリモートの値で作る（meta/config を含む）。clone 直後でも、init の直後からデータを読める。既にローカルにある ref には触らない（sync が扱う）。
 5. この時点でローカルに meta/config が無いときだけ、新しく作る。fetch に失敗し、ローカルにも meta/config が無い場合は、リモートに既存のプロジェクトがあるかを判断できないので、作らずにエラーで止まる。
+6. remote が設定され、新しい meta/config を作成した場合は、その ref を自動同期する。`--no-sync` は送信を抑止する。送信に失敗してもローカルの初期化を保持して成功を返し、`sync_failed` 警告を出す。ネットワーク回復後は `githive sync` で送信できる。
 
 `--json` の `data` は `refspec_added`・`log_all_ref_updates`・`meta_config_made` に加えて、`remote`（`name`・`configured`・`fetched`・`has_meta_config`・`adopted_refs`）を返す。
 

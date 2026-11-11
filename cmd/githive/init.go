@@ -9,6 +9,7 @@ import (
 
 	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/cliout"
+	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
 func newInitCmd() *cobra.Command {
@@ -31,6 +32,9 @@ func newInitCmd() *cobra.Command {
 			var warnings []cliout.Warning
 			for _, w := range result.Warnings {
 				warnings = append(warnings, cliout.Warning{Code: "init_warning", Message: w})
+			}
+			if result.MetaConfigMade && result.Remote.Configured {
+				warnings = append(warnings, syncIfEnabled(dir, refspace.MetaConfigRef)...)
 			}
 			if flags.json {
 				adopted := make([]any, len(result.Remote.AdoptedRefs))
