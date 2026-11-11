@@ -186,7 +186,7 @@ func (r *Runner) RevParse(ctx context.Context, ref string) (string, error) {
 	out, err := r.run(ctx, "rev-parse", "--verify", "--quiet", "--end-of-options", ref)
 	if err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return "", nil
 		}
 		return "", err
@@ -755,7 +755,7 @@ func (r *Runner) MergeInProgress(ctx context.Context, worktreeDir string) (bool,
 		return strings.TrimSpace(out.String()) != "", nil
 	}
 	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 		return false, nil
 	}
 	return false, fmt.Errorf("gitx: rev-parse MERGE_HEAD: %w", err)
