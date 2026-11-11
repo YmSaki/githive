@@ -32,6 +32,10 @@ jobs:
         if: runner.os != 'Windows'
         run: bash scripts/check-canonical-json.sh
 
+      - name: relay pack regression
+        if: runner.os == 'Linux'
+        run: bash scripts/test-githive-relay.sh
+
       - name: go build
         run: go build ./...
 
