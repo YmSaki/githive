@@ -61,3 +61,23 @@ test harness（`internal/testutil`）が次のシナリオを部品として提�
 - MCP：ツール定義と CLI `--json` のスキーマ一致を自動比較する（[15](15-clients.md) の等価性をテストで固定する）。
 - TUI：ロジックは app 層にあるためユニットで薄く、画面は golden スクリーンショット（teatest）を最小限。
 - VSCode 拡張：CLI をモックした統合テスト。実バイナリ結合は smoke のみ。
+
+## ビルド済み製品の受け入れ smoke
+
+`scripts/acceptance.py` は固定済みの実行ファイルを受け取り、ビルドやインストールをせずに通常の CLI・署名付き CLI・MCP stdio・ローカル bare remote と clone を試験する。
+Python 3.9 以上、Git 2.34 以上、OpenSSH の `ssh-keygen`、ビルド情報を読むための Go が必要になる。
+
+```sh
+python3 scripts/acceptance.py \
+  --binary /absolute/path/to/pinned-githive \
+  --output /absolute/path/to/new-empty-qa-directory \
+  --source /optional/path/to/source-checkout
+```
+
+`--source` は省略できる。出力先は新規または空のディレクトリに限定し、全 fixture・一時ファイル・試験用秘密鍵・ログをそこへ置く。既存の Git 設定は読み込まず、リモートは試験用のローカル bare リポジトリだけを使う。
+`provenance.json` は実行前後の SHA256、`go version -m`、指定した場合は独立したソース commit と作業状態を記録する。ソース情報だけで、そのソースからバイナリが作られたとは証明しない。
+
+コマンドの stdout/stderr/終了コードは `commands.jsonl`、MCP の要求・応答は `*-mcp.jsonl`、集計は `summary.json` に残る。
+現行 41 ツールの通常呼び出しと4種のリソース読み取りを含み、登録ツールやリソーステンプレートが増えた場合は未対応を失敗として報告する。
+署名なしの verify は失敗を、署名付き CLI と MCP の verify は成功を期待する。POSIX 以外では制御用エディタによる CLI policy edit を省略し、その制限を集計へ記録する。
+全フラグ・境界値・OS・競合・攻撃の網羅を主張するものではない。出力には破棄可能な試験用秘密鍵が含まれるため、そのまま外部公開しない。
