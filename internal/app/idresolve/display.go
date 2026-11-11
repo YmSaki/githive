@@ -28,6 +28,21 @@ func DisplayIDs(ctx context.Context, dir, feature string) (map[string]string, er
 			ids = append(ids, parsed.ID)
 		}
 	}
+	return Abbreviate(ids), nil
+}
+
+// Abbreviate chooses the shortest unique prefix (at least eight characters)
+// for every full ID in a complete candidate set. Callers must include hidden
+// or paginated-out candidates when their input resolver can still match them.
+func Abbreviate(candidates []string) map[string]string {
+	var ids []string
+	seen := map[string]bool{}
+	for _, id := range candidates {
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
 	sort.Strings(ids)
 	result := make(map[string]string, len(ids))
 	for i, id := range ids {
@@ -50,5 +65,5 @@ func DisplayIDs(ctx context.Context, dir, feature string) (map[string]string, er
 		}
 		result[id] = id[:length]
 	}
-	return result, nil
+	return result
 }

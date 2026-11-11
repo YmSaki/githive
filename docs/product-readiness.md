@@ -27,7 +27,7 @@
 - **[#88 イベント依存順序](https://github.com/YmSaki/githive/issues/88):** 通常追記は既知の最大非 checkpoint ID 以下の新イベントを `clock_skew` で拒否し、raw な issue/task/chat 履歴の create より前の変更・別 create による置換は `event_order_violation` で拒否する。reducer や既存イベントを書き換える対策ではない。raw users の key_add/key_revoke と user_set の依存順序・鍵ローテーション全体の検証は未実装であり、#88 は残課題を含む（[ADR-0026](adr/0026-reject-lossy-event-order.md)）。
 - **[#129 副参照 ID](https://github.com/YmSaki/githive/issues/129):** link の参照先、reply_to、supersedes、既知 feature の notify source.id も app 層で前方一致と大文字入力を解決し、完全な小文字 ID を保存する。CLI/MCP で add/remove の同一性、返信通知、未知・曖昧・他エンティティの拒否と追記なしを検証する。完全 ID の弱いリンクや任意 source.kind の完全 ID は既存のオフライン・拡張用契約として保持する。未知 source.kind の短縮入力は完全 ID を要求する。詳細は [入力仕様](10-cli-spec.md) に従う。
 
-- **[#130 一覧の表示 ID](https://github.com/YmSaki/githive/issues/130):** 人間向け issue/task/chat list の ID 列は、同 feature の全ローカル ref を対象に一意な最短の前方一致を表示する。非表示・archived の競合も含め、コピーした ID で show が同じエンティティを開くことを検証する。JSON は完全 ID のまま。通知タイトルの装飾的短縮や notify/status/log の他の表示列まで対応済みとは扱わない（[ADR-0031](adr/0031-unambiguous-entity-list-ids.md)）。
+- **[#130 一覧の表示 ID](https://github.com/YmSaki/githive/issues/130):** 人間向け issue/task/chat list の ID 列は、同 feature の全ローカル ref を対象に一意な最短の前方一致を表示する。非表示・archived の競合も含め、コピーした ID で show が同じエンティティを開くことを検証する。show のコメント・note・message ヘッダも一意なイベント ID を表示し、chat --tail の表示外競合も含む。初回本文付き chat.create の ID も返信・置換に使えることを CLI/MCP で検証する。JSON は完全 ID のまま。通知タイトルの装飾的短縮や notify/status/log の他の表示列まで対応済みとは扱わない（[ADR-0031](adr/0031-unambiguous-entity-list-ids.md)）。
 
 このほか、部分的に破損した履歴の検査・一覧継続、fsck の全 data/feature/entity 検査、複数リモートの追跡意味等にも未検証・未完了の範囲がある。Issue が open であることと、特定の候補で緩和されたことを混同しない。
 

@@ -131,9 +131,10 @@ func newChatShowCmd() *cobra.Command {
 				}
 				return cliout.PrintSuccess(viewData(map[string]any{"meta": show.Meta, "messages": anyMessages}, show.ReadSource), nil)
 			}
+			eventIDs := itemDisplayIDs(show.Messages)
 			fmt.Printf("%v  %v  %v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"])
 			for _, m := range messages {
-				fmt.Printf("\n--- %v (%v) ---\n%v\n", m["author"], m["ts"], m["body"])
+				fmt.Printf("\n--- %s %v (%v) ---\n%v\n", displayID(eventIDs, m["id"]), m["author"], m["ts"], m["body"])
 			}
 			return nil
 		},

@@ -155,13 +155,14 @@ func newIssueShowCmd() *cobra.Command {
 				}
 				return cliout.PrintSuccess(viewData(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, show.ReadSource), nil)
 			}
+			eventIDs := itemDisplayIDs(show.Comments)
 			fmt.Printf("%v  %v  %v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"])
 			if show.Body != "" {
 				fmt.Println()
 				fmt.Println(show.Body)
 			}
 			for _, c := range show.Comments {
-				fmt.Printf("\n--- %v (%v) ---\n%v\n", c["author"], c["ts"], c["body"])
+				fmt.Printf("\n--- %s %v (%v) ---\n%v\n", displayID(eventIDs, c["id"]), c["author"], c["ts"], c["body"])
 			}
 			return nil
 		},

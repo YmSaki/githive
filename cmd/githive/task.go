@@ -171,13 +171,14 @@ func newTaskShowCmd() *cobra.Command {
 				}
 				return cliout.PrintSuccess(viewData(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, show.ReadSource), nil)
 			}
+			eventIDs := itemDisplayIDs(show.Notes)
 			fmt.Printf("%v  %v  %v  owner=%v\n", show.Meta["id"], show.Meta["status"], show.Meta["title"], show.Meta["owner"])
 			if show.Body != "" {
 				fmt.Println()
 				fmt.Println(show.Body)
 			}
 			for _, n := range show.Notes {
-				fmt.Printf("\n--- %v (%v) ---\n%v\n", n["author"], n["ts"], n["body"])
+				fmt.Printf("\n--- %s %v (%v) ---\n%v\n", displayID(eventIDs, n["id"]), n["author"], n["ts"], n["body"])
 			}
 			return nil
 		},

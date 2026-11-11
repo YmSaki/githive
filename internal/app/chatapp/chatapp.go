@@ -165,7 +165,8 @@ func summarize(body string) string {
 	return body
 }
 
-// ResolveMessageID resolves a posted message reference within this thread.
+// ResolveMessageID resolves a message within this thread, including the
+// initial chat.create event when it carries the first message body.
 func (s *Service) ResolveMessageID(ctx context.Context, id, input string) (string, error) {
 	resolved, err := s.ResolveID(ctx, id)
 	if err != nil {

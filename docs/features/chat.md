@@ -90,4 +90,6 @@ git log --format='%s' refs/projects/chat/<id>     # 「chat.post: <冒頭>」の
 
 新しい変更 ID が既知の非 checkpoint イベントの最大 ID 以下なら、通常の追記は `clock_skew` で保存前に拒否する。生の履歴の create より前の変更や異なる複数 create は `event_order_violation` として読み取り・同期を拒否し、fsck/verify で報告する。本文や作成者を黙って失うことを避けるための境界検査であり、fold や既存の履歴は変更しない（[ADR-0026](../adr/0026-reject-lossy-event-order.md)）。
 
-post の reply_to / supersedes は、このスレッドの chat.post イベントの完全 ID または一意な 8 文字以上の前方一致を受け付ける。大文字は小文字の完全 ID に正規化する。別スレッドや別種別のイベントは参照できず、未知・曖昧な入力では投稿しない。置換済みの原文も履歴から参照できる。
+post の reply_to / supersedes は、このスレッドの chat.post と本文付き chat.create（初回メッセージ）イベントの完全 ID または一意な 8 文字以上の前方一致を受け付ける。大文字は小文字の完全 ID に正規化する。別スレッドや別種別のイベントは参照できず、未知・曖昧な入力では投稿しない。置換済みの原文も履歴から参照できる。
+
+人間向け show のメッセージヘッダには、一意な最短のイベント ID（最低 8 文字）を表示する。--tail で省かれたメッセージも比較対象にし、表示 ID をそのまま reply_to / supersedes に使える。JSON の ID は完全形のまま。

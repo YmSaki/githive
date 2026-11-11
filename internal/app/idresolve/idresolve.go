@@ -86,7 +86,8 @@ func Entity(ctx context.Context, dir, feature, input string) (string, error) {
 	return Match(normalized, ids)
 }
 
-// Event resolves only events of kind in the named entity's complete history.
+// Event resolves eligible events represented by kind in the entity history.
+// chat.create with a body is eligible as the thread's first chat.post message.
 // Hidden/superseded events remain addressable; events from other entities and
 // event kinds are never valid reply or replacement targets.
 func Event(ctx context.Context, dir, feature, entity, input, kind string) (string, error) {
@@ -114,7 +115,7 @@ func Event(ctx context.Context, dir, feature, entity, input, kind string) (strin
 	}
 	var ids []string
 	for _, env := range events {
-		if env.Kind == kind && env.Entity == entity {
+		if eligibleEvent(env, kind) && env.Entity == entity {
 			ids = append(ids, env.ID)
 		}
 	}
@@ -145,4 +146,16 @@ func normalizePrefix(input string) (string, error) {
 		return "", &event.InvalidInputError{Kind: "reference", Field: "id", Rule: "must be a full ULID or a prefix of at least eight ULID characters"}
 	}
 	return prefix, nil
+}
+
+func eligibleEvent(env *event.Envelope, kind string) bool {
+	if env.Kind == kind {
+		return true
+	}
+	// A thread's initial body is displayed and editable as its first message.
+	if kind == "chat.post" && env.Kind == "chat.create" {
+		body, _ := env.Data["body"].(string)
+		return body != ""
+	}
+	return false
 }
