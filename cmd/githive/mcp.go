@@ -617,9 +617,9 @@ type chatPostParams struct {
 }
 
 type chatEditMetaParams struct {
-	ID     string `json:"id" jsonschema:"chat thread id or an unambiguous >=8 char prefix"`
-	Title  string `json:"title,omitempty" jsonschema:"new title; omit to leave unchanged"`
-	Status string `json:"status,omitempty" jsonschema:"new status; omit to leave unchanged"`
+	ID     string  `json:"id" jsonschema:"chat thread id or an unambiguous >=8 char prefix"`
+	Title  *string `json:"title,omitempty" jsonschema:"new title; omit to leave unchanged"`
+	Status *string `json:"status,omitempty" jsonschema:"new status; omit to leave unchanged"`
 }
 
 func registerChatTools(server *mcp.Server, dir string) {
@@ -692,7 +692,7 @@ func registerChatTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			if err := svc.EditMeta(ctx, id, args.Title, args.Status); err != nil {
+			if err := svc.EditMetaFields(ctx, id, args.Title, args.Status); err != nil {
 				return nil, nil, err
 			}
 			return nil, map[string]any{}, nil

@@ -217,7 +217,14 @@ func newChatEditMetaCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := svc.EditMeta(ctx, id, title, status); err != nil {
+			var titleField, statusField *string
+			if cmd.Flags().Changed("title") {
+				titleField = &title
+			}
+			if cmd.Flags().Changed("status") {
+				statusField = &status
+			}
+			if err := svc.EditMetaFields(ctx, id, titleField, statusField); err != nil {
 				return err
 			}
 			warnings := syncIfEnabled(dir, chatRef(id))

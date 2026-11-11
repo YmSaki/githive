@@ -410,6 +410,9 @@ func (w *Writer) AppendOnto(ctx context.Context, id string, buildEvent func(pare
 			return nil, err
 		}
 		env.Actor = sig.Email
+		if err := event.ValidateWriteData(env); err != nil {
+			return nil, err
+		}
 		base, existingEvents, err := w.foldInputsAt(oid, env.ID, env)
 		if err != nil {
 			return nil, err

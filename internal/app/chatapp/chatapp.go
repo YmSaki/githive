@@ -114,12 +114,25 @@ func (s *Service) Archive(ctx context.Context, id string) error {
 // EditMeta overwrites title/status (LWW). Pass empty string to leave a
 // field unchanged.
 func (s *Service) EditMeta(ctx context.Context, id, title, status string) error {
-	data := map[string]any{}
+	var titleField, statusField *string
 	if title != "" {
-		data["title"] = title
+		titleField = &title
 	}
 	if status != "" {
-		data["status"] = status
+		statusField = &status
+	}
+	return s.EditMetaFields(ctx, id, titleField, statusField)
+}
+
+// EditMetaFields preserves the distinction between an omitted field and an
+// explicit empty value, so the shared writer can reject invalid input.
+func (s *Service) EditMetaFields(ctx context.Context, id string, title, status *string) error {
+	data := map[string]any{}
+	if title != nil {
+		data["title"] = *title
+	}
+	if status != nil {
+		data["status"] = *status
 	}
 	return s.mutate(ctx, id, "chat.edit_meta", "chat.edit_meta", data)
 }

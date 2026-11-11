@@ -143,6 +143,10 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return code, info
 	}
 
+	var invalidInput *event.InvalidInputError
+	if errors.As(err, &invalidInput) {
+		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_input", Message: err.Error()}
+	}
 	var ambiguous *apperr.AmbiguousIDError
 	var schemaUnsupported *entitychain.SchemaUnsupportedError
 	if errors.As(err, &schemaUnsupported) {

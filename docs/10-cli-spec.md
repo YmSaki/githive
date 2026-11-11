@@ -57,6 +57,12 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 
 機能別サブコマンドの引数は各機能仕様に記載済み。
 
+### 書き込み入力の検証
+
+issue/task/chat の新規作成・編集では、指定された空の title を拒否する。編集フィールドの省略は従来どおり受け付ける。status は各機能の既知の値だけを受け付ける。task の priority は low/normal/high、due はスキーマの `YYYY-MM-DD` パターンに従う（暦上の実在日の検査ではない）。issue/task の link は rel=task/issue/chat と完全な小文字 ULID を要求し、issue comment / chat post の reply_to・supersedes も指定時は完全な小文字 ULID を要求する。この検証は CLI と MCP が共有する app 書き込み経路で行い、不正な入力はイベントを追記せず拒否する。CLI は `invalid_input`、終了コード 2 を返す。
+
+未知の status と、既知の status 間の不正な遷移は区別する。後者は従来どおり監査イベントを記録し、fold が遷移を無視する（`applied:false` と警告）。読み取り・既存イベントの fold 規則は変えない。この入力検証は全 kind の JSON Schema 検証ではなく、notify 宛先や users、一覧フィルタなどは別の検証範囲である。
+
 ### `githive log --since` の完全性について
 
 `--since` はエンティティチェーンの走査を `since` カットオフで早期終了する最適化（`internal/core/chain.WalkChainSince`）を経由する。これは通常のクロック挙動下では常に正しいが、端末の時計が実際に巻き戻った状態でイベントが追記された場合（[03-sync-and-concurrency.md](03-sync-and-concurrency.md)「時計異常への防御」が警告のみで拒否しないケース）に限り、`since` 以降であるはずの祖先イベントを取りこぼす可能性があるベストエフォートの保証である（[ADR-0012](adr/0012-walkchainsince-clock-skew-best-effort.md)）。`githive log` は `internal/core/materialize` を経由しないため、これは決定的実体化・fold意味論の不変条件には抵触しない。
