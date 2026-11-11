@@ -36,27 +36,34 @@ func newStatusCmd() *cobra.Command {
 				return err
 			}
 
-			unread, err := notifyapp.New(dir).List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+			source := ""
+			unread, ownSource, err := notifyapp.New(dir).ListView(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: viewMembershipResolver(dir, &source)})
 			if err != nil {
 				return err
 			}
 
-			doing, err := taskapp.New(dir).List(ctx, taskapp.ListFilter{Status: "doing", Mine: true, ActorEmail: sig.Email})
+			doing, doingSource, err := taskapp.New(dir).ListView(ctx, taskapp.ListFilter{Status: "doing", Mine: true, ActorEmail: sig.Email})
 			if err != nil {
 				return err
 			}
+			if doingSource != "" {
+				source = doingSource
+			}
 
+			if ownSource != "" {
+				source = ownSource
+			}
+			printViewSource(source)
 			if flags.json {
 				doingItems := make([]any, len(doing))
 				for i, m := range doing {
 					doingItems[i] = m
 				}
-				cliout.PrintSuccess(map[string]any{
+				return cliout.PrintSuccess(viewData(map[string]any{
 					"unpushed_refs":  unpushed,
 					"unread_notify":  len(unread),
 					"my_doing_tasks": doingItems,
-				}, nil)
-				return nil
+				}, source), nil)
 			}
 
 			fmt.Printf("unpushed refs: %d\n", len(unpushed))

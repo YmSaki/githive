@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,7 @@ import (
 )
 
 // TestCLIInitAfterCloneJoinsExistingProject is issue #101's headline
-// scenario: A inits and syncs, B clones and inits. B must adopt A's
+// scenario: A inits and writes an issue, B clones and inits. B must adopt A's
 // meta/config (one root, A's project name) instead of writing a second
 // meta.init root that sync would merge over the shared config - and B must
 // be able to read A's data right after init.
@@ -29,7 +30,6 @@ func TestCLIInitAfterCloneJoinsExistingProject(t *testing.T) {
 	setCLIIdentity(t, a, "a@example.com")
 	mustRunCLI(t, a, "init", "--project", "shared", "--json")
 	mustRunCLI(t, a, "issue", "new", "--title", "from a", "--json")
-	mustRunCLI(t, a, "sync", "--json")
 
 	b := filepath.Join(tmp, "beta-clone")
 	if out, err := exec.Command("git", "clone", "--quiet", origin, b).CombinedOutput(); err != nil {
@@ -99,4 +99,51 @@ func containsRef(refs []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestCLIInitPublishRespectsNoSyncAndPreservesRejectedConfig(t *testing.T) {
+	for _, noSync := range []bool{true, false} {
+		t.Run(map[bool]string{true: "no-sync", false: "rejected"}[noSync], func(t *testing.T) {
+			origin := filepath.Join(t.TempDir(), "origin.git")
+			if out, err := exec.Command("git", "init", "--quiet", "--bare", origin).CombinedOutput(); err != nil {
+				t.Fatalf("git init: %v %s", err, out)
+			}
+			dir := newCLITestRepo(t)
+			if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", origin).CombinedOutput(); err != nil {
+				t.Fatalf("git remote add: %v %s", err, out)
+			}
+			if err := os.WriteFile(filepath.Join(origin, "hooks", "pre-receive"), []byte("#!/bin/sh\nexit 1\n"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"init", "--project", "local-project", "--json"}
+			if noSync {
+				args = append(args, "--no-sync")
+			}
+			res := mustRunCLI(t, dir, args...)
+			var output struct {
+				OK       bool `json:"ok"`
+				Warnings []struct {
+					Code string `json:"code"`
+				} `json:"warnings"`
+			}
+			if err := json.Unmarshal([]byte(res.stdout), &output); err != nil {
+				t.Fatal(err)
+			}
+			if !output.OK {
+				t.Fatalf("local init failed: %s", res.stdout)
+			}
+			if noSync && len(output.Warnings) != 0 {
+				t.Fatalf("no-sync attempted publication: %s", res.stdout)
+			}
+			if !noSync && (len(output.Warnings) != 1 || output.Warnings[0].Code != "sync_failed") {
+				t.Fatalf("missing publication warning: %s", res.stdout)
+			}
+			if out, err := exec.Command("git", "-C", dir, "show", "refs/projects/meta/config:config.json").CombinedOutput(); err != nil || !strings.Contains(string(out), "local-project") {
+				t.Fatalf("local config lost: %v %s", err, out)
+			}
+			if err := exec.Command("git", "-C", origin, "show-ref", "--verify", "refs/projects/meta/config").Run(); err == nil {
+				t.Fatal("config unexpectedly published")
+			}
+		})
+	}
 }

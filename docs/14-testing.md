@@ -30,7 +30,7 @@ test harness（`internal/testutil`）が次のシナリオを部品として提�
 3. **shallow 読み**：depth 1 で fetch した clone で list/show が動き、履歴系が deepen を要求する。
 4. **素の git 互換**：ツールで書いたデータを素の git コマンドだけで読む（各機能仕様の「素の git での読み方」を自動テスト化）。
 5. **署名検証**：正しい署名、鍵不一致、revoke 後の署名、actor 偽装の 4 ケース（P3 以降）。
-6. **チェーン破損の検出**：スキーマ違反イベント、非 canonical JSON、ツリー改竄を fsck / verify が報告する。
+6. **チェーン破損の検出**：`fsck` が封筒破損、head ツリーの再計算不一致、checkpoint state の不一致を報告する。`verify` は署名・actor・台帳権限・信頼の根を検査する。全 data schema と非 canonical JSON の監査は別の受け入れ項目であり、署名検証の成功をツリー再計算の成功とは扱わない。
 7. **自動 fetch 耐性**：未 push のローカルチェーンがある状態で素の `git fetch`（および `fetch --prune`）を実行し、`refs/projects/*` が変化しないこと（[ADR-0008](adr/0008-remote-tracking-separation.md) の追跡分離）。
 8. **チェックポイント越しのマージ**：A のオフラインイベント（古い ULID）と B のチェックポイントを含むチェーンをマージし、A のイベントが実体化結果に残ること。
 9. **祖先無しマージ**：独立に作られた同名 ref（meta/config）が空祖先で収束すること。registry の二重ルートが検証エラーになること。
@@ -46,7 +46,8 @@ test harness（`internal/testutil`）が次のシナリオを部品として提�
 
 ## CI 構成
 
-- 3 OS（Linux / macOS / Windows）で全層を実行する。git のバージョンは最低要求（2.34）と最新の 2 系統。
+- Go の build/test/vet は Linux / macOS / Windows の runner を対象にする。`source-install-smoke.py` で Git の版が最低要求（2.34）以上であること、現在の checkout を隔離した GOBIN へ install して CLI/MCP の help とビルド情報を読めることも検査する。実行ログは OS 別の `source-install-*` artifact に残す。
+- この matrix は runner 標準の Git を使う。Git 2.34 実機と最新の2系統を切り替えたテストはまだ設定していない。macOS job の追加自体も、実行結果が出るまで macOS 合格の証拠とは扱わない。
 - lint：gofmt、go vet、golangci-lint。encoding/json の直接使用禁止ルール（canonical JSON の一元化）を custom lint で強制する。
 - 互換テスト（実サービス）は nightly のみ。トークンは CI シークレット。
 
@@ -61,3 +62,23 @@ test harness（`internal/testutil`）が次のシナリオを部品として提�
 - MCP：ツール定義と CLI `--json` のスキーマ一致を自動比較する（[15](15-clients.md) の等価性をテストで固定する）。
 - TUI：ロジックは app 層にあるためユニットで薄く、画面は golden スクリーンショット（teatest）を最小限。
 - VSCode 拡張：CLI をモックした統合テスト。実バイナリ結合は smoke のみ。
+
+## ビルド済み製品の受け入れ smoke
+
+`scripts/acceptance.py` は固定済みの実行ファイルを受け取り、ビルドやインストールをせずに通常の CLI・署名付き CLI・MCP stdio・ローカル bare remote と clone を試験する。
+Python 3.9 以上、Git 2.34 以上、OpenSSH の `ssh-keygen`、ビルド情報を読むための Go が必要になる。
+
+```sh
+python3 scripts/acceptance.py \
+  --binary /absolute/path/to/pinned-githive \
+  --output /absolute/path/to/new-empty-qa-directory \
+  --source /optional/path/to/source-checkout
+```
+
+`--source` は省略できる。出力先は新規または空のディレクトリに限定し、全 fixture・一時ファイル・試験用秘密鍵・ログをそこへ置く。既存の Git 設定は読み込まず、リモートは試験用のローカル bare リポジトリだけを使う。
+`provenance.json` は実行前後の SHA256、`go version -m`、指定した場合は独立したソース commit と作業状態を記録する。ソース情報だけで、そのソースからバイナリが作られたとは証明しない。
+
+コマンドの stdout/stderr/終了コードは `commands.jsonl`、MCP の要求・応答は `*-mcp.jsonl`、集計は `summary.json` に残る。
+現行 41 ツールの通常呼び出しと4種のリソース読み取りを含み、登録ツールやリソーステンプレートが増えた場合は未対応を失敗として報告する。
+署名なしの verify は失敗を、署名付き CLI と MCP の verify は成功を期待する。POSIX 以外では制御用エディタによる CLI policy edit を省略し、その制限を集計へ記録する。
+全フラグ・境界値・OS・競合・攻撃の網羅を主張するものではない。出力には破棄可能な試験用秘密鍵が含まれるため、そのまま外部公開しない。

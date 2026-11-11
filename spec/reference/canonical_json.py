@@ -27,6 +27,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from strict_json import validate_value
+
 
 class CanonicalEncodeError(ValueError):
     """canonical JSON にエンコードできない値が渡されたときに送出する。"""
@@ -37,6 +39,10 @@ def encode(obj: Any) -> bytes:
 
     末尾に改行を 1 つだけ付与する。改行コードは LF 固定。
     """
+    try:
+        validate_value(obj)
+    except (ValueError, UnicodeError) as exc:
+        raise CanonicalEncodeError(str(exc)) from exc
     text = _encode_value(obj, indent=0)
     return (text + "\n").encode("utf-8")
 
@@ -165,6 +171,10 @@ def encode_compact_line(obj: Any) -> str:
     改行を持たない 1 行の表現になる。末尾に改行は付かない
     （Go の EncodeCompactLine と同じ）。
     """
+    try:
+        validate_value(obj)
+    except (ValueError, UnicodeError) as exc:
+        raise CanonicalEncodeError(str(exc)) from exc
     return _encode_value_compact(obj)
 
 

@@ -1,8 +1,10 @@
 # githive 設計ドキュメント
 
 githive は、git リポジトリの refs にプロジェクト記憶（issue、task、notify、users、chat、wiki）をテキストで保存するシステムである。
-`git clone` した時点で、人間も AI Agent も専用ツールなしで同じ記憶を読める。
+通常の `git clone` は `refs/projects/*` を取得しない。初回の `githive init` または明示的な fetch で記憶を取得すると、人間も AI Agent も素の Git で内容を読める。
 専用ツール（`githive` CLI とライブラリ）があれば、より速く読み書きできる。
+
+利用を始める場合は [インストール・更新・アンインストール](installation.md) を参照する。
 
 ## ドキュメント構成と読む順序
 

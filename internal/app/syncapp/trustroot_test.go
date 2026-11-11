@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/ymsaki/githive/internal/app/issueapp"
+	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
 	"github.com/ymsaki/githive/internal/core/gitx"
 )
@@ -244,18 +244,18 @@ func TestNonUsersFeatureWithTwoRootsStillMerges(t *testing.T) {
 	dirB := cloneRepo(t, origin, "b@example.com")
 	ctx := context.Background()
 
-	// Two clones independently create an issue, then force both onto the
-	// same ref name so the ref has two unrelated roots.
-	idA, err := issueapp.New(dirA).NewIssue(ctx, "from a", "", nil, nil)
+	// Two clones independently append valid notifications to the singleton
+	// stream. Their distinct event entities legitimately share one ref.
+	_, err := notifyapp.New(dirA).Post(ctx, []string{"all"}, "from a", "", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	idB, err := issueapp.New(dirB).NewIssue(ctx, "from b", "", nil, nil)
+	_, err = notifyapp.New(dirB).Post(ctx, []string{"all"}, "from b", "", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	refA := "refs/projects/issue/" + idA
-	refB := "refs/projects/issue/" + idB
+	refA := notifyapp.StreamRef
+	refB := notifyapp.StreamRef
 	if _, err := Sync(ctx, dirA, "origin", []string{refA}, 5); err != nil {
 		t.Fatal(err)
 	}

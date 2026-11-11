@@ -48,10 +48,19 @@ githive wiki show <path>          # worktree なしで閲覧
 githive wiki log [<path>]
 ```
 
+初回 clone にローカル wiki ref が無い場合、`wiki edit` は `--remote`（既定 origin）の wiki ref を取得して編集を開始する。ソースコードのデフォルトブランチや remote HEAD の名前には依存しない。`--no-sync` または取得失敗時は、取得済み追跡 ref があればそれを使い、無ければ固定の空ルートを使う（[ADR-0022](../adr/0022-wiki-initial-edit-base.md)）。
+
 `githive wiki edit --keep` で worktree を残し、通常の git 操作（`git -C <worktree> ...`）で作業してもよい。
-競合したら `githive wiki save` が通常の git コンフリクトマーカーを提示し、解決後の再実行で完了する。
+競合したら `githive wiki save` が通常の git コンフリクトマーカーを提示し、解決後の再実行で完了する。`wiki_conflict` は終了コード 3 だが `retryable:false` とし、機械的な再試行ではなく人による解消を求める。
+
+競合中の再保存では、Git が unmerged として保持しているパスを staging 前に検査する。マーカーが残っていれば index と worktree を変更せず拒否するため、何度再実行しても未解決の内容は公開されない。通常の変更ファイル全体にはマーカー検査を広げない。競合マーカーを説明する wiki ページなど、意図的にマーカー例を含む本文まで拒否しないためである。
 
 `githive wiki edit` は編集中の worktree を1つだけ記録する（`githive.wiki.worktree` という git config キー）。
+このキーは githive が管理する値であり、通常は `wiki edit` が絶対パスを設定する。
+手動設定した相対パスはリポジトリのディレクトリを基準に解決する（実行プロセスの作業ディレクトリには依存しない）。
+自動削除するのは、githive が一時ディレクトリに作成し、所有マーカーが同じリポジトリを示す worktree だけである。
+手動で作った worktree や所有マーカーのない旧版の worktree を設定した場合、save 成功後はこのキーを解除するが、
+worktree とその親・兄弟のファイルは削除しない。必要なら利用者が `git worktree remove` で片付ける。
 前回の `wiki edit` を `wiki save` せずに再度 `wiki edit` を実行すると、記録済みの worktree がまだディスク上に存在する限り
 `ErrWorktreeExists`（`--json` では `error.code: "wiki_worktree_exists"`、終了コード 1）で拒否され、新しい worktree は作られない。
 前回の worktree を放置したまま2つ目を作って古い方を参照不能にする（worktree 登録とディスクの両方がリークする）ことを避けるためである。
@@ -59,6 +68,17 @@ githive wiki log [<path>]
 `git -C <repo> config --unset githive.wiki.worktree`）こと。
 なお、記録済みの worktree が（`wiki save` を経由せず）人手で既に削除されている場合は、この検出は行われず新規の
 worktree 作成に進む（そうしないと二度と `wiki edit` できなくなるため）。
+
+### 同期に失敗したとき
+
+`wiki save` はまず worktree でコミットし、その後リモートとの 3-way マージと push を行う。同期の失敗は次のように扱う。
+
+- リモートに届かない（オフライン、fetch・ls-remote・push の失敗）：ローカルの `refs/projects/wiki/main` をそのコミットまで進め、worktree を片付けたうえで、警告（`--json` では `warnings[].code: "wiki_sync_failed"`）付きの成功（終了コード 0）を返す。コミットはローカル ref にあるので、後で `githive sync` が push する。ローカル ref が編集中に別の場所へ動いていて fast-forward できない場合だけは、ローカル ref を動かさずエラーを返し、worktree を残す。
+- リモートが進み続け、競合による push 拒否が再試行の上限に達した：コミットはローカル ref に保存済みで、worktree は残る（`wiki_push_race`、終了コード 3）。
+- pre-receive などの恒久的な push 拒否：初回で停止し、コミットと worktree を保持する（`push_rejected`、終了コード 1、再試行不可）。拒否の原因を解消してから `wiki save` を再実行する。
+- 再実行：worktree に変更が無くても、worktree の HEAD がまだローカル ref に入っていない、またはリモート（最後に取得した `refs/githive-remote/wiki/main`）に入っていなければ、未完了の save とみなしてマージと push から再開する。「no changes to save」になるのは、公開済みの状態で何も編集していないときだけである。
+
+worktree を破棄する前に `githive wiki save` を再実行すること。破棄手順を踏むと、ローカル ref に入っていない worktree 上のコミットは参照されなくなる（reflog の範囲でしか辿れない）。
 
 ## sync との関係
 
@@ -86,10 +106,18 @@ wiki は全機能の中で最も「素の git」に近く、専用ツールな�
 
 - ページ間リンクは相対パスの markdown リンクとする。
 - ファイル名は OS 間の可搬性を守る範囲に制限する。Windows の予約名（CON、PRN、AUX、NUL 等）、大文字小文字だけが異なる同名ファイル、末尾のドットや空白は `githive wiki save` と fsck が拒否する（case-insensitive なファイルシステムでの checkout 事故防止）。
-- issue / task / chat への参照は `githive:issue/01j8xq4d` 形式の URI で書く。CLI / TUI / VSCode 拡張がこれを解決して表示する。素の閲覧では文字列のまま見えるが、ID から辿れる。
+- issue / task / chat への参照は `githive:issue/01j8xq4d` 形式のクライアント用リンクで書く。この本文リンクのジャンプ解決は CLI / TUI / VSCode 拡張とも未実装であり、現在は文字列として表示される。MCP の読み取り専用リソース URI `githive://issue/<id>`・`githive://wiki/<path>` とは別の記法である（[15](../15-clients.md)）。
 
 ## 設計判断
 
 - ページごとの ref 分割はしない。wiki は横断的な一貫性（リンク、目次）が重要で、単一ツリーの原子的コミットがそれを守る。
 - 履歴の粒度はコミットに任せ、ページ単位の履歴は `git log -- <path>` で得る。
 - 承認フロー（レビュー付き編集）は v1 では持たない。forge モードで wiki への push を group 制限すれば、最低限の統制はできる（[users.md](users.md) の policy）。
+
+保存直前に別のローカル writer が wiki ref を更新し、その履歴が編集 worktree に
+含まれていなければ、`wiki_local_conflict`（exit 3、`retryable:false`）で停止する。
+ローカル ref と編集 worktree は両方保持される。表示された worktree で
+`git merge refs/projects/wiki/main` を行い、必要な競合を解消してから
+`githive wiki save` を再実行する。保存は、検査した現在 tip からの fast-forward
+だけを許可し、検査後に tip が変わった場合も CAS により拒否する
+（[ADR-0034](../adr/0034-wiki-local-fast-forward-save.md)）。

@@ -7,6 +7,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/ymsaki/githive/internal/app/entitychain"
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/idgen"
@@ -31,8 +32,9 @@ type Message = map[string]any
 
 // Show is the full read result for githive chat show.
 type Show struct {
-	Meta     Meta
-	Messages []Message
+	ReadSource string
+	Meta       Meta
+	Messages   []Message
 }
 
 // Service operates on chat threads within a single repository directory.
@@ -96,6 +98,24 @@ func (s *Service) mutate(ctx context.Context, id, kind, summary string, data map
 // Post adds a message. If supersedes is non-empty, the fold treats this as
 // replacing that earlier message's displayed content.
 func (s *Service) Post(ctx context.Context, id, body, replyTo, supersedes string) error {
+	var err error
+	id, err = s.ResolveID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if replyTo != "" {
+		replyTo, err = s.ResolveMessageID(ctx, id, replyTo)
+		if err != nil {
+			return err
+		}
+	}
+	if supersedes != "" {
+		supersedes, err = s.ResolveMessageID(ctx, id, supersedes)
+		if err != nil {
+			return err
+		}
+	}
+
 	data := map[string]any{"body": body}
 	if replyTo != "" {
 		data["reply_to"] = replyTo
@@ -114,12 +134,25 @@ func (s *Service) Archive(ctx context.Context, id string) error {
 // EditMeta overwrites title/status (LWW). Pass empty string to leave a
 // field unchanged.
 func (s *Service) EditMeta(ctx context.Context, id, title, status string) error {
-	data := map[string]any{}
+	var titleField, statusField *string
 	if title != "" {
-		data["title"] = title
+		titleField = &title
 	}
 	if status != "" {
-		data["status"] = status
+		statusField = &status
+	}
+	return s.EditMetaFields(ctx, id, titleField, statusField)
+}
+
+// EditMetaFields preserves the distinction between an omitted field and an
+// explicit empty value, so the shared writer can reject invalid input.
+func (s *Service) EditMetaFields(ctx context.Context, id string, title, status *string) error {
+	data := map[string]any{}
+	if title != nil {
+		data["title"] = *title
+	}
+	if status != nil {
+		data["status"] = *status
 	}
 	return s.mutate(ctx, id, "chat.edit_meta", "chat.edit_meta", data)
 }
@@ -130,4 +163,15 @@ func summarize(body string) string {
 		return string(runes[:40])
 	}
 	return body
+}
+
+// ResolveMessageID resolves a message within this thread, including the
+// initial chat.create event when it carries the first message body.
+func (s *Service) ResolveMessageID(ctx context.Context, id, input string) (string, error) {
+	resolved, err := s.ResolveID(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	id = resolved
+	return idresolve.Event(ctx, s.Dir, "chat", id, input, "chat.post")
 }

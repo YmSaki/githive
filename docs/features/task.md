@@ -71,6 +71,8 @@ CLI の入力では台帳の username も受け付け、書き込み時に email
 `githive task list --mine` は git の `user.email` で自分を特定する。
 Agent も同じ仕組みで自分の task を特定する。Agent 用ユーザーの扱いは [users.md](users.md) を参照。
 
+新しい status イベントの `from` は、追記に成功したコミットの親状態から求める。CAS 再試行時も再計算し、`note` は保持する。これは監査情報であり、fold の遷移規則や旧イベントの受理条件は変えない。
+
 ## CLI
 
 ```
@@ -96,3 +98,9 @@ git log --format='%s' refs/projects/task/<id>
 - サブタスクは v1 では持たない。`task.link (rel=task)` で関連付けだけ表現し、階層は作らない。階層はビュー側（CLI/TUI）の解釈で足りるか運用で確認してから決める。
 - 見積り・実績時間のフィールドは持たない。必要になれば data のフィールド追加（v1 内互換）で足す。
 - issue と task の双方向リンクは、それぞれの側の link イベントで独立に張る。片側だけでも壊れない（表示時に相手側の存在を確認する）。
+
+## 時計ずれと create の保護
+
+新しい変更 ID が既知の非 checkpoint イベントの最大 ID 以下なら、通常の追記は `clock_skew` で保存前に拒否する。生の履歴の create より前の変更や異なる複数 create は `event_order_violation` として読み取り・同期を拒否し、fsck/verify で報告する。本文や作成者を黙って失うことを避けるための境界検査であり、fold や既存の履歴は変更しない（[ADR-0026](../adr/0026-reject-lossy-event-order.md)）。
+
+link の参照先は rel の feature で一意な 8 文字以上の前方一致を解決し、大文字入力も小文字の完全 ID で保存する。追加・削除は同じ解決規則を使うため、短縮 ID と完全 ID で別リンクを作らない。完全 ID の疎な参照はオフラインの相手未取得時も許可する。

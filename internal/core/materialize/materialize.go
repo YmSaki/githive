@@ -63,7 +63,9 @@ func (r *Registry) Register(kind string, fn Reducer) {
 }
 
 // Fold folds events (in any order) into a state, per the rules in the
-// package doc. Unknown kinds are ignored (forward compatibility,
+// package doc. Callers must validate event identity with event.IDSet before
+// folding untrusted input; contradictory same-ID payloads are not an event set.
+// Unknown kinds are ignored (forward compatibility,
 // docs/02-data-model.md「読み手は未知フィールドを無視し」の kind 版).
 func (r *Registry) Fold(events []*event.Envelope) *State {
 	return r.FoldFrom(nil, events)

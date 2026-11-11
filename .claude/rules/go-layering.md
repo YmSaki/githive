@@ -46,6 +46,6 @@ w := &entitychain.Writer{
 state, err := w.Append(ctx, id, buildEvent)
 ```
 
-`Writer.Append` はプロセス内の同時書き込みを直列化する in-process ロック（Windows で go-git のローカルオブジェクト書き込みが並行に弱いための対策）と、プロセス間競合に対する git 側 CAS（`gitx.ErrRefCASMismatch` での再試行、最大 10 回）の両方を扱う。同じ形のループを feature ごとに再実装しないこと（[docs/03-sync-and-concurrency.md](../../docs/03-sync-and-concurrency.md)「クラッシュ安全性とローカル競合」、[docs/14-testing.md](../../docs/14-testing.md) シナリオ11）。
+`Writer.Append` は、sync のマージと共有するプロセス内ロック `chain.LockRepository`（Windows で go-git のローカルオブジェクト書き込みが並行に弱いための対策）と、プロセス間競合に対する git 側 CAS（`gitx.ErrRefCASMismatch` での再試行、最大 10 回）の両方を扱う。同じ形のループを feature ごとに再実装しないこと（[docs/03-sync-and-concurrency.md](../../docs/03-sync-and-concurrency.md)「クラッシュ安全性とローカル競合」、[docs/14-testing.md](../../docs/14-testing.md) シナリオ11）。
 
 singleton ref（例：notify/stream）を扱う場合は `RefFor` が id を無視して常に同じ ref 名を返すようにする。

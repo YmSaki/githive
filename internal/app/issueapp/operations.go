@@ -3,6 +3,7 @@ package issueapp
 import (
 	"context"
 
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/idgen"
 )
@@ -22,6 +23,24 @@ func (s *Service) mutate(ctx context.Context, id, kind, summary string, data map
 // as replacing that earlier comment's displayed content
 // (docs/features/issue.md「設計判断」).
 func (s *Service) Comment(ctx context.Context, id, body, replyTo, supersedes string) error {
+	var err error
+	id, err = s.ResolveID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if replyTo != "" {
+		replyTo, err = s.ResolveCommentID(ctx, id, replyTo)
+		if err != nil {
+			return err
+		}
+	}
+	if supersedes != "" {
+		supersedes, err = s.ResolveCommentID(ctx, id, supersedes)
+		if err != nil {
+			return err
+		}
+	}
+
 	data := map[string]any{"body": body}
 	if replyTo != "" {
 		data["reply_to"] = replyTo
@@ -37,12 +56,16 @@ func (s *Service) Comment(ctx context.Context, id, body, replyTo, supersedes str
 // (docs/features/issue.md「ステータス機械」: 不正な遷移イベントは fold 時に
 // 無視する。エラーにせず検証コマンドで警告する).
 func (s *Service) Status(ctx context.Context, id, to string) (ok bool, err error) {
-	state, err := s.writer.Append(ctx, id, func() (*event.Envelope, string) {
+	state, err := s.writer.AppendOnto(ctx, id, func(parentOID string) (*event.Envelope, string, error) {
+		from, err := s.statusAtParent(parentOID)
+		if err != nil {
+			return nil, "", err
+		}
 		eid, ts := idgen.NewWithTimestamp()
 		return &event.Envelope{
 			V: event.SchemaVersion, Kind: "issue.status", ID: eid, TS: ts,
-			Entity: id, Data: map[string]any{"to": to}, Extra: map[string]any{},
-		}, "issue.status: -> " + to
+			Entity: id, Data: map[string]any{"from": from, "to": to}, Extra: map[string]any{},
+		}, "issue.status: " + from + " -> " + to, nil
 	})
 	if err != nil {
 		return false, err
@@ -91,6 +114,16 @@ func (s *Service) Assign(ctx context.Context, id string, add, remove []string) e
 
 // Link adds or removes a {rel,id} link (rel is "task"/"issue"/"chat").
 func (s *Service) Link(ctx context.Context, id, rel, linkedID string, remove bool) error {
+	resolved, err := s.ResolveID(ctx, id)
+	if err != nil {
+		return err
+	}
+	linkedID, err = idresolve.Related(ctx, s.Dir, rel, linkedID, false)
+	if err != nil {
+		return err
+	}
+	id = resolved
+
 	data := map[string]any{"rel": rel, "id": linkedID}
 	if remove {
 		data["remove"] = true
@@ -104,4 +137,14 @@ func summarize(body string) string {
 		return string(runes[:40])
 	}
 	return body
+}
+
+// ResolveCommentID resolves a comment reference within this issue's history.
+func (s *Service) ResolveCommentID(ctx context.Context, id, input string) (string, error) {
+	resolved, err := s.ResolveID(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	id = resolved
+	return idresolve.Event(ctx, s.Dir, "issue", id, input, "issue.comment")
 }

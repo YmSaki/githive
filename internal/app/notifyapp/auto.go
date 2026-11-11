@@ -45,11 +45,11 @@ func MentionsEnabled(ctx context.Context, dir string) bool {
 }
 
 func configEnabled(ctx context.Context, dir, key string) bool {
-	v, err := gitx.New(dir).ConfigGet(ctx, key)
-	if err != nil || v == "" {
+	v, err := gitx.New(dir).ConfigBool(ctx, key, true)
+	if err != nil {
 		return true
 	}
-	return v != "false" && v != "0"
+	return v
 }
 
 // NotifyAssigned announces that assignee now owns entity id of feature

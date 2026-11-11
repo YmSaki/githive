@@ -129,7 +129,7 @@ ULID は先頭 48 bit がミリ秒時刻なので、辞書順ソートがその�
 この性質を、イベントの全順序（後述）とファイル名の安定な並び（`comments/<ulid>.md` が自然に時系列順に並ぶ）の両方に使う。
 
 中央の連番（issue #123 のような番号）は分散環境では発行できないため、v1 では持たない。
-CLI は先頭 8 文字の短縮形（例 `01j8xq4d`）での指定を受け付け、曖昧なら候補を提示する。
+CLI は一意な 8 文字以上の前方一致での指定を受け付け、曖昧なら候補を提示する。issue/task/chat の人間向け list の ID 列は、同じ feature の全ローカル ref（フィルター非表示・archived を含む）で一意になる最短の長さを表示し、必要なら完全 ID まで伸ばす。先頭 8 文字は 1024 ms 窓で共有されるため、固定 8 文字の一意性は保証できない（[ADR-0031](adr/0031-unambiguous-entity-list-ids.md)）。
 forge モードでは連番の払い出しをサーバーが行える設計余地を残す（[12](12-forge-server.md)）。
 
 ## イベントの全順序と実体化
@@ -145,7 +145,10 @@ state = fold(sort_by_event_id(events))
 - 基本則：スカラー値のフィールドは後のイベントが勝つ（last-write-wins）。集合（ラベル、担当者）は add/remove イベントの適用結果とする。コメント等の追記データは ID をキーに単純合併する。
 
 時計が狂った端末のイベントは順序上ずれた位置に入るが、順序自体は全員で一致する。
+ただし、issue/task/chat の create より前の変更や、同一 entity の異なる複数 create は、無視や作成者の置換を見逃さないよう保存・受け入れ境界で拒否する（`event_order_violation`）。通常の変更追記も既知の最大イベント ID 以下なら `clock_skew` で保存前に拒否する。fold の順序・結果や既存の履歴を変更する規則ではない（[ADR-0026](adr/0026-reject-lossy-event-order.md)）。
 正確な因果順序（hybrid logical clock 等）は複雑さに見合わないため採用しない（[ADR-0004](adr/0004-merge-by-event-union.md) の代替案の節）。
+
+users の鍵操作についても、user_set と key_add が ID 順で先行しない key_revoke、登録済みと pub が一致しない失効、同じ鍵材の別 pub の追加を保存・受け入れ境界で拒否する。冪等な同一 pub の反復は維持し、fold の結果は変更しない（[ADR-0027](adr/0027-reject-ignored-users-key-events.md)）。
 
 **決定性の不変条件**：同じイベント集合からは、byte 単位で同一の実体化ツリーが得られなければならない。
 canonical JSON、ULID ファイル名、固定のツリー配置はすべてこの条件のためにある。
@@ -204,11 +207,12 @@ front matter は人間の閲覧と grep のためであり、機械処理はイ�
   - `features`（string の配列）：有効機能一覧。現行のデフォルト（`initapp.DefaultFeatures`）は `["issue", "task", "notify", "users", "chat", "wiki"]`。
   - `created_at`（string）：init 実行時刻。RFC3339、UTC、ミリ秒精度（イベント封筒の `ts` と同値）。
 
-冪等性：`refs/projects/meta/config` が既に存在すれば `githive init` は何もしない。また `githive init` は meta/config を作る前にリモートを fetch し、リモートに meta/config があればローカル ref をそこへ合わせて、自分では作らない（[10](10-cli-spec.md)「`githive init` の手順」）。clone した後に init しても、第 2 のルートはできない。したがって `meta.init` イベントはチェーンに 1 個だけ、ルートコミットとしてのみ存在する（後続の meta.* イベント種別は現行実装には無い）。
+冪等性：`refs/projects/meta/config` が既に存在すれば `githive init` は何もしない。また `githive init` は meta/config を作る前にリモートを fetch し、リモートに meta/config があればローカル ref をそこへ合わせて、自分では作らない（[10](10-cli-spec.md)「`githive init` の手順」）。clone した後に init しても、第 2 のルートはできない。通常の初期化では `meta.init` は1個のルートコミットとして作られる。既存・オフラインで独立に作られた履歴を合流した場合は複数の meta.init ルートを保持しうる。同版で異なる config は自動で勝者を選ばず、両親を残す明示的な解決を要する（[ADR-0025](adr/0025-meta-config-conflict.md)）。後続の meta.* イベント種別は現行実装には無い。
 
 ## サイズと成長の制約
 
-- 1 イベントの JSON は 256 KiB を上限とする。超える本文は分割するか wiki へ誘導する。
+- 1 イベントの JSON は 256 KiB（262144 bytes）を上限とする。canonical JSON のインデント・末尾 LF を含み、コミット summary は含まない。raw 入力にも同じ上限を適用する。超える本文は分割するか wiki へ誘導する。checkpoint も例外ではなく、上限を超える compaction は ref を変更せず失敗する（[ADR-0021](adr/0021-strict-json-and-event-bounds.md)）。
+- JSON の配列・オブジェクトの入れ子は最大128段。末尾データ・重複キー・不正 UTF-8・孤立 surrogate を拒否する。重複キーは escape を解いた文字列で比較する。正しい surrogate pair は受け付ける。
 - バイナリはツリーに置かない。添付は forge の LFS 対応まで対象外（[00](00-vision.md) の非目標）。
 - チェーンの成長対策（チェックポイント）は [03](03-sync-and-concurrency.md) で定義する。
 
@@ -227,3 +231,7 @@ git worktree は不要。plumbing で行う:
 
 この手順が煩雑であることが、専用ツールの存在理由である。
 ツールは規約の実施者にすぎず、データに対する特権を持たない。
+
+### 同一イベント ID の内容衝突
+
+同じ ref の履歴で同一 ID の封筒が複数ある場合、全フィールドの canonical JSON bytes が一致するものだけを同じイベントとして受理する。不一致は `conflicting_event_id` として読み出し・追記・同期を拒否し、入力順で勝者を選ばない。チェックポイントもこの検査を省略できない。fsck / verify は問題を報告する（ADR-0023）。

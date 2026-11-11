@@ -37,17 +37,21 @@
 package fsckapp
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
-	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
+	"github.com/ymsaki/githive/internal/core/materialize"
+	"github.com/ymsaki/githive/internal/core/projectconfig"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
@@ -173,6 +177,11 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 	}
 
 	report := &Report{}
+	if opts.Compact {
+		if err := chain.RequireCompleteProjects(repo); err != nil {
+			return nil, err
+		}
+	}
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
 		if err != nil {
@@ -189,11 +198,22 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 			continue
 		}
 		head := plumbing.NewHash(e.OID)
+		if err := chain.RequireCompleteHistory(repo, head); err != nil {
+			return nil, err
+		}
 		switch parsed.Feature {
 		case refspace.FeatureIssue, refspace.FeatureTask, refspace.FeatureChat,
 			refspace.FeatureNotify, refspace.FeatureUsers:
-			report.Findings = append(report.Findings, validateChain(repo, e.Ref, parsed.Feature, head)...)
-			if opts.Compact {
+			findings := validateChain(repo, e.Ref, parsed.Feature, head)
+			findings = append(findings, checkMaterialization(repo, e.Ref, parsed.Feature, head)...)
+			report.Findings = append(report.Findings, findings...)
+			valid := true
+			for _, finding := range findings {
+				if finding.Severity != SeverityWarning {
+					valid = false
+				}
+			}
+			if opts.Compact && valid {
 				cp, findings, err := s.maybeCheckpoint(ctx, repo, e.Ref, parsed, e.OID, opts)
 				if err != nil {
 					return nil, err
@@ -226,23 +246,71 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 // no envelope (chain.ExtractEnvelope returns nil) and are skipped.
 func validateChain(repo *git.Repository, ref string, feature refspace.Feature, head plumbing.Hash) []Finding {
 	var findings []Finding
+	parsed, parseErr := refspace.Parse(ref)
 	commits, err := chain.WalkCommits(repo, head)
 	if err != nil {
 		return []Finding{{
 			Ref: ref, Feature: string(feature), Code: "walk_failed", Message: err.Error(),
 		}}
 	}
+	var ids event.IDSet
+	var envelopes []*event.Envelope
+	commitByID := map[string]string{}
 	for _, c := range commits {
 		env, err := chain.ExtractEnvelope(c)
 		if err != nil {
+			code := "invalid_envelope"
+			if errors.Is(err, event.ErrEventTooLarge) {
+				code = "event_too_large"
+			}
 			findings = append(findings, Finding{
 				Ref: ref, Feature: string(feature), Commit: c.Hash.String(),
-				Code: "invalid_envelope", Message: err.Error(),
+				Code: code, Message: err.Error(),
 			})
 			continue
 		}
-		// env == nil: a merge commit, nothing envelope-level to check.
-		_ = env
+		if env != nil {
+			if old := commitByID[env.ID]; old == "" || c.Hash.String() < old {
+				commitByID[env.ID] = c.Hash.String()
+			}
+			if known, err := event.ValidateDataSchema(env); err != nil {
+				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: "invalid_event_data", Message: err.Error()})
+			} else if !known {
+				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: "unknown_event_kind", Severity: SeverityWarning, Message: fmt.Sprintf("no data schema for %q", env.Kind)})
+			}
+			if canonical, err := env.CanonicalJSON(); err == nil && !bytes.Equal(canonical, chain.EventJSON(c)) {
+				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: "non_canonical_event", Message: "event JSON differs from its canonical encoding"})
+			}
+			if parseErr == nil {
+				if err := refspace.ValidateEventContext(parsed, env); err != nil {
+					findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: "event_ref_mismatch", Message: err.Error()})
+				}
+			}
+			envelopes = append(envelopes, env)
+			if _, err := ids.Add(env); err != nil {
+				code := "invalid_envelope"
+				if errors.Is(err, event.ErrConflictingEventID) {
+					code = "conflicting_event_id"
+				}
+				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: code, Message: err.Error()})
+			}
+		}
+	}
+	if err := event.ValidateEntityOrder(envelopes); err != nil {
+		findings = append(findings, Finding{Ref: ref, Feature: string(feature), Code: "event_order_violation", Message: err.Error()})
+	}
+	if feature == refspace.FeatureUsers {
+		for _, conflict := range materialize.EmailConflicts(materialize.UsersRegistry.Fold(envelopes)) {
+			findings = append(findings, Finding{Ref: ref, Feature: string(feature), Code: "ambiguous_email", Message: fmt.Sprintf("email %q belongs to multiple users: %s", conflict.Email, strings.Join(conflict.Usernames, ", "))})
+		}
+	}
+	for _, finding := range findings {
+		if finding.Severity != SeverityWarning {
+			return findings // do not infer transitions from contradictory/invalid data
+		}
+	}
+	for _, ignored := range materialize.IgnoredStatusTransitions(string(feature), envelopes) {
+		findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: commitByID[ignored.EventID], Code: "ignored_status_transition", Severity: SeverityWarning, Message: fmt.Sprintf("%s from %q to %q was ignored by the reducer", ignored.Kind, ignored.From, ignored.To)})
 	}
 	return findings
 }
@@ -267,53 +335,13 @@ func validateMetaConfig(repo *git.Repository, ref string, head plumbing.Hash) []
 			Message: "meta/config tree has no config.json",
 		})
 	}
-	v, err := event.DecodeGeneric(raw)
-	if err != nil {
-		return append(findings, Finding{
-			Ref: ref, Feature: string(refspace.FeatureMeta), Code: "invalid_config",
-			Message: fmt.Sprintf("config.json is not valid JSON: %v", err),
-		})
-	}
-	m, ok := v.(map[string]any)
-	if !ok {
-		return append(findings, Finding{
-			Ref: ref, Feature: string(refspace.FeatureMeta), Code: "invalid_config",
-			Message: "config.json is not a JSON object",
-		})
-	}
-	sv, ok := asInt(m["schema_version"])
-	if !ok {
-		return append(findings, Finding{
-			Ref: ref, Feature: string(refspace.FeatureMeta), Code: "invalid_config",
-			Message: "config.json has no integer schema_version",
-		})
-	}
-	if sv > initapp.SchemaVersion {
-		findings = append(findings, Finding{
-			Ref: ref, Feature: string(refspace.FeatureMeta), Code: "unsupported_schema_version",
-			Message: fmt.Sprintf("config.json schema_version %d is newer than supported %d", sv, initapp.SchemaVersion),
-		})
+	if err := projectconfig.Check(ref, raw); err != nil {
+		code := "invalid_config"
+		var unsupported *projectconfig.UnsupportedError
+		if errors.As(err, &unsupported) {
+			code = "unsupported_schema_version"
+		}
+		findings = append(findings, Finding{Ref: ref, Feature: string(refspace.FeatureMeta), Code: code, Message: err.Error()})
 	}
 	return findings
-}
-
-func asInt(v any) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int64:
-		return int(n), true
-	case float64:
-		return int(n), true
-	default:
-		// event.DecodeGeneric yields json.Number for numbers; probe it via
-		// its Float64 without importing encoding/json here.
-		type float64er interface{ Float64() (float64, error) }
-		if f, ok := v.(float64er); ok {
-			if got, err := f.Float64(); err == nil {
-				return int(got), true
-			}
-		}
-		return 0, false
-	}
 }

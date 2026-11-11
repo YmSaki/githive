@@ -12,12 +12,9 @@ import (
 
 // ambiguousTestIDs are three synthetic, syntactically-valid IDs (26-char
 // lowercase Crockford32, docs/02-data-model.md「ID：ULID」) that share a
-// 10-character prefix. Two real idgen.New() IDs only collide on a shared
-// prefix if generated within the same millisecond (internal/core/idgen: ULID
-// time component is millisecond-resolution) and from the same process
-// (idgen's monotonic entropy source is per-process), so hoping for that
-// naturally would make the ambiguous-id tests flaky. Seeding refs by hand
-// (seedAmbiguousRefs) makes the collision deterministic instead.
+// 10-character prefix. An eight-character prefix covers a 1024 ms timestamp
+// window, so ordinary rapid creation can collide without sharing a process
+// or the exact millisecond. Fixed IDs make ambiguity tests deterministic.
 var ambiguousTestIDs = []string{
 	"01hqx7z9c2a3f7h2j9m0pqr7s7",
 	"01hqx7z9c2a3f7h2j9m0pqr7s8",

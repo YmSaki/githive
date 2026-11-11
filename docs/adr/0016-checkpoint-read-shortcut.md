@@ -76,3 +76,14 @@ fold はイベントを **ULID の辞書順**で適用する（[02-data-model.md
 - `data.state` の形式変更と `max_event_id` の追加は、チェックポイントを持つクローンと持たないクローンで実体化ツリーを分岐させない（チェックポイントコミットのツリーは追記前とバイト単位で同一のまま、ADR-0013）。
 - 「近道で fold した状態」と「全イベントを素朴に fold した状態」が canonical JSON で byte 一致することを、全 feature × ランダムイベント列のプロパティテストで機械的に守る。
 - 新しい Scratch キーを追加する reducer は、対応する scratch デコーダも同時に登録しなければならない。未知のキーはデコード時にエラーになり、近道が無効化される（壊れた復元より安全側）ので、忘れても実体化結果は壊れない。
+
+
+## 2026-11-11: checkpoint の信頼条件の補強
+
+issue #97・#96 により、復元可能な形・親 OID の一致だけでは snapshot の正しさを証明できないことが分かった。成立条件に次を加える（[ADR-0020](0020-checkpoint-state-verification.md)）。
+
+- checkpoint の封筒 `v` が現在の `event.SchemaVersion` と一致する。
+- 親コミットまでの全イベントを現在の reducer で fold し、`data.state` と canonical bytes が一致する。
+- 親までの実イベントから算出した最大 ID と `data.max_event_id` が一致する。
+
+返す起点は独立に再計算した typed state とし、checkpoint 由来の map を reducer へ渡さない。この確認は通常の show/append にも必須であり、任意実行の fsck や SSH 署名の有無には依存しない。検証結果のローカルキャッシュは未実装なので、現時点では親履歴の全走査コストがかかる。

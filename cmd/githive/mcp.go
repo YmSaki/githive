@@ -27,14 +27,11 @@
 //
 // Concurrency: an MCP client may pipeline several tool calls without
 // waiting for each response, so two write tools can genuinely execute
-// concurrently against the same repository. This is already safe: every
-// write goes through internal/app/entitychain.Writer.Append, which takes a
-// process-wide, per-repository-directory mutex around its whole
-// read-fold-commit-CAS-advance critical section (added for the same
-// reason multiple goroutines writing concurrently within one process isn't
-// safe on Windows - see that package's writeLocks). Two tool calls
-// targeting the same repo simply serialize through that lock; they do not
-// race or corrupt each other's writes.
+// concurrently against the same repository. Event appends and sync's
+// event-union merges share internal/core/chain.LockRepository around their
+// local go-git object writes and CAS advance. This avoids concurrent loose
+// object writes within one process, including Windows rename failures.
+// Separate processes still use Git's CAS and bounded reapplication on loss.
 package main
 
 import (
@@ -193,7 +190,7 @@ type issueNewParams struct {
 type issueListParams struct {
 	Status   string `json:"status,omitempty" jsonschema:"filter by status"`
 	Label    string `json:"label,omitempty" jsonschema:"filter by label"`
-	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee email"`
+	Assignee string `json:"assignee,omitempty" jsonschema:"filter by assignee username or email"`
 	Cursor   string `json:"cursor,omitempty" jsonschema:"resume after this id (from a previous response's next_cursor)"`
 	Limit    int    `json:"limit,omitempty" jsonschema:"max items to return (default 50, max 200)"`
 }
@@ -259,12 +256,18 @@ func registerIssueTools(server *mcp.Server, dir string) {
 			// their person args, so filtering by the username you just
 			// assigned someone with actually matches (leniently: an
 			// unknown name just filters to nothing, as it always did).
-			assignee := resolveUserRefLenient(ctx, dir, args.Assignee)
-			items, err := issueapp.New(dir).List(ctx, issueapp.ListFilter{Status: args.Status, Label: args.Label, Assignee: assignee})
+			assignee, source, err := resolveUserRefView(ctx, dir, args.Assignee)
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
+			items, ownSource, err := issueapp.New(dir).ListView(ctx, issueapp.ListFilter{Status: args.Status, Label: args.Label, Assignee: assignee})
+			if err != nil {
+				return nil, nil, err
+			}
+			if ownSource != "" {
+				source = ownSource
+			}
+			return nil, viewData(paginatedResult(items, args.Cursor, args.Limit), source), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "issue_show", Description: "Show an issue's meta, body, and comments"},
@@ -274,7 +277,7 @@ func registerIssueTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -282,15 +285,24 @@ func registerIssueTools(server *mcp.Server, dir string) {
 			for i, c := range show.Comments {
 				comments[i] = c
 			}
-			return nil, map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, nil
+			return nil, viewData(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, show.ReadSource), nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "issue_comment", Description: "Add a comment to an issue"},
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "issue_comment", Description: "Add a comment to an issue"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args issueCommentParams) (*mcp.CallToolResult, map[string]any, error) {
 			svc := issueapp.New(dir)
 			id, err := svc.ResolveID(ctx, args.ID)
 			if err != nil {
 				return nil, nil, err
+			}
+			// Resolve before appending so the new comment cannot make a short
+			// reply prefix ambiguous when its notification is prepared.
+			if args.ReplyTo != "" {
+				args.ReplyTo, err = svc.ResolveCommentID(ctx, id, args.ReplyTo)
+				if err != nil {
+					return nil, nil, err
+				}
 			}
 			if err := svc.Comment(ctx, id, args.Message, args.ReplyTo, args.Supersedes); err != nil {
 				return nil, nil, err
@@ -412,7 +424,7 @@ type taskNewParams struct {
 
 type taskListParams struct {
 	Status string `json:"status,omitempty" jsonschema:"filter by status"`
-	Owner  string `json:"owner,omitempty" jsonschema:"filter by owner email"`
+	Owner  string `json:"owner,omitempty" jsonschema:"filter by owner username or email"`
 	Mine   bool   `json:"mine,omitempty" jsonschema:"only tasks owned by the actor"`
 	Cursor string `json:"cursor,omitempty" jsonschema:"resume after this id (from a previous response's next_cursor)"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"max items to return (default 50, max 200)"`
@@ -476,7 +488,10 @@ func registerTaskTools(server *mcp.Server, dir string) {
 		func(ctx context.Context, req *mcp.CallToolRequest, args taskListParams) (*mcp.CallToolResult, map[string]any, error) {
 			// See issue_list's comment: resolve owner the same way task_new/
 			// task_reassign resolve it, leniently.
-			owner := resolveUserRefLenient(ctx, dir, args.Owner)
+			owner, source, err := resolveUserRefView(ctx, dir, args.Owner)
+			if err != nil {
+				return nil, nil, err
+			}
 			filter := taskapp.ListFilter{Status: args.Status, Owner: owner, Mine: args.Mine}
 			if args.Mine {
 				sig, err := identity.Resolve(ctx, dir)
@@ -485,11 +500,14 @@ func registerTaskTools(server *mcp.Server, dir string) {
 				}
 				filter.ActorEmail = sig.Email
 			}
-			items, err := taskapp.New(dir).List(ctx, filter)
+			items, ownSource, err := taskapp.New(dir).ListView(ctx, filter)
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
+			if ownSource != "" {
+				source = ownSource
+			}
+			return nil, viewData(paginatedResult(items, args.Cursor, args.Limit), source), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "task_show", Description: "Show a task's meta, body, and notes"},
@@ -499,7 +517,7 @@ func registerTaskTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -507,10 +525,11 @@ func registerTaskTools(server *mcp.Server, dir string) {
 			for i, n := range show.Notes {
 				notes[i] = n
 			}
-			return nil, map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, nil
+			return nil, viewData(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, show.ReadSource), nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "task_status", Description: "Transition a task's status"},
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "task_status", Description: "Transition a task's status"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args taskStatusParams) (*mcp.CallToolResult, map[string]any, error) {
 			svc := taskapp.New(dir)
 			id, err := svc.ResolveID(ctx, args.ID)
@@ -617,9 +636,9 @@ type chatPostParams struct {
 }
 
 type chatEditMetaParams struct {
-	ID     string `json:"id" jsonschema:"chat thread id or an unambiguous >=8 char prefix"`
-	Title  string `json:"title,omitempty" jsonschema:"new title; omit to leave unchanged"`
-	Status string `json:"status,omitempty" jsonschema:"new status; omit to leave unchanged"`
+	ID     string  `json:"id" jsonschema:"chat thread id or an unambiguous >=8 char prefix"`
+	Title  *string `json:"title,omitempty" jsonschema:"new title; omit to leave unchanged"`
+	Status *string `json:"status,omitempty" jsonschema:"new status; omit to leave unchanged"`
 }
 
 func registerChatTools(server *mcp.Server, dir string) {
@@ -634,11 +653,11 @@ func registerChatTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "chat_list", Description: "List chat threads (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args chatListParams) (*mcp.CallToolResult, map[string]any, error) {
-			items, err := chatapp.New(dir).List(ctx, chatapp.ListFilter{Status: args.Status})
+			items, source, err := chatapp.New(dir).ListView(ctx, chatapp.ListFilter{Status: args.Status})
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
+			return nil, viewData(paginatedResult(items, args.Cursor, args.Limit), source), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "chat_show", Description: "Show a chat thread's meta and messages"},
@@ -648,7 +667,7 @@ func registerChatTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			show, err := svc.Show(ctx, id)
+			show, err := svc.ShowView(ctx, id)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -656,10 +675,11 @@ func registerChatTools(server *mcp.Server, dir string) {
 			for i, m := range show.Messages {
 				messages[i] = m
 			}
-			return nil, map[string]any{"meta": show.Meta, "messages": messages}, nil
+			return nil, viewData(map[string]any{"meta": show.Meta, "messages": messages}, show.ReadSource), nil
 		})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "chat_post", Description: "Post a message to a chat thread"},
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "chat_post", Description: "Post a message to a chat thread"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args chatPostParams) (*mcp.CallToolResult, map[string]any, error) {
 			svc := chatapp.New(dir)
 			id, err := svc.ResolveID(ctx, args.ID)
@@ -692,7 +712,7 @@ func registerChatTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			if err := svc.EditMeta(ctx, id, args.Title, args.Status); err != nil {
+			if err := svc.EditMetaFields(ctx, id, args.Title, args.Status); err != nil {
 				return nil, nil, err
 			}
 			return nil, map[string]any{}, nil
@@ -748,6 +768,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "notify_list", Description: "List notifications (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args notifyListParams) (*mcp.CallToolResult, map[string]any, error) {
+			source := ""
 			filter := notifyapp.ListFilter{UnreadOnly: args.Unread}
 			if args.Unread {
 				sig, err := identity.Resolve(ctx, dir)
@@ -755,12 +776,16 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 					return nil, nil, err
 				}
 				filter.ActorEmail = sig.Email
+				filter.Membership = viewMembershipResolver(dir, &source)
 			}
-			items, err := notifyapp.New(dir).List(ctx, filter)
+			items, ownSource, err := notifyapp.New(dir).ListView(ctx, filter)
+			if ownSource != "" {
+				source = ownSource
+			}
 			if err != nil {
 				return nil, nil, err
 			}
-			return nil, paginatedResult(items, args.Cursor, args.Limit), nil
+			return nil, viewData(paginatedResult(items, args.Cursor, args.Limit), source), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "notify_ack", Description: "Acknowledge notifications"},
@@ -772,7 +797,7 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 				if err != nil {
 					return nil, nil, err
 				}
-				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: membershipResolver(dir)})
 				if err != nil {
 					return nil, nil, err
 				}
@@ -791,7 +816,8 @@ func registerNotifyTools(server *mcp.Server, dir string) {
 				}
 				return nil, nil, fmt.Errorf("notify_ack: no event ids given (pass ids or all=true)")
 			}
-			if err := svc.Ack(ctx, ids); err != nil {
+			ids, err := svc.AckIDs(ctx, ids)
+			if err != nil {
 				return nil, nil, err
 			}
 			anyIDs := make([]any, len(ids))
@@ -837,7 +863,7 @@ type usersAddParams struct {
 
 type usersKeyParams struct {
 	Name string `json:"name" jsonschema:"username (required)"`
-	Pub  string `json:"pub" jsonschema:"public key, literal or a path to a file readable by the server"`
+	Pub  string `json:"pub" jsonschema:"literal SSH public key line (\"<type> <base64-data> [comment]\"); file paths are not accepted"`
 }
 
 type usersGroupSetParams struct {
@@ -859,15 +885,17 @@ func registerUsersTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "users_add", Description: "Add or update a registry user (or set up a dedicated Agent identity with agent=true)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args usersAddParams) (*mcp.CallToolResult, map[string]any, error) {
 			if args.Agent {
-				setup, err := usersapp.AddAgent(ctx, dir, args.Name, args.Project, args.Email, args.KeyDir)
+				setup, err := usersapp.AddAgentWithProfile(ctx, dir, args.Name, args.Project, args.Email, args.KeyDir, usersapp.AgentProfile{Display: args.Display, Roles: args.Roles})
 				if err != nil {
 					return nil, nil, err
 				}
 				return nil, map[string]any{
-					"username":   setup.Username,
-					"email":      setup.Email,
-					"public_key": setup.PublicKey,
-					"pub_line":   setup.PubLine,
+					"username":       setup.Username,
+					"email":          setup.Email,
+					"public_key":     setup.PublicKey,
+					"pub_line":       setup.PubLine,
+					"private_key":    setup.PrivateKey,
+					"config_snippet": setup.ConfigSnippet,
 				}, nil
 			}
 			if err := usersapp.New(dir).AddUser(ctx, args.Name, args.Display, args.Email, args.Kind, args.Roles); err != nil {
@@ -878,7 +906,7 @@ func registerUsersTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "users_list", Description: "List registry users, groups, and policy"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, map[string]any, error) {
-			users, groups, policy, err := usersapp.New(dir).List(ctx)
+			users, groups, policy, source, err := usersapp.New(dir).ListView(ctx)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -894,17 +922,18 @@ func registerUsersTools(server *mcp.Server, dir string) {
 			if policy != nil {
 				policyAny = policy
 			}
-			return nil, map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, nil
+			return nil, viewData(map[string]any{"users": anyUsers, "groups": anyGroups, "policy": policyAny}, source), nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "users_key_add", Description: "Register an SSH public key for a user"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args usersKeyParams) (*mcp.CallToolResult, map[string]any, error) {
 			// Unlike the CLI's --pub (which also accepts a file path),
-			// pub here must be a literal key line - see
-			// looksLikeSSHPublicKey's doc comment for why.
-			if !looksLikeSSHPublicKey(args.Pub) {
-				return nil, nil, fmt.Errorf("users_key_add: pub must be a literal SSH public key line (\"<type> <base64-data> [comment]\"), not a file path")
-			}
+			// pub here is only ever a literal key line: an MCP caller is
+			// an Agent, not the operator at the keyboard, and letting a
+			// tool argument drive a server-side file read is an indirect
+			// file-exfiltration path (point pub at ~/.ssh/id_ed25519, read
+			// it back via users_list). KeyAdd's ValidatePublicKey rejects
+			// anything that is not a key line, including a path.
 			if err := usersapp.New(dir).KeyAdd(ctx, args.Name, args.Pub); err != nil {
 				return nil, nil, err
 			}
@@ -913,9 +942,6 @@ func registerUsersTools(server *mcp.Server, dir string) {
 
 	mcp.AddTool(server, &mcp.Tool{Name: "users_key_revoke", Description: "Revoke a user's SSH public key"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args usersKeyParams) (*mcp.CallToolResult, map[string]any, error) {
-			if !looksLikeSSHPublicKey(args.Pub) {
-				return nil, nil, fmt.Errorf("users_key_revoke: pub must be a literal SSH public key line (\"<type> <base64-data> [comment]\"), not a file path")
-			}
 			if err := usersapp.New(dir).KeyRevoke(ctx, args.Name, args.Pub); err != nil {
 				return nil, nil, err
 			}
@@ -994,36 +1020,47 @@ func registerVerifyAndWhoamiTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			user, keys := matchRegistryUser(ctx, dir, sig.Email)
-			data := map[string]any{"name": sig.Name, "email": sig.Email}
-			if user != nil {
-				data["username"] = user["username"]
-				data["registered"] = true
-				anyKeys := make([]any, len(keys))
-				for i, k := range keys {
-					anyKeys[i] = k
-				}
-				data["keys"] = anyKeys
-			} else {
-				data["registered"] = false
+			user, keys, source, err := matchRegistryUserView(ctx, dir, sig.Email)
+			if err != nil {
+				return nil, nil, err
 			}
-			return nil, data, nil
+			return nil, viewData(whoamiData(sig.Name, sig.Email, user, keys), source), nil
 		})
 }
 
 // ---- sync / status ----
 
 type syncParams struct {
-	Remote string   `json:"remote,omitempty" jsonschema:"sync remote name (default origin)"`
+	Remote string   `json:"remote,omitempty" jsonschema:"sync remote name; must be the remote this server was started with (mcp serve --remote, default origin)"`
 	Kinds  []string `json:"kinds,omitempty" jsonschema:"feature list to sync (default: every supported feature)"`
+}
+
+// errMcpRemoteNotAllowed means an MCP tool asked for a remote other than
+// the one `mcp serve` was started with.
+var errMcpRemoteNotAllowed = errors.New("mcp: remote not allowed")
+
+// mcpRemote pins MCP tools to the remote chosen by whoever started the
+// server (`githive mcp serve --remote`, default origin). Tool arguments are
+// assembled by an Agent that may have read attacker-controlled text, so
+// they must not be able to point git at an arbitrary remote/URL (#99);
+// gitx.ValidateRemote still checks the configured value itself.
+func mcpRemote(requested string) (string, error) {
+	allowed := flags.remote
+	if allowed == "" {
+		allowed = "origin"
+	}
+	if requested == "" || requested == allowed {
+		return allowed, nil
+	}
+	return "", fmt.Errorf("%w: %q (this server only talks to %q; restart with `githive mcp serve --remote <name>` to change it)", errMcpRemoteNotAllowed, requested, allowed)
 }
 
 func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 	mcp.AddTool(server, &mcp.Tool{Name: "sync", Description: "fetch -> merge -> push every githive ref (or a kinds subset)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args syncParams) (*mcp.CallToolResult, map[string]any, error) {
-			remote := args.Remote
-			if remote == "" {
-				remote = "origin"
+			remote, err := mcpRemote(args.Remote)
+			if err != nil {
+				return nil, nil, err
 			}
 			refs, err := syncapp.DiscoverRefs(ctx, dir, remote, args.Kinds)
 			if err != nil {
@@ -1031,14 +1068,19 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			}
 			// DiscoverRefs just fetched the namespace; Sync must not repeat it.
 			results, err := syncapp.Sync(ctx, dir, remote, refs, syncapp.RetriesFromConfig(ctx, dir), syncapp.SkipInitialFetch())
+			data := syncResultData(results)
 			if err != nil {
-				return nil, nil, err
+				_, info := classifyError(err)
+				detail := map[string]any{"code": info.Code, "message": info.Message, "retryable": info.Retryable}
+				if info.Data != nil {
+					detail["data"] = info.Data
+				}
+				data["error"] = detail
+				// Returning a Go error makes the SDK discard the structured output.
+				// Set IsError explicitly so completed refs and warnings survive.
+				return &mcp.CallToolResult{IsError: true}, data, nil
 			}
-			items := make([]map[string]any, len(results))
-			for i, r := range results {
-				items[i] = map[string]any{"ref": r.Ref, "action": string(r.Action)}
-			}
-			return nil, cliout.ItemsMap(items, len(items)), nil
+			return nil, data, nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "status", Description: "Summarize unpushed refs, unread notifications, and the actor's doing tasks"},
@@ -1051,13 +1093,20 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			unread, err := notifyapp.New(dir).List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+			source := ""
+			unread, ownSource, err := notifyapp.New(dir).ListView(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: viewMembershipResolver(dir, &source)})
 			if err != nil {
 				return nil, nil, err
 			}
-			doing, err := taskapp.New(dir).List(ctx, taskapp.ListFilter{Status: "doing", Mine: true, ActorEmail: sig.Email})
+			if ownSource != "" {
+				source = ownSource
+			}
+			doing, doingSource, err := taskapp.New(dir).ListView(ctx, taskapp.ListFilter{Status: "doing", Mine: true, ActorEmail: sig.Email})
 			if err != nil {
 				return nil, nil, err
+			}
+			if doingSource != "" {
+				source = doingSource
 			}
 			anyUnpushed := make([]any, len(unpushed))
 			for i, r := range unpushed {
@@ -1067,11 +1116,11 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			for i, m := range doing {
 				doingItems[i] = m
 			}
-			return nil, map[string]any{
+			return nil, viewData(map[string]any{
 				"unpushed_refs":  anyUnpushed,
 				"unread_notify":  len(unread),
 				"my_doing_tasks": doingItems,
-			}, nil
+			}, source), nil
 		})
 }
 
@@ -1128,7 +1177,7 @@ type fsckParams struct {
 }
 
 type doctorParams struct {
-	Remote string `json:"remote,omitempty" jsonschema:"remote name to check for clock skew against (default origin)"`
+	Remote string `json:"remote,omitempty" jsonschema:"remote name to check; must be the remote this server was started with (mcp serve --remote, default origin)"`
 }
 
 func registerFsckAndDoctorTools(server *mcp.Server, dir string) {
@@ -1155,9 +1204,9 @@ func registerFsckAndDoctorTools(server *mcp.Server, dir string) {
 	// automate; init is a one-time bootstrap step a human runs deliberately.
 	mcp.AddTool(server, &mcp.Tool{Name: "doctor", Description: "Diagnose the environment: git version, refspec, clock, identity, signing"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args doctorParams) (*mcp.CallToolResult, map[string]any, error) {
-			remote := args.Remote
-			if remote == "" {
-				remote = "origin"
+			remote, err := mcpRemote(args.Remote)
+			if err != nil {
+				return nil, nil, err
 			}
 			report, err := doctorapp.New(dir).Diagnose(ctx, remote)
 			if err != nil {
@@ -1175,13 +1224,14 @@ func registerFsckAndDoctorTools(server *mcp.Server, dir string) {
 // し、wiki の githive: リンクと対応させる」), each returning the same JSON
 // shape as its *_show tool.
 func registerMcpResources(server *mcp.Server, dir string) {
+	registerWikiResource(server, dir)
 	registerShowResource(server, dir, "issue", "githive://issue/{id}", issueapp.ErrNotFound, func(ctx context.Context, id string) (any, error) {
 		svc := issueapp.New(dir)
 		resolved, err := svc.ResolveID(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		show, err := svc.Show(ctx, resolved)
+		show, err := svc.ShowView(ctx, resolved)
 		if err != nil {
 			return nil, err
 		}
@@ -1189,7 +1239,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		for i, c := range show.Comments {
 			comments[i] = c
 		}
-		return map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, nil
+		return viewData(map[string]any{"meta": show.Meta, "body": show.Body, "comments": comments}, show.ReadSource), nil
 	})
 	registerShowResource(server, dir, "task", "githive://task/{id}", taskapp.ErrNotFound, func(ctx context.Context, id string) (any, error) {
 		svc := taskapp.New(dir)
@@ -1197,7 +1247,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		if err != nil {
 			return nil, err
 		}
-		show, err := svc.Show(ctx, resolved)
+		show, err := svc.ShowView(ctx, resolved)
 		if err != nil {
 			return nil, err
 		}
@@ -1205,7 +1255,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		for i, n := range show.Notes {
 			notes[i] = n
 		}
-		return map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, nil
+		return viewData(map[string]any{"meta": show.Meta, "body": show.Body, "notes": notes}, show.ReadSource), nil
 	})
 	registerShowResource(server, dir, "chat", "githive://chat/{id}", chatapp.ErrNotFound, func(ctx context.Context, id string) (any, error) {
 		svc := chatapp.New(dir)
@@ -1213,7 +1263,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		if err != nil {
 			return nil, err
 		}
-		show, err := svc.Show(ctx, resolved)
+		show, err := svc.ShowView(ctx, resolved)
 		if err != nil {
 			return nil, err
 		}
@@ -1221,7 +1271,7 @@ func registerMcpResources(server *mcp.Server, dir string) {
 		for i, m := range show.Messages {
 			messages[i] = m
 		}
-		return map[string]any{"meta": show.Meta, "messages": messages}, nil
+		return viewData(map[string]any{"meta": show.Meta, "messages": messages}, show.ReadSource), nil
 	})
 }
 
@@ -1235,7 +1285,7 @@ func registerShowResource(server *mcp.Server, dir, feature, uriTemplate string, 
 	prefix := "githive://" + feature + "/"
 	server.AddResourceTemplate(&mcp.ResourceTemplate{
 		Name:        feature,
-		Description: "githive " + feature + " (meta + full content), by id",
+		Description: "githive " + feature + " full content, by identifier or path",
 		MIMEType:    "application/json",
 		URITemplate: uriTemplate,
 	}, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {

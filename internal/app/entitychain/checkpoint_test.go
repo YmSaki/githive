@@ -286,20 +286,51 @@ func TestShortcutSkippedWhenEventSortsBeforeCheckpoint(t *testing.T) {
 	w := testWriter(dir)
 	ctx := context.Background()
 
-	seedChain(t, w)
+	// Leave space between create and a later event so a legacy event can
+	// sort inside the checkpoint's covered range without preceding create.
+	for _, input := range []struct {
+		id, kind string
+		data     map[string]any
+	}{
+		{"01k00000000000000000000000", "issue.create", map[string]any{"title": "seed"}},
+		{"01k20000000000000000000000", "issue.comment", map[string]any{"body": "later"}},
+	} {
+		_, err := w.Append(ctx, testEntity, func() (*event.Envelope, string) {
+			return &event.Envelope{V: event.SchemaVersion, Kind: input.kind, ID: input.id,
+				TS: "2026-07-28T09:00:00.000Z", Entity: testEntity, Data: input.data}, input.kind
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	appendCheckpoint(t, w, dir, true, true)
 
-	// An event whose ULID predates everything already folded, as a peer with
-	// a badly lagging clock would produce.
-	_, err := w.Append(ctx, testEntity, func() (*event.Envelope, string) {
-		return &event.Envelope{
-			V: event.SchemaVersion, Kind: "issue.comment",
-			ID: "01j00000000000000000000000", TS: "2026-01-01T00:00:00.000Z",
-			Entity: testEntity, Data: map[string]any{"body": "from the past"},
-			Extra: map[string]any{},
-		}, "issue.comment"
-	})
+	// Current writers refuse lagging IDs. Import a valid legacy event
+	// directly to exercise the reader's checkpoint fallback instead.
+	history, oid, err := w.CurrentEvents(ctx, testEntity)
 	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := identity.Resolve(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := &event.Envelope{V: event.SchemaVersion, Kind: "issue.comment",
+		ID: "01k10000000000000000000000", TS: "2026-07-28T09:00:00.000Z", Actor: sig.Email,
+		Entity: testEntity, Data: map[string]any{"body": "from the past"}}
+	files, err := w.TreeFiles(w.Registry.Fold(append(history, legacy)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := chain.OpenRepository(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := chain.AppendEvent(repo, plumbing.NewHash(oid), legacy, "legacy comment", files, sig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gitx.New(dir).UpdateRef(ctx, testRef, head.String(), oid); err != nil {
 		t.Fatal(err)
 	}
 

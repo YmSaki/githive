@@ -2,10 +2,15 @@ package notifyapp
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/ymsaki/githive/internal/app/apperr"
 	"github.com/ymsaki/githive/internal/app/entitychain"
+	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/idgen"
@@ -18,6 +23,9 @@ var ErrIdentityNotConfigured = identity.ErrNotConfigured
 // ErrRetriesExhausted means a local CAS write kept losing to concurrent
 // writers.
 var ErrRetriesExhausted = entitychain.ErrRetriesExhausted
+
+// ErrNotFound means an acknowledgement target is not an existing post.
+var ErrNotFound = errors.New("notifyapp: notification not found")
 
 // StreamRef is the notify feature's single ref
 // (docs/02-data-model.md「ref 名前空間」).
@@ -63,6 +71,27 @@ func New(dir string) *Service {
 // "group:<name>", or "all" strings (docs/features/notify.md「notify.post
 // の data」). source, if non-nil, should have "kind" and "id" keys.
 func (s *Service) Post(ctx context.Context, targets []string, title, body string, source map[string]any, priority string) (string, error) {
+	if source != nil {
+		kind, ok := source["kind"].(string)
+		if !ok {
+			return "", &event.InvalidInputError{Kind: "notify.post", Field: "source.kind", Rule: "must be an entity kind"}
+		}
+		input, ok := source["id"].(string)
+		if !ok {
+			return "", &event.InvalidInputError{Kind: "notify.post", Field: "source.id", Rule: "must be an entity ID"}
+		}
+		resolved, err := idresolve.Related(ctx, s.Dir, kind, input, true)
+		if err != nil {
+			return "", err
+		}
+		normalized := make(map[string]any, len(source))
+		for key, value := range source {
+			normalized[key] = value
+		}
+		normalized["id"] = resolved
+		source = normalized
+	}
+
 	data := map[string]any{
 		"targets": toAnySlice(targets),
 		"title":   title,
@@ -95,7 +124,40 @@ func (s *Service) Post(ctx context.Context, targets []string, title, body string
 // Ack marks each of ackOf as read by the current actor, one event per ID
 // (docs/features/notify.md「イベント定義」).
 func (s *Service) Ack(ctx context.Context, ackOf []string) error {
-	for _, id := range ackOf {
+	_, err := s.AckIDs(ctx, ackOf)
+	return err
+}
+
+// AckIDs resolves full IDs or unique prefixes (at least eight characters),
+// acknowledges their posts, and returns full IDs for CLI/MCP output. Every
+// input is resolved before any write, so an invalid batch appends no events.
+func (s *Service) AckIDs(ctx context.Context, ackOf []string) ([]string, error) {
+	posts, err := s.List(ctx, ListFilter{})
+	if err != nil {
+		return nil, err
+	}
+	resolved := make([]string, 0, len(ackOf))
+	for _, input := range ackOf {
+		prefix := strings.ToLower(input)
+		var matches []string
+		if len(prefix) >= 8 && len(prefix) <= 26 {
+			for _, post := range posts {
+				id, _ := post["id"].(string)
+				if strings.HasPrefix(id, prefix) {
+					matches = append(matches, id)
+				}
+			}
+		}
+		switch len(matches) {
+		case 0:
+			return nil, fmt.Errorf("%w: %q", ErrNotFound, input)
+		case 1:
+			resolved = append(resolved, matches[0])
+		default:
+			return nil, &apperr.AmbiguousIDError{Prefix: prefix, Candidates: matches}
+		}
+	}
+	for _, id := range resolved {
 		targetID := id
 		_, err := s.writer.Append(ctx, "", func() (*event.Envelope, string) {
 			eid, ts := idgen.NewWithTimestamp()
@@ -105,10 +167,10 @@ func (s *Service) Ack(ctx context.Context, ackOf []string) error {
 			}, "notify.ack: " + targetID
 		})
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return resolved, nil
 }
 
 func toAnySlice(ss []string) []any {

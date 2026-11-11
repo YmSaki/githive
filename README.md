@@ -2,7 +2,7 @@
 
 **git リポジトリの refs にプロジェクト記憶を保存するシステム。**
 
-issue、タスク、通知、ユーザー情報、チャット、wiki を `refs/projects/` 配下に追記専用のコミットチェーンとして格納する。`git clone` した時点で、人間も AI Agent も専用ツールなしで同じ記憶を読める。
+issue、タスク、通知、ユーザー情報、チャット、wiki を `refs/projects/` 配下に追記専用のコミットチェーンとして格納する。通常の `git clone` の後に `githive init` で記憶を fetch すれば、人間も AI Agent も素の Git でその内容を読める。
 
 ---
 
@@ -11,6 +11,20 @@ issue、タスク、通知、ユーザー情報、チャット、wiki を `refs/
 GitHub や GitLab のプロジェクト情報（issue、コメント、タスク）はサービスの DB に閉じており、clone してもコードしか手に入らない。AI Agent はリポジトリを clone した直後に文脈を持てず、各サービス固有の API・認証・レート制限に個別対応する必要がある。
 
 githive はこの記憶を git そのものに移す。記憶は refs 配下のコミット履歴とテキストファイルとして保存され、fetch 設定 1 行だけで手元に揃う。
+
+## インストール
+
+Go 1.25 以上と Git 2.34 以上を用意し、次を実行する。モジュールパスは小文字の `ymsaki` を使う。
+
+```sh
+go install github.com/ymsaki/githive/cmd/githive@latest
+githive --help
+```
+
+インストール先（`GOBIN`、未設定なら `GOPATH/bin`）を PATH に追加する。
+コマンド名は `githive`。`git hive` 用の実行ファイルは同梱していない。
+現時点では Go によるソースからのインストールに対応し、公開リリースのバイナリ配布はまだない。
+更新・導入バージョンの確認・データを保持したアンインストールは [導入手順](docs/installation.md) を参照。
 
 ## 仕組み
 
@@ -32,10 +46,12 @@ githive はこの記憶を git そのものに移す。記憶は refs 配下の�
 
 ## 動作モード
 
-| 機能 | hosted モード（GitHub 等） | forge モード（自作サーバー） |
+以下は Hosted クライアントの現行範囲と、将来の Forge サーバーの設計上の比較である。**Forge 列は未実装の構想**であり、サーバー配布・pre-receive の権限強制・push 時配信が現在利用できるという意味ではない。候補の検証状況と制約は [製品準備状況](docs/product-readiness.md) を参照。
+
+| 機能 | hosted モード（GitHub 等） | forge モード（自作サーバー・将来） |
 |------|--------------------------|---------------------------|
-| issue / task / chat / wiki | 完全動作 | 完全動作 |
-| notify の記録 | 完全動作（配信は fetch 時に検出） | push 時に配信 |
+| issue / task / chat / wiki | クライアント実装あり（実ホスト同期は準備状況を参照） | 実装予定 |
+| notify の記録 | 記録対応（配信は fetch 時に検出） | push 時配信を設計 |
 | 権限制御 | 助言的（ローカル・署名検証のみ） | 強制（pre-receive で拒否） |
 | 署名検証 | クライアント側で `githive verify` | サーバー側で push 時に強制 |
 

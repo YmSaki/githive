@@ -70,10 +70,12 @@ func newNotifyPostCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, notifyapp.StreamRef)
+			warnings, syncErr := syncIfEnabled(dir, notifyapp.StreamRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"id": id}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
 			fmt.Println(id)
 			printWarnings(warnings)
@@ -101,6 +103,7 @@ func newNotifyListCmd() *cobra.Command {
 				return err
 			}
 			ctx := context.Background()
+			source := ""
 			filter := notifyapp.ListFilter{UnreadOnly: unread && !all}
 			if filter.UnreadOnly {
 				sig, err := identity.Resolve(ctx, dir)
@@ -108,15 +111,19 @@ func newNotifyListCmd() *cobra.Command {
 					return err
 				}
 				filter.ActorEmail = sig.Email
+				filter.Membership = viewMembershipResolver(dir, &source)
 			}
 			svc := notifyapp.New(dir)
-			items, err := svc.List(ctx, filter)
+			items, ownSource, err := svc.ListView(ctx, filter)
+			if ownSource != "" {
+				source = ownSource
+			}
 			if err != nil {
 				return err
 			}
+			printViewSource(source)
 			if flags.json {
-				cliout.PrintList(items, nil)
-				return nil
+				return cliout.PrintSuccess(viewList(items, source), nil)
 			}
 			for _, m := range items {
 				fmt.Printf("%-10s %-8v %v\n", shortID(m["id"]), m["targets"], m["title"])
@@ -147,7 +154,7 @@ func newNotifyAckCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email})
+				unread, err := svc.List(ctx, notifyapp.ListFilter{UnreadOnly: true, ActorEmail: sig.Email, Membership: membershipResolver(dir)})
 				if err != nil {
 					return err
 				}
@@ -161,13 +168,16 @@ func newNotifyAckCmd() *cobra.Command {
 			if len(ids) == 0 {
 				return fmt.Errorf("no event ids given (pass ids or --all)")
 			}
-			if err := svc.Ack(ctx, ids); err != nil {
+			ids, err = svc.AckIDs(ctx, ids)
+			if err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, notifyapp.StreamRef)
+			warnings, syncErr := syncIfEnabled(dir, notifyapp.StreamRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{"acked": ids}, warnings)
-				return nil
+				return cliout.PrintSuccess(map[string]any{"acked": ids}, warnings)
 			}
 			printWarnings(warnings)
 			return nil

@@ -10,6 +10,7 @@ package cliout
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/ymsaki/githive/internal/core/event"
@@ -30,6 +31,7 @@ const (
 type Warning struct {
 	Code    string
 	Message string
+	Data    map[string]any
 }
 
 // ErrorInfo is the shape of a failed command's "error" field.
@@ -40,8 +42,11 @@ type ErrorInfo struct {
 	Data      map[string]any
 }
 
-// PrintSuccess writes the {"ok":true,...} envelope to stdout.
-func PrintSuccess(data any, warnings []Warning) {
+// PrintSuccess writes the {"ok":true,...} envelope to stdout. If the
+// envelope cannot be encoded, nothing is written and the error is returned:
+// the caller must propagate it so the command exits non-zero and the root
+// command prints the failure envelope instead (docs/10-cli-spec.md「終了コード」).
+func PrintSuccess(data any, warnings []Warning) error {
 	m := map[string]any{"ok": true}
 	if data != nil {
 		m["data"] = data
@@ -49,7 +54,7 @@ func PrintSuccess(data any, warnings []Warning) {
 	if len(warnings) > 0 {
 		m["warnings"] = warningsToAny(warnings)
 	}
-	printEnvelope(m)
+	return printEnvelope(m)
 }
 
 // PrintFailure writes the {"ok":false,"error":...} envelope to stdout.
@@ -62,7 +67,18 @@ func PrintFailure(info ErrorInfo) {
 	if info.Data != nil {
 		errMap["data"] = info.Data
 	}
-	printEnvelope(map[string]any{"ok": false, "error": errMap})
+	if err := printEnvelope(map[string]any{"ok": false, "error": errMap}); err != nil {
+		// error.data は呼び出し側の任意値なので encode に失敗しうる。data を
+		// 落とした最小の封筒でも canonical エンコーダを通す（手書き JSON は書かない）。
+		fallback := map[string]any{
+			"code":      info.Code,
+			"message":   info.Message,
+			"retryable": info.Retryable,
+		}
+		if err := printEnvelope(map[string]any{"ok": false, "error": fallback}); err != nil {
+			fmt.Fprintln(os.Stderr, "error: cannot encode failure envelope:", err)
+		}
+	}
 }
 
 // ItemsMap builds the { "items": [...], "total": total } shape that list
@@ -93,25 +109,29 @@ func ItemsMap[T map[string]any](items []T, total int) map[string]any {
 // envelope for a non-paginated list command, where total is always
 // len(items). Paginated results (where total can exceed len(items)) build
 // their own map with ItemsMap instead of using this helper.
-func PrintList[T map[string]any](items []T, warnings []Warning) {
-	PrintSuccess(ItemsMap(items, len(items)), warnings)
+func PrintList[T map[string]any](items []T, warnings []Warning) error {
+	return PrintSuccess(ItemsMap(items, len(items)), warnings)
 }
 
 func warningsToAny(warnings []Warning) []any {
 	out := make([]any, len(warnings))
 	for i, w := range warnings {
 		out[i] = map[string]any{"code": w.Code, "message": w.Message}
+		if w.Data != nil {
+			out[i].(map[string]any)["data"] = w.Data
+		}
 	}
 	return out
 }
 
-func printEnvelope(m map[string]any) {
+func printEnvelope(m map[string]any) error {
 	out, err := event.Encode(m)
 	if err != nil {
-		// Encoding our own envelope should never fail; if it does, fall
-		// back to a minimal hand-written line rather than panicking.
-		fmt.Fprintf(os.Stdout, `{"ok":false,"error":{"code":"internal","message":%q,"retryable":false}}`+"\n", err.Error())
-		return
+		return fmt.Errorf("cliout: encode envelope: %w", err)
 	}
-	os.Stdout.Write(out)
+	_, err = stdout.Write(out)
+	return err
 }
+
+// stdout is a seam for tests.
+var stdout io.Writer = os.Stdout

@@ -72,10 +72,12 @@ func newFsckCmd() *cobra.Command {
 				return &fsckFailedError{report: report}
 			}
 			if flags.json {
-				cliout.PrintSuccess(map[string]any{
+				if err := cliout.PrintSuccess(map[string]any{
 					"findings":    findingsToAny(report.Findings),
 					"checkpoints": checkpointsToAny(report.Checkpoints),
-				}, nil)
+				}, nil); err != nil {
+					return err
+				}
 			}
 			return nil
 		},

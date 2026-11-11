@@ -87,3 +87,9 @@ fold の結果は、上の対応表のとおり spec/vectors/fold-<kind>/*.json 
 JSON の構造比較では、キーの順序ではなく値の等価性で比較してよい。
 ただし canonical JSON エンコードの出力そのものは、キー順序を含めて byte 一致が必要である。
 ULID の辞書順ソートは spec/vectors/ordering/*.json を internal/core/event.SortEvents（materialize.Registry.Fold が実際に呼ぶのと同じ関数）に通して検証すること（internal/core/event/envelope_test.go の TestOrderingVectors）。
+
+## Domain validation（受け入れ境界）
+
+`vectors/domain-validation/01-users-key-order.json` は ADR-0027 の user_set/key_add/key_revoke の依存順序と pub の一致を固定する。Go の `event.ValidateEntityOrder` と Python の `reference/domain_validation.py` が同じ正例・負例を検査する。`validate.py` は元の入力順と逆順の両方で判定する。
+
+これは fold の仕様変更ではない。旧履歴がどのように無視されるかを示す既存の fold ベクタは保持し、取り込み時にその危険な履歴を拒否する検査を別に置く。鍵材は既存 users API と同じ先頭2フィールド（型 + base64 token）とし、暗号鍵パーサーの新設は含まない。Go `strings.Fields` の Unicode 空白集合を Python 側でも明示して、コメント・空白違いによる判定差を作らない。

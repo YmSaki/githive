@@ -1,0 +1,27 @@
+{
+  "source_sha": "1db77fceeea05becc1e6728982e4e72b31d263d2",
+  "module_version": "v0.0.0-20261111152948-1db77fceeea0",
+  "binary_sha256": "542473c4779cff85c53e9f7b43926f45a8fa332c852061829a74248332139f23",
+  "platform": "Linux/x86_64",
+  "go": "go version go1.25.14 linux/amd64",
+  "commands": 101,
+  "rpc_requests": 56,
+  "tools_called": 41,
+  "resource_types": [
+    "issue",
+    "task",
+    "chat",
+    "wiki"
+  ],
+  "checks": {
+    "old_to_candidate_preserves_refs_config_issue": true,
+    "binary_only_uninstall_preserves_refs_config": true,
+    "reinstall_preserves_data_and_binary_digest": true,
+    "signed_mcp_create_comment_read_verify": true,
+    "snippet_blocks_substitution_and_preserves_literals": true
+  },
+  "complete": true,
+  "failures": [],
+  "ci_run": "https://github.com/YmSaki/githive/actions/runs/43048977825",
+  "scope": "Fixed public module on Linux; final Wiki delta and later documentation commits are not this source SHA."
+}

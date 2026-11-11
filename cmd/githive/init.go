@@ -9,6 +9,7 @@ import (
 
 	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/cliout"
+	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
 func newInitCmd() *cobra.Command {
@@ -32,12 +33,19 @@ func newInitCmd() *cobra.Command {
 			for _, w := range result.Warnings {
 				warnings = append(warnings, cliout.Warning{Code: "init_warning", Message: w})
 			}
+			if result.MetaConfigMade && result.Remote.Configured {
+				syncedWarnings, syncErr := syncIfEnabled(dir, refspace.MetaConfigRef, warnings)
+				if syncErr != nil {
+					return syncErr
+				}
+				warnings = syncedWarnings
+			}
 			if flags.json {
 				adopted := make([]any, len(result.Remote.AdoptedRefs))
 				for i, ref := range result.Remote.AdoptedRefs {
 					adopted[i] = ref
 				}
-				cliout.PrintSuccess(map[string]any{
+				return cliout.PrintSuccess(map[string]any{
 					"refspec_added":       result.RefspecAdded,
 					"log_all_ref_updates": result.LogAllRefUpdates,
 					"meta_config_made":    result.MetaConfigMade,
@@ -49,7 +57,6 @@ func newInitCmd() *cobra.Command {
 						"adopted_refs":    adopted,
 					},
 				}, warnings)
-				return nil
 			}
 			printWarnings(warnings)
 			switch {

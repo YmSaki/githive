@@ -2,13 +2,17 @@ package syncapp
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/app/wikiapp"
+	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
@@ -146,10 +150,9 @@ func TestSyncWikiSkippedWhileEditing(t *testing.T) {
 	_ = worktree
 }
 
-// TestSyncMergesMetaConfig: two clones that ran `githive init` independently
-// have unrelated meta chains; sync must merge them and keep a valid
-// config.json (ADR-0017).
-func TestSyncMergesMetaConfig(t *testing.T) {
+// Two independently initialized project configs require an explicit choice.
+// A two-parent resolution preserves both histories and pushes without force.
+func TestSyncMetaConfigConflictCanBeResolvedWithoutLosingHistory(t *testing.T) {
 	requireGit(t)
 	origin := initBareOrigin(t)
 	dirA := cloneRepo(t, origin, "a@example.com")
@@ -167,35 +170,54 @@ func TestSyncMergesMetaConfig(t *testing.T) {
 	if _, err := Sync(ctx, dirA, "origin", []string{metaRef}, 5); err != nil {
 		t.Fatalf("A sync: %v", err)
 	}
-	results, err := Sync(ctx, dirB, "origin", []string{metaRef}, 5)
-	if err != nil {
-		t.Fatalf("B sync: %v", err)
+	localBefore, remoteBefore := refOID(t, dirB, metaRef), refOID(t, dirA, metaRef)
+	_, err := Sync(ctx, dirB, "origin", []string{metaRef}, 5)
+	if !errors.Is(err, ErrMetaConfigConflict) {
+		t.Fatalf("expected config conflict: %v", err)
 	}
-	if len(results) != 1 || results[0].Action != ActionMerged {
-		t.Fatalf("expected the two meta chains to merge, got %+v", results)
-	}
-
-	// The merged head still carries exactly one, readable config.json.
-	body, err := gitx.New(dirB).Show(ctx, metaRef, "config.json")
-	if err != nil {
-		t.Fatalf("merged meta ref has no config.json: %v", err)
-	}
-	if len(body) == 0 {
-		t.Error("merged config.json is empty")
+	if refOID(t, dirB, metaRef) != localBefore {
+		t.Fatal("conflict changed B's config ref")
 	}
 
-	// A converges on the same head.
+	// Model the documented operator decision: retain A's reviewed config,
+	// with both A and B as parents. No ref is reset and no push is forced.
+	body, err := gitx.New(dirB).Show(ctx, remoteBefore, "config.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := chain.OpenRepository(dirB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merge, err := chain.AppendMerge(repo, [2]plumbing.Hash{plumbing.NewHash(localBefore), plumbing.NewHash(remoteBefore)}, map[string][]byte{"config.json": body}, chain.Signature{Name: "B", Email: "b@example.com", When: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := chain.AdvanceRef(dirB, plumbing.ReferenceName(metaRef), merge, localBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Sync(ctx, dirB, "origin", []string{metaRef}, 5); err != nil {
+		t.Fatalf("push resolution: %v", err)
+	}
 	if _, err := Sync(ctx, dirA, "origin", []string{metaRef}, 5); err != nil {
-		t.Fatalf("A converge sync: %v", err)
+		t.Fatalf("fetch resolution: %v", err)
 	}
-	if a, b := refOID(t, dirA, metaRef), refOID(t, dirB, metaRef); a != b {
-		t.Errorf("A and B did not converge on meta/config: %s vs %s", a, b)
+	if a, b := refOID(t, dirA, metaRef), refOID(t, dirB, metaRef); a != b || a != merge.String() {
+		t.Fatalf("resolution did not converge: %s %s", a, b)
+	}
+	for _, old := range []string{localBefore, remoteBefore} {
+		retained, err := gitx.New(dirB).IsAncestor(ctx, old, merge.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !retained {
+			t.Fatalf("resolution lost history %s", old)
+		}
 	}
 }
 
-// TestMetaMergePicksHigherSchemaVersion pins ADR-0017's tie-break: the
-// repository's minimum required version can only go up.
-func TestMetaMergePicksHigherSchemaVersion(t *testing.T) {
+// TestConfigSchemaVersion parses the minimum required version used by merge.
+func TestConfigSchemaVersion(t *testing.T) {
 	older := []byte(`{"project":"p","schema_version":1}` + "\n")
 	newer := []byte(`{"project":"p","schema_version":2}` + "\n")
 
@@ -211,13 +233,10 @@ func TestMetaMergePicksHigherSchemaVersion(t *testing.T) {
 		t.Fatalf("configSchemaVersion read %d and %d", oldV, newV)
 	}
 
-	missing, err := configSchemaVersion([]byte(`{"project":"p"}` + "\n"))
-	if err != nil {
-		t.Fatal(err)
+	if _, err := configSchemaVersion([]byte(`{"project":"p"}` + "\n")); err == nil {
+		t.Fatal("missing schema_version must not become version zero")
 	}
-	if missing != 0 {
-		t.Errorf("a config.json without schema_version should read as 0, got %d", missing)
-	}
+
 }
 
 // TestSupportedFeaturesCoversEveryRefKind guards the list sync, status and

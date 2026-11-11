@@ -12,6 +12,9 @@ func (r *Runner) FetchPruned(ctx context.Context, remote string, refspecs ...str
 // fetch keeps options separate from positional arguments so a hardened fetch
 // can terminate option parsing before accepting the remote and refspecs.
 func (r *Runner) fetch(ctx context.Context, remote string, prune bool, refspecs ...string) error {
+	if err := r.ValidateRemote(ctx, remote); err != nil {
+		return err
+	}
 	args := []string{"fetch"}
 	if prune {
 		args = append(args, "--prune")

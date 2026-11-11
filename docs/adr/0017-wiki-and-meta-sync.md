@@ -32,7 +32,7 @@ push 方向は、ローカルがリモートより進んでいる（= リモー�
 
 `SupportedFeatures` に `meta` を追加するだけでよい。meta/config はイベントチェーンであり、[03-sync-and-concurrency.md](../03-sync-and-concurrency.md)「共通祖先が無い場合」が同時 `githive init` による 2 ルートの合流を明示している以上、合流できる状態が仕様上の期待である。
 
-ただし meta には reducer が無く、`config.json` は `githive init` が直接書く（[ADR-0016 の前提](../02-data-model.md)「meta には reducer が無い」）。したがってマージコミットのツリーをどう作るかを決める必要がある。**fold 結果からツリーを描画するのではなく、`config.json` を両側から読み、`schema_version` が大きい方を採用する**。同値なら local を採る。イベントは和集合として履歴に残る。
+ただし meta には reducer が無く、`config.json` は `githive init` が直接書く（[02-data-model.md](../02-data-model.md)「meta には reducer が無い」）。したがってマージコミットのツリーをどう作るかを決める必要がある。**fold 結果からツリーを描画するのではなく、`config.json` を両側から読み、`schema_version` が大きい方を採用する**。同値で canonical config が等しいときだけ自動合流する。値が異なる場合は両履歴を保持して `meta_config_conflict` で停止する（[ADR-0025](0025-meta-config-conflict.md) が旧「同値なら local」を置換する）。イベントは合流時にも両履歴に残る。
 
 ### 3. `githive status` の未 push 判定に wiki と meta/config を含める
 
@@ -49,4 +49,4 @@ sync 対象になった以上、未 push の報告からだけ外しておく理
 - `wiki save` の既存挙動（push レース再試行、コンフリクト再実行）は一切変えない。sync 側は読み取り方向と fast-forward だけを担当する。
 - 分岐した wiki は、誰かが `wiki save` を実行するまで分岐したままになる。これは現状（sync がまったく関与しない）より悪くはならず、少なくとも `githive sync` と `githive status` が分岐の存在を報告するようになる。
 - 「wiki の自動 3-way マージ」を将来 sync に持たせたくなった場合は、本 ADR を改訂し、sync が一時 worktree を使う設計を明示的に選び直すことになる。
-- meta/config が sync 対象になることで、同時 `githive init` した 2 クローンの `config.json` が合流する。`features` 配列など `schema_version` 以外のフィールドは、勝った側の `config.json` がそのまま採用される。
+- meta/config は同版で同じ設定なら合流する。同版で異なる設定は ADR-0025 の明示的な解決を要する。異版では大きい版の `config.json` を採る。

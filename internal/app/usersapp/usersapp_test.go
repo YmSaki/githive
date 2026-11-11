@@ -45,7 +45,7 @@ func TestAddUserAndKeyLifecycle(t *testing.T) {
 		t.Errorf("unexpected display: %v", user["display"])
 	}
 
-	pub := "ssh-ed25519 AAAA yuumiya@main"
+	pub := testPub + " yuumiya@main"
 	if err := svc.KeyAdd(ctx, "yuumiya", pub); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestKeyOpsOnUnknownUserFail(t *testing.T) {
 	requireGit(t)
 	svc := newTestRepo(t)
 	ctx := context.Background()
-	if err := svc.KeyAdd(ctx, "ghost", "ssh-ed25519 AAAA"); err != ErrUserNotFound {
+	if err := svc.KeyAdd(ctx, "ghost", testPub); err != ErrUserNotFound {
 		t.Errorf("expected ErrUserNotFound, got %v", err)
 	}
 }
@@ -165,5 +165,29 @@ func TestValidNameHelpers(t *testing.T) {
 	}
 	if !ValidGroupname("core") {
 		t.Error("expected valid group name to pass")
+	}
+}
+
+func TestRegistryListsHaveStableNameOrder(t *testing.T) {
+	svc := newTestRepo(t)
+	ctx := context.Background()
+	for _, name := range []string{"zulu", "alpha", "mike"} {
+		if err := svc.AddUser(ctx, name, name, name+"@example.com", "human", []string{"member"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.GroupSet(ctx, "team-"+name, []string{name}, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 10 {
+		users, groups, _, err := svc.List(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, name := range []string{"alpha", "mike", "zulu"} {
+			if users[i]["username"] != name || groups[i]["name"] != "team-"+name {
+				t.Fatalf("unordered registry: users=%v groups=%v", users, groups)
+			}
+		}
 	}
 }

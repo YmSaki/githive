@@ -1,0 +1,739 @@
+{
+  "description": "ADR-0027 users key dependency admission; fold reducers intentionally unchanged.",
+  "cases": [
+    {
+      "name": "valid-rotation-and-idempotent-copies",
+      "valid": true,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGVoZWhlaGVoZWhlaGVoZWhlaGVoZWhlaGU= desk"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000004",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000005",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000005",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000006",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000007",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGVoZWhlaGVoZWhlaGVoZWhlaGVoZWhlaGU= desk"
+          }
+        }
+      ]
+    },
+    {
+      "name": "add-before-user",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        }
+      ]
+    },
+    {
+      "name": "revoke-before-user",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        }
+      ]
+    },
+    {
+      "name": "revoke-before-matching-add",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        }
+      ]
+    },
+    {
+      "name": "unknown-key",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGVoZWhlaGVoZWhlaGVoZWhlaGVoZWhlaGU= desk"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong-user",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "bob",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000004",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "bob",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        }
+      ]
+    },
+    {
+      "name": "revoke-comment-differs",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi different"
+          }
+        }
+      ]
+    },
+    {
+      "name": "revoke-whitespace-differs",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519\tAAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        }
+      ]
+    },
+    {
+      "name": "duplicate-key-comment-differs",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop extra"
+          }
+        }
+      ]
+    },
+    {
+      "name": "revoked-key-readd-comment-differs",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000004",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop extra"
+          }
+        }
+      ]
+    },
+    {
+      "name": "user-set-keeps-key-dependencies",
+      "valid": true,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {
+              "display": "new name"
+            }
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000004",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        }
+      ]
+    },
+    {
+      "name": "same-material-distinct-users-policy-unchanged",
+      "valid": true,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "bob",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000004",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "bob",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000005",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        }
+      ]
+    },
+    {
+      "name": "user-set-keys-cannot-inject-prerequisite",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {
+              "keys": [
+                {
+                  "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        }
+      ]
+    },
+    {
+      "name": "legacy-opaque-pub-exact-revoke",
+      "valid": true,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "legacy-key"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_revoke",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "legacy-key"
+          }
+        }
+      ]
+    },
+    {
+      "name": "unicode-whitespace-key-alias",
+      "valid": false,
+      "events": [
+        {
+          "v": 2,
+          "kind": "users.user_set",
+          "id": "01k00000000000000000000001",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "fields": {}
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000002",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        },
+        {
+          "v": 2,
+          "kind": "users.key_add",
+          "id": "01k00000000000000000000003",
+          "ts": "2025-07-12T18:57:36.768Z",
+          "actor": "admin@example.com",
+          "entity": "01k00000000000000000000000",
+          "data": {
+            "username": "alice",
+            "pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINb/HvyUTIDZYyBZaz6iHIOXxLN881kIXkr6k5mDrDVi laptop"
+          }
+        }
+      ]
+    }
+  ]
+}
