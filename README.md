@@ -12,6 +12,20 @@ GitHub や GitLab のプロジェクト情報（issue、コメント、タスク
 
 githive はこの記憶を git そのものに移す。記憶は refs 配下のコミット履歴とテキストファイルとして保存され、fetch 設定 1 行だけで手元に揃う。
 
+## インストール
+
+Go 1.25 以上と Git 2.34 以上を用意し、次を実行する。モジュールパスは小文字の `ymsaki` を使う。
+
+```sh
+go install github.com/ymsaki/githive/cmd/githive@latest
+githive --help
+```
+
+インストール先（`GOBIN`、未設定なら `GOPATH/bin`）を PATH に追加する。
+コマンド名は `githive`。`git hive` 用の実行ファイルは同梱していない。
+現時点では Go によるソースからのインストールに対応し、公開リリースのバイナリ配布はまだない。
+更新・導入バージョンの確認・データを保持したアンインストールは [導入手順](docs/installation.md) を参照。
+
 ## 仕組み
 
 `refs/projects/` 配下に機能ごとの ref を作り、各 ref を追記専用のコミットチェーンとして使う。
