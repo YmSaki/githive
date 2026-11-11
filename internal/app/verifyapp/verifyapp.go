@@ -84,6 +84,10 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 	head := plumbing.NewHash(oid)
 	commits, err := chain.WalkCommits(repo, head)
 	if err != nil {
+		var shallow *chain.ShallowHistoryError
+		if errors.As(err, &shallow) {
+			return nil, err
+		}
 		report.Issues = append(report.Issues, Issue{CommitHash: oid, Code: "walk_failed", Message: err.Error()})
 		return report, nil
 	}
@@ -119,6 +123,10 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 
 	registryState, err := loadRegistryState(ctx, dir)
 	if err != nil {
+		var shallow *chain.ShallowHistoryError
+		if errors.As(err, &shallow) {
+			return nil, err
+		}
 		report.Issues = append(report.Issues, Issue{Code: "invalid_registry", Message: fmt.Sprintf("cannot verify against the users registry: %v", err)})
 		return report, nil
 	}
