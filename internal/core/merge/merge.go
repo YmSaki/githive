@@ -42,6 +42,9 @@ func UnionEvents(sets ...[]*event.Envelope) ([]*event.Envelope, error) {
 	for i, id := range order {
 		out[i] = byID[id]
 	}
+	if err := event.ValidateEntityOrder(out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

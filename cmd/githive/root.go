@@ -154,6 +154,13 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "meta_config_conflict", Message: err.Error(), Data: data}
 	}
 
+	var clockSkew *entitychain.ClockSkewError
+	if errors.As(err, &clockSkew) {
+		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "clock_skew", Message: err.Error(), Data: map[string]any{
+			"event_id": clockSkew.EventID, "latest_event_id": clockSkew.LatestID,
+			"latest_timestamp": clockSkew.LatestTimestamp, "recovery": clockSkew.Recovery(),
+		}}
+	}
 	var invalidInput *event.InvalidInputError
 	if errors.As(err, &invalidInput) {
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "invalid_input", Message: err.Error()}
@@ -190,6 +197,8 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 	switch {
 	case errors.Is(err, event.ErrEventTooLarge):
 		return cliout.ExitUsageError, cliout.ErrorInfo{Code: "event_too_large", Message: err.Error()}
+	case errors.Is(err, event.ErrEventOrderViolation):
+		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "event_order_violation", Message: err.Error()}
 	case errors.Is(err, event.ErrConflictingEventID):
 		return cliout.ExitVerifyFailed, cliout.ErrorInfo{Code: "conflicting_event_id", Message: err.Error()}
 	case errors.Is(err, errVerifyAllWithRef):

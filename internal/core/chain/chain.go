@@ -347,6 +347,9 @@ func WalkChain(repo *git.Repository, head plumbing.Hash) ([]*event.Envelope, err
 	if err != nil {
 		return nil, err
 	}
+	if err := event.ValidateEntityOrder(envelopes); err != nil {
+		return nil, err
+	}
 	return envelopes, nil
 }
 

@@ -59,6 +59,7 @@ event-union マージは空状態を共通祖先とみなし、通常どおり�
 - sync とマージは、now + 5 分を超える ts のイベントを警告付きで受け入れる（hosted モードでは拒否できないため検出に留める。未実装。Horizon 2 以降、[13-roadmap.md](13-roadmap.md) P4）。
 - forge は now + 5 分を超える ts のイベントを含む push を拒否する（[12](12-forge-server.md)。forge 自体が未実装。Horizon 4、[13-roadmap.md](13-roadmap.md) P8）。
 - ULID 生成器はプロセス内で単調性を保証する（同一ミリ秒内の連番、時計巻き戻り時は前回値+1）。
+- 通常の変更追記の ID が、同じチェーンで既知の非 checkpoint イベントの最大 ID 以下なら、`clock_skew`（終了コード 5、再試行不可）で保存前に拒否する。元の操作と本文は保存されていないため、元の端末と自端末の時計を確認し、新しい ID が既知の履歴より後になる状態で操作を再実行する（[ADR-0026](adr/0026-reject-lossy-event-order.md)）。
 
 ## event-union マージ
 

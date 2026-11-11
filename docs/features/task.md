@@ -96,3 +96,7 @@ git log --format='%s' refs/projects/task/<id>
 - サブタスクは v1 では持たない。`task.link (rel=task)` で関連付けだけ表現し、階層は作らない。階層はビュー側（CLI/TUI）の解釈で足りるか運用で確認してから決める。
 - 見積り・実績時間のフィールドは持たない。必要になれば data のフィールド追加（v1 内互換）で足す。
 - issue と task の双方向リンクは、それぞれの側の link イベントで独立に張る。片側だけでも壊れない（表示時に相手側の存在を確認する）。
+
+## 時計ずれと create の保護
+
+新しい変更 ID が既知の非 checkpoint イベントの最大 ID 以下なら、通常の追記は `clock_skew` で保存前に拒否する。生の履歴の create より前の変更や異なる複数 create は `event_order_violation` として読み取り・同期を拒否し、fsck/verify で報告する。本文や作成者を黙って失うことを避けるための境界検査であり、fold や既存の履歴は変更しない（[ADR-0026](../adr/0026-reject-lossy-event-order.md)）。

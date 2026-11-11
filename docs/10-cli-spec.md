@@ -103,7 +103,9 @@ notify は非空の title と宛先配列を要求し、宛先は `user:<email>`
 | 2 | 使い方の誤り（引数、未知フラグ） |
 | 3 | 同期の競合再試行が尽きた（ローカルは保存済み、再実行可能）。wiki の内容競合も含むが、`wiki_conflict` は人による解消を要するため `retryable:false` とする |
 | 4 | 検証失敗（署名不正、スキーマ違反の検出）。`githive sync` が users 台帳に無関係な 2 つの信頼の根を見つけ、`githive.trust.root` の pin で決着できない場合を含み、その場合は `error.code: "trust_root_conflict"`、`error.data` に両側のルート OID と復旧手順（`recovery`）を入れる（[03](03-sync-and-concurrency.md)「共通祖先が無い場合」） |
-| 5 | 環境不備（git が古い、リポジトリでない、schema_version 非対応） |
+| 5 | 環境不備（git が古い、リポジトリでない、schema_version 非対応、時計ずれで新しいイベントが既知の履歴より後に並ばない）。`clock_skew` は保存前に失敗し、既知の ID・時刻と復旧手順を返す |
+
+issue/task/chat の生の履歴に create より前の変更や異なる複数 create がある場合は、`event_order_violation`（終了コード 4、再試行不可）として扱う。イベントや履歴は自動修正しない（[ADR-0026](adr/0026-reject-lossy-event-order.md)）。
 
 ## ID の入力解決
 

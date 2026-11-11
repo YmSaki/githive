@@ -214,6 +214,12 @@ func (w *Writer) foldInputsAt(oid, newEventID string, newEvent *event.Envelope) 
 				}
 			}
 		}
+		if err := validateNewEventOrder(newEvent, events); err != nil {
+			return nil, nil, err
+		}
+		if err := event.ValidateEntityOrder(append(append([]*event.Envelope(nil), events...), newEvent)); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	start, err := chain.FindCheckpointStart(repo, head)

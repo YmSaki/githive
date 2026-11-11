@@ -235,6 +235,7 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 		}}
 	}
 	var ids event.IDSet
+	var envelopes []*event.Envelope
 	for _, c := range commits {
 		env, err := chain.ExtractEnvelope(c)
 		if err != nil {
@@ -249,6 +250,7 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 			continue
 		}
 		if env != nil {
+			envelopes = append(envelopes, env)
 			if _, err := ids.Add(env); err != nil {
 				code := "invalid_envelope"
 				if errors.Is(err, event.ErrConflictingEventID) {
@@ -257,6 +259,9 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: code, Message: err.Error()})
 			}
 		}
+	}
+	if err := event.ValidateEntityOrder(envelopes); err != nil {
+		findings = append(findings, Finding{Ref: ref, Feature: string(feature), Code: "event_order_violation", Message: err.Error()})
 	}
 	return findings
 }

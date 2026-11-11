@@ -145,6 +145,7 @@ state = fold(sort_by_event_id(events))
 - 基本則：スカラー値のフィールドは後のイベントが勝つ（last-write-wins）。集合（ラベル、担当者）は add/remove イベントの適用結果とする。コメント等の追記データは ID をキーに単純合併する。
 
 時計が狂った端末のイベントは順序上ずれた位置に入るが、順序自体は全員で一致する。
+ただし、issue/task/chat の create より前の変更や、同一 entity の異なる複数 create は、無視や作成者の置換を見逃さないよう保存・受け入れ境界で拒否する（`event_order_violation`）。通常の変更追記も既知の最大イベント ID 以下なら `clock_skew` で保存前に拒否する。fold の順序・結果や既存の履歴を変更する規則ではない（[ADR-0026](adr/0026-reject-lossy-event-order.md)）。
 正確な因果順序（hybrid logical clock 等）は複雑さに見合わないため採用しない（[ADR-0004](adr/0004-merge-by-event-union.md) の代替案の節）。
 
 **決定性の不変条件**：同じイベント集合からは、byte 単位で同一の実体化ツリーが得られなければならない。

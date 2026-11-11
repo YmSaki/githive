@@ -88,11 +88,13 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 	report.CommitCount = len(commits)
 
 	var ids event.IDSet
+	var envelopes []*event.Envelope
 	for _, commit := range commits {
 		env, err := chain.ExtractEnvelope(commit)
 		if err != nil || env == nil {
 			continue
 		}
+		envelopes = append(envelopes, env)
 		if _, err := ids.Add(env); err != nil {
 			code := "invalid_envelope"
 			if errors.Is(err, event.ErrConflictingEventID) {
@@ -100,6 +102,9 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 			}
 			report.Issues = append(report.Issues, Issue{CommitHash: commit.Hash.String(), Code: code, Message: err.Error()})
 		}
+	}
+	if err := event.ValidateEntityOrder(envelopes); err != nil {
+		report.Issues = append(report.Issues, Issue{Code: "event_order_violation", Message: err.Error()})
 	}
 	// A contradictory registry must not become authoritative for signatures.
 	if len(report.Issues) > 0 {

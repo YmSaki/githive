@@ -14,6 +14,7 @@ func validateEventIDs(dir string, oids ...string) error {
 		return err
 	}
 	var ids event.IDSet
+	var allEvents []*event.Envelope
 	seen := map[string]bool{}
 	for _, oid := range oids {
 		if oid == "" || seen[oid] {
@@ -25,10 +26,14 @@ func validateEventIDs(dir string, oids ...string) error {
 			return err
 		}
 		for _, env := range events {
-			if _, err := ids.Add(env); err != nil {
+			fresh, err := ids.Add(env)
+			if err != nil {
 				return err
+			}
+			if fresh {
+				allEvents = append(allEvents, env)
 			}
 		}
 	}
-	return nil
+	return event.ValidateEntityOrder(allEvents)
 }

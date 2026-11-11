@@ -94,3 +94,7 @@ ls-tree で comments/ を列挙し show で読む                  # コメン�
 - コメントの編集・削除は `issue.comment` の再発行ではなく、同じ event-id を `data.supersedes` で指す新コメントイベントで表す。fold は supersedes 先を置換表示扱いにする。原文はイベントログに残る。
 - issue 間の重複クローズは `issue.status` + `issue.link (rel=issue)` の組で表現し、専用イベントは作らない。
 - 番号（#123）は持たない。短縮 ULID とタイトルで参照する（[02](../02-data-model.md)）。
+
+## 時計ずれと create の保護
+
+新しい変更 ID が既知の非 checkpoint イベントの最大 ID 以下なら、通常の追記は `clock_skew` で保存前に拒否する。生の履歴の create より前の変更や異なる複数 create は `event_order_violation` として読み取り・同期を拒否し、fsck/verify で報告する。本文や作成者を黙って失うことを避けるための境界検査であり、fold や既存の履歴は変更しない（[ADR-0026](../adr/0026-reject-lossy-event-order.md)）。

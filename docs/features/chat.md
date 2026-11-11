@@ -83,3 +83,7 @@ git log --format='%s' refs/projects/chat/<id>     # 「chat.post: <冒頭>」の
 
 - チャンネル（常設の場）とスレッドを区別しない。常設の場が欲しければ archived にせず使い続ければよい。1 スレッドが肥大したらチェックポイントが読み出しを支える。
 - リアクション（絵文字）は v1 では持たない。会話の合意は本文で書く。必要になれば `chat.react` イベントの追加で拡張できる（封筒形式は変更不要）。
+
+## 時計ずれと create の保護
+
+新しい変更 ID が既知の非 checkpoint イベントの最大 ID 以下なら、通常の追記は `clock_skew` で保存前に拒否する。生の履歴の create より前の変更や異なる複数 create は `event_order_violation` として読み取り・同期を拒否し、fsck/verify で報告する。本文や作成者を黙って失うことを避けるための境界検査であり、fold や既存の履歴は変更しない（[ADR-0026](../adr/0026-reject-lossy-event-order.md)）。
