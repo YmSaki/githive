@@ -1,10 +1,10 @@
 # 統合候補のコミット来歴（実装固定スナップショット）
 
-Source: `3d42987c7b937bed8502be71bc3cf41d36cd029b`
+Source: `9ea5809a02ce49c1e6c0bb56ac67947ef0cc3188`
 Branch: `codex/product-quality-candidate`
 Base: `ff1ab6707ff9fea8fda3aea200f726f89012c798`
 Worktree: セッションの一時作業領域（公開配布物ではない）
-Status: 実装・ハーネスを固定した時点の来歴。文書収録コミット自体は上記 Source に含まれない。最終配布対象 SHA・バイナリ・QA・CI・承認は別途固定し、この記録をリリース完了の宣言にしない。
+Status: 追加の設定例 quoting 修正後の実装スナップショット。文書収録コミット自体は上記 Source に含まれない。最終配布 SHA と受け入れ検証は別途再固定する。
 
 ## Existing PR heads included
 
@@ -56,6 +56,8 @@ Status: 実装・ハーネスを固定した時点の来歴。文書収録コミ
 | docs: 統合候補の来歴と未完了の受け入れ条件を明記する | `c64fd325ff5698eb42b5f764a4cd6e0613a5b841` | `86714fde94276381957db3219441656213d15aff` |
 | qa: 固定バイナリを対象に CLI と全 MCP ツールを試す受け入れスクリプトを追加する | `8185d8d6b75db8501794814bc23db0fdde8d9139` | `9c651ff910bf961378c24bd3b186106c3278031f` |
 | entitychain: 時計ずれで消える変更とcreate置換を境界で拒否 | `311c85683330ef356878259a546e4b98a15dace6` | `3d42987c7b937bed8502be71bc3cf41d36cd029b` |
+| docs: 最終実装の来歴とイベント依存順序の残課題を更新する | `fe77a322834b8aaf82172bbfd9ceb67c2733b5c6` | `fe77a322834b8aaf82172bbfd9ceb67c2733b5c6` |
+| users: Agent設定例をシェル展開から保護する (#139) | `9edfc2b1c174991d6a566507fbf40c70147f8ffc` | `9ea5809a02ce49c1e6c0bb56ac67947ef0cc3188` |
 
 ## Integration resolutions
 
@@ -76,4 +78,8 @@ Status: 実装・ハーネスを固定した時点の来歴。文書収録コミ
 - Follow-up cac7eed: input/empty-edit/conflict/notification interaction tests PASS.
 - Follow-up 4c8825c: full Go suite/vet, spec197/197, format/import lint/diff checks PASS.
 - Build/test uses GOFLAGS=-buildvcs=false because outer /workspace/.git breaks automatic Go VCS stamping.
-- 文書収録時点で、integration worker は公開 main のマージ・リリース公開を行っていない。後続の候補 push や PR 作成はリリース完了を意味しない。
+- 旧候補 fe77a32 はレビュー用 [PR #187](https://github.com/YmSaki/githive/pull/187) に公開済み。追加修正後は同じ PR に追記し、固定版を再検証する。公開 main のマージ・タグ/リリース公開・人間の承認が済んだという意味ではない。
+
+## 固定版検証後の追加修正
+
+旧 fe77a32 の配布物検証で見つかった Agent 設定例の shell 展開を追加修正した。旧版の QA を新候補の承認に流用せず、最終コミットで全体ゲートと固定版受け入れを再実行する。
