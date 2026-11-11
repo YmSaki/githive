@@ -61,10 +61,14 @@ func (e *ConflictError) Error() string {
 }
 
 var (
+	// ErrPushRejected means a server refused the wiki push for a permanent
+	// reason, such as a pre-receive hook. The local commit and edit are kept.
+	ErrPushRejected = errors.New("wikiapp: push rejected")
+
 	// ErrPushRaceExhausted means the remote wiki advanced faster than we could
 	// push after wikiPushRetries clean re-merges. The merged commit is saved
 	// locally; re-running save retries. Maps to exit 3 (retryable).
-	ErrPushRaceExhausted = errors.New("wikiapp: wiki push was rejected on every retry (remote kept advancing, or a server hook refused it); the commit is saved on the local wiki ref - re-run `githive wiki save`, which resumes the merge and push")
+	ErrPushRaceExhausted = errors.New("wikiapp: wiki push was rejected on every retry (remote kept advancing); the commit is saved on the local wiki ref - re-run `githive wiki save`, which resumes the merge and push")
 
 	// ErrNoEditInProgress means Save was invoked without a prior `wiki edit`
 	// (no worktree recorded). Maps to exit 1.
@@ -334,8 +338,8 @@ func (s *Service) pushMergedOnce(ctx context.Context, r *gitx.Runner, worktreeDi
 		}
 		return SaveResult{CommitHash: merged, Warning: syncFailureWarning(err)}, false, nil
 	}
-	if !pushOK(results) {
-		return SaveResult{}, true, nil // rejected: race, caller retries
+	if retry, err := pushOutcome(results); retry || err != nil {
+		return SaveResult{}, retry, err
 	}
 	// The remote now has merged; record that in the remote-tracking ref so a
 	// later save can tell published from unpublished (hasUnpublishedCommit).
@@ -563,16 +567,29 @@ func hasConflictMarker(content []byte) bool {
 	return false
 }
 
-func pushOK(results []gitx.PushResult) bool {
+// pushOutcome follows sync's rejection policy: only remote advancement or
+// ref-lock races can be repaired by fetching and retrying. Unknown rejection
+// reasons fail immediately (docs/10-cli-spec.md「終了コード」).
+func pushOutcome(results []gitx.PushResult) (bool, error) {
 	if len(results) == 0 {
-		return false
+		return false, fmt.Errorf("%w: git push reported no result", ErrPushRejected)
 	}
 	for _, res := range results {
-		if !res.OK {
-			return false
+		if res.OK {
+			continue
 		}
+		lower := strings.ToLower(res.Reason)
+		for _, race := range []string{
+			"non-fast-forward", "fetch first", "stale info",
+			"failed to update ref", "incorrect old value provided", "cannot lock ref",
+		} {
+			if strings.Contains(lower, race) {
+				return true, nil
+			}
+		}
+		return false, fmt.Errorf("%w: %s; the commit is saved locally; resolve the rejection and re-run `githive wiki save`", ErrPushRejected, res.Reason)
 	}
-	return true
+	return false, nil
 }
 
 // orZero maps an empty (absent) OID to git's zero OID, the compare-and-swap

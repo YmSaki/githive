@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ymsaki/githive/internal/core/gitx"
@@ -57,7 +58,7 @@ func TestSaveOfflineKeepsCommitOnLocalRef(t *testing.T) {
 	if out, err := exec.Command("git", "-C", dir, "remote", "set-url", "origin", origin).CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if results, err := r.Push(ctx, "origin", refspace.WikiMainRef+":"+refspace.WikiMainRef); err != nil || !pushOK(results) {
+	if results, err := r.Push(ctx, "origin", refspace.WikiMainRef+":"+refspace.WikiMainRef); err != nil || len(results) != 1 || !results[0].OK {
 		t.Fatalf("push: %+v %v", results, err)
 	}
 	if got := lsRemote(t, dir, origin, refspace.WikiMainRef); got != local {
@@ -105,7 +106,7 @@ func TestSaveAfterRejectedPushResumes(t *testing.T) {
 	requireGit(t)
 	origin := initBare(t)
 	hook := filepath.Join(origin, "hooks", "pre-receive")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho denied >&2\nexit 1\n"), 0o755); err != nil {
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho attempt >> \"$0.calls\"\necho denied >&2\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	dir := newClone(t, origin)
@@ -118,8 +119,15 @@ func TestSaveAfterRejectedPushResumes(t *testing.T) {
 	}
 	writeWiki(t, wt, "Home.md", "x\n")
 	_, err = s.Save(ctx, "first", "origin", false)
-	if !errors.Is(err, ErrPushRaceExhausted) {
-		t.Fatalf("want ErrPushRaceExhausted, got %v", err)
+	calls, readErr := os.ReadFile(hook + ".calls")
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if got := strings.Count(string(calls), "attempt\n"); got != 1 {
+		t.Fatalf("permanent hook rejection attempted %d pushes, want 1", got)
+	}
+	if !errors.Is(err, ErrPushRejected) {
+		t.Fatalf("want ErrPushRejected, got %v", err)
 	}
 	local, _ := gitx.New(dir).RevParse(ctx, refspace.WikiMainRef)
 	if local == "" {

@@ -213,7 +213,7 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "not_found", Message: err.Error()}
 	case errors.Is(err, issueapp.ErrRetriesExhausted), errors.Is(err, syncapp.ErrRetriesExhausted):
 		return cliout.ExitSyncRetryExhausted, cliout.ErrorInfo{Code: "conflict_retry_exhausted", Message: err.Error(), Retryable: true}
-	case errors.Is(err, syncapp.ErrPushRejected):
+	case errors.Is(err, syncapp.ErrPushRejected), errors.Is(err, wikiapp.ErrPushRejected):
 		// A permanent push rejection (pre-receive hook, permission error,
 		// ...), not a non-fast-forward race - retrying will not help, so
 		// this is exit 1 (general error) rather than exit 3
