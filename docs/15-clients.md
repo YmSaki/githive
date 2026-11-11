@@ -25,6 +25,7 @@ AI Agent（Claude、Codex 等）向けの高速路として MCP を提供する�
 - `githive mcp serve` で stdio トランスポートのサーバーとして起動する。同一バイナリに同梱。
 - ツールは CLI のコマンド体系と 1:1 に対応させる（`issue_list`、`issue_comment`、`task_status`、`notify_list_unread`、`chat_post`、`sync` 等）。入出力スキーマは CLI の `--json` の data と同一とする。
   この対応を守ることで、「MCP が使えない Agent は CLI --json を使えば同じことができる」という等価性（[00](00-vision.md) の人間と Agent の対等）を保つ。
+- `sync` の構造化出力は `items`・`total` と、警告がある場合の `warnings` を持ち、各 item の `warning` は CLI と同じ値を返す。一部失敗時もこの情報を保持して MCP の `isError: true` を返し、`error` に CLI と同じ `code`・`message`・`retryable` と追加診断の `data` を付ける。Go エラーとして返すと MCP SDK が構造化出力を破棄するため、この経路は明示的なエラー結果を返す。
 - 読み取り系ツールにはページングと絞り込みを持たせ、Agent のコンテキストを浪費させない。
 - リソースとして `githive://issue/<id>` 等の URI を公開し、wiki の `githive:` リンク（[features/wiki.md](features/wiki.md)）と対応させる。
 - 例外：`githive init` は MCP ツールとして公開しない。bootstrap（fetch refspec の追加、meta/config の初期化）は人間が明示的に行う一度きりの操作であり、Agent が自動で叩いてよい操作ではないため（`doctor`・`fsck` は読み取り／保守で安全なため公開する）。

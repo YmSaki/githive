@@ -1038,14 +1038,19 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			}
 			// DiscoverRefs just fetched the namespace; Sync must not repeat it.
 			results, err := syncapp.Sync(ctx, dir, remote, refs, syncapp.RetriesFromConfig(ctx, dir), syncapp.SkipInitialFetch())
+			data := syncResultData(results)
 			if err != nil {
-				return nil, nil, err
+				_, info := classifyError(err)
+				detail := map[string]any{"code": info.Code, "message": info.Message, "retryable": info.Retryable}
+				if info.Data != nil {
+					detail["data"] = info.Data
+				}
+				data["error"] = detail
+				// Returning a Go error makes the SDK discard the structured output.
+				// Set IsError explicitly so completed refs and warnings survive.
+				return &mcp.CallToolResult{IsError: true}, data, nil
 			}
-			items := make([]map[string]any, len(results))
-			for i, r := range results {
-				items[i] = map[string]any{"ref": r.Ref, "action": string(r.Action)}
-			}
-			return nil, cliout.ItemsMap(items, len(items)), nil
+			return nil, data, nil
 		})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "status", Description: "Summarize unpushed refs, unread notifications, and the actor's doing tasks"},

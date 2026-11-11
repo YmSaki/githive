@@ -129,6 +129,18 @@ var errNotARepo = errors.New("not a githive/git repository (no .git found; use -
 // classifyError maps an error to a CLI exit code and JSON error envelope
 // (docs/10-cli-spec.md「終了コード」).
 func classifyError(err error) (int, cliout.ErrorInfo) {
+	var syncFailure *syncFailedError
+	if errors.As(err, &syncFailure) {
+		code, info := classifyError(syncFailure.cause)
+		if info.Data == nil {
+			info.Data = map[string]any{}
+		}
+		for key, value := range syncResultData(syncFailure.results) {
+			info.Data[key] = value
+		}
+		return code, info
+	}
+
 	var ambiguous *apperr.AmbiguousIDError
 	var schemaUnsupported *entitychain.SchemaUnsupportedError
 	if errors.As(err, &schemaUnsupported) {

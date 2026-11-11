@@ -82,6 +82,8 @@ githive mcp serve                      # MCP サーバー起動（[15]）
 
 - `data` の形は「コマンド名 + スキーマバージョン」で安定させ、破壊的変更をしない。
 - 一覧系は `{ "items": [...], "total": n }` で統一する。例外は `githive users list` で、users/groups/policy という 3 種類の異なる一覧を同時に返す都合上 `{ "users": [...], "groups": [...], "policy": {...} }` の形をとる（[features/users.md](features/users.md)）。
+- `sync` の各 item は `ref` と `action` を持ち、対処を要する警告がある場合は `warning` も持つ。成功時は封筒の `warnings` にも同じ警告を返す。
+- `sync` が一部の ref だけで失敗しても、処理済み ref の `items`・`total` と `warnings` を `error.data` に返す。既存のエラーコード・`retryable`・復旧手順は保持する。人間向け出力にも処理済み ref と警告を表示してからエラーを報告する。
 - ID は常に完全形（26 文字）で出力する。短縮は入力時のみ受け付ける。
 
 ## 終了コード
