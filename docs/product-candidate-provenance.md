@@ -1,10 +1,10 @@
 # 統合候補のコミット来歴（実装固定スナップショット）
 
-Source: `9ea5809a02ce49c1e6c0bb56ac67947ef0cc3188`
+Source: `8f808637049573a1504e6dc9eb3e6914b043a633`
 Branch: `codex/product-quality-candidate`
 Base: `ff1ab6707ff9fea8fda3aea200f726f89012c798`
 Worktree: セッションの一時作業領域（公開配布物ではない）
-Status: 追加の設定例 quoting 修正後の実装スナップショット。文書収録コミット自体は上記 Source に含まれない。最終配布 SHA と受け入れ検証は別途再固定する。
+Status: 設定例 quoting と Windows CAS テスト補助実行の修正後のスナップショット。文書収録コミット自体は上記 Source に含まれない。最終配布 SHA・QA・Windows CI は別途再固定する。
 
 ## Existing PR heads included
 
@@ -58,6 +58,8 @@ Status: 追加の設定例 quoting 修正後の実装スナップショット。
 | entitychain: 時計ずれで消える変更とcreate置換を境界で拒否 | `311c85683330ef356878259a546e4b98a15dace6` | `3d42987c7b937bed8502be71bc3cf41d36cd029b` |
 | docs: 最終実装の来歴とイベント依存順序の残課題を更新する | `fe77a322834b8aaf82172bbfd9ceb67c2733b5c6` | `fe77a322834b8aaf82172bbfd9ceb67c2733b5c6` |
 | users: Agent設定例をシェル展開から保護する (#139) | `9edfc2b1c174991d6a566507fbf40c70147f8ffc` | `9ea5809a02ce49c1e6c0bb56ac67947ef0cc3188` |
+| docs: 設定例の追加修正後の来歴と再検証を明記する | `aaf96480134bf8cac7b7c10d906906be5a695d4a` | `aaf96480134bf8cac7b7c10d906906be5a695d4a` |
+| test/syncapp: CAS競合注入をWindowsでも動くネイティブ補助実行に変更 | `183f79f6fcb8d610c2c4d6cdaf571de549878c57` | `8f808637049573a1504e6dc9eb3e6914b043a633` |
 
 ## Integration resolutions
 
@@ -78,8 +80,10 @@ Status: 追加の設定例 quoting 修正後の実装スナップショット。
 - Follow-up cac7eed: input/empty-edit/conflict/notification interaction tests PASS.
 - Follow-up 4c8825c: full Go suite/vet, spec197/197, format/import lint/diff checks PASS.
 - Build/test uses GOFLAGS=-buildvcs=false because outer /workspace/.git breaks automatic Go VCS stamping.
-- 旧候補 fe77a32 はレビュー用 [PR #187](https://github.com/YmSaki/githive/pull/187) に公開済み。追加修正後は同じ PR に追記し、固定版を再検証する。公開 main のマージ・タグ/リリース公開・人間の承認が済んだという意味ではない。
+- 旧候補はレビュー用 [PR #187](https://github.com/YmSaki/githive/pull/187) に公開済み。追加修正は同じ PR に追記する。公開 main のマージ・タグ/リリース公開・人間の承認は別の状態である。
 
-## 固定版検証後の追加修正
+## 配布物・CI 検証からの再開
 
-旧 fe77a32 の配布物検証で見つかった Agent 設定例の shell 展開を追加修正した。旧版の QA を新候補の承認に流用せず、最終コミットで全体ゲートと固定版受け入れを再実行する。
+- 旧 fe77a32 の配布物検証で見つかった Agent 設定例の shell 展開を追加修正した。旧版の QA を新候補の承認に流用しない。
+- 同じ旧候補の Windows CI は POSIX Git wrapper が起動せず CAS 競合注入テスト4ケースで失敗した。新しいネイティブ wrapper は実際の選択を検査する。Windows 向けクロスコンパイルは実行時 CI の代わりにならない。
+- 最終コミットで全体ゲート、固定 Go module の再インストール、可搬的な受け入れ検証と Windows CI をそれぞれ確認する。
