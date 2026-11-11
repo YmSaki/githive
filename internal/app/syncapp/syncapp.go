@@ -86,10 +86,10 @@ type Result struct {
 }
 
 // ErrRetriesExhausted is returned (exit code 3 at the CLI layer,
-// docs/10-cli-spec.md「終了コード」) when push kept losing to a concurrent
-// remote update after the initial attempt and Retries retries. Local state is
+// docs/10-cli-spec.md「終了コード」) when local CAS or remote push updates
+// keep losing after the initial attempt and Retries retries. Local state is
 // left as-is; sync can simply be re-run.
-var ErrRetriesExhausted = errors.New("syncapp: push retries exhausted")
+var ErrRetriesExhausted = errors.New("syncapp: sync retries exhausted")
 
 // ErrPushRejected is returned when the remote rejects a push for a reason
 // other than a non-fast-forward race - a pre-receive hook, a permission
@@ -165,7 +165,8 @@ func SkipInitialFetch() Option {
 // git は ref ごとに受理・拒否を返すため、拒否された ref だけを再試行する」):
 // one wildcard fetch, then every ref that needs one is pushed in a single
 // `git push` with several refspecs, and only the refs git rejected for a
-// racing reason go into the next round. A ref rejected permanently (a
+// racing reason, or refs that lost a local CAS, go into the next round.
+// A ref rejected permanently (a
 // pre-receive hook, a permission error) drops out immediately and does not
 // hold up the others.
 //
@@ -197,9 +198,14 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 		}
 
 		var toPush []*pushPlan
+		var next []string
 		for _, ref := range pending {
 			plan, res, err := planRef(ctx, dir, r, ref)
 			switch {
+			case errors.Is(err, gitx.ErrRefCASMismatch):
+				// A local writer advanced after planning. Read its new head
+				// and reapply the remote events in the next bounded round.
+				next = append(next, ref)
 			case err != nil:
 				failures = append(failures, err)
 			case plan != nil:
@@ -208,16 +214,14 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 				done[ref] = res
 			}
 		}
-		if len(toPush) == 0 {
-			pending = nil
-			break
+		if len(toPush) > 0 {
+			retryable, err := pushBatch(ctx, r, remote, toPush, done, &failures)
+			if err != nil {
+				return orderedResults(refs, done), errors.Join(append(failures, err)...)
+			}
+			next = append(next, retryable...)
 		}
-
-		retryable, err := pushBatch(ctx, r, remote, toPush, done, &failures)
-		if err != nil {
-			return orderedResults(refs, done), errors.Join(append(failures, err)...)
-		}
-		pending = retryable
+		pending = next
 		if round == retries {
 			break
 		}
@@ -265,7 +269,7 @@ func fetchNamespace(ctx context.Context, r *gitx.Runner, remote string) error {
 // planRef decides what one ref needs, doing any purely local work (a
 // fast-forward of the local ref, an event-union merge, a trust-root
 // resolution) immediately. It returns exactly one of: a plan to push, a
-// finished Result, or a permanent error for this ref.
+// finished Result, or an error (a local CAS mismatch must be replanned).
 func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*pushPlan, Result, error) {
 	trackingRef, err := refspace.RemoteTrackingRef(ref)
 	if err != nil {
@@ -476,6 +480,9 @@ func classifyPushRejection(reason string) error {
 }
 
 func mergeAndAdvance(ctx context.Context, dir, ref string, feature refspace.Feature, localOID, remoteOID string) error {
+	unlock := chain.LockRepository(dir)
+	defer unlock()
+
 	repo, err := chain.OpenRepository(dir)
 	if err != nil {
 		return err

@@ -27,14 +27,11 @@
 //
 // Concurrency: an MCP client may pipeline several tool calls without
 // waiting for each response, so two write tools can genuinely execute
-// concurrently against the same repository. This is already safe: every
-// write goes through internal/app/entitychain.Writer.Append, which takes a
-// process-wide, per-repository-directory mutex around its whole
-// read-fold-commit-CAS-advance critical section (added for the same
-// reason multiple goroutines writing concurrently within one process isn't
-// safe on Windows - see that package's writeLocks). Two tool calls
-// targeting the same repo simply serialize through that lock; they do not
-// race or corrupt each other's writes.
+// concurrently against the same repository. Event appends and sync's
+// event-union merges share internal/core/chain.LockRepository around their
+// local go-git object writes and CAS advance. This avoids concurrent loose
+// object writes within one process, including Windows rename failures.
+// Separate processes still use Git's CAS and bounded reapplication on loss.
 package main
 
 import (
