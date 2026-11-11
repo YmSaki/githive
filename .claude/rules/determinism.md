@@ -13,16 +13,24 @@ paths: ["internal/core/**"]
 - `encoding/json` を `internal/core/event` の外（テストファイルを除く）から直接 import してはならない。この規則は `scripts/check-canonical-json.sh` が機械的に検証し、`.go` ファイル編集後の PostToolUse フックが自動実行する。フックが FAIL を報告したら、その場で `event.Encode`/`event.Decode` 経由に書き換える。
 - 仕様の正は [docs/02-data-model.md](../../docs/02-data-model.md)「canonical JSON」節、Python 版リファレンス実装は `spec/reference/canonical_json.py`。Go とのズレは golden テスト（`spec/vectors/canonical/*.json` を読む Go 側テスト）が検出する。
 
-## fold 意味論を変える変更は schema_version の昇格が必須
+## fold 意味論を変える変更は封筒 v とリポジトリ schema_version の両方の昇格が必須
 
-「fold 意味論を変える」とは、同じイベント集合から生成される実体化ツリーが変わる変更を指す（例：ステータス遷移表の追加・変更、フィールドの初期値変更、コレクションの畳み込み順序の変更）。フィールドの追加のみで既存イベント集合の実体化結果が変わらない変更は対象外。
+用語は 2 つを区別する（[ADR-0018](../../docs/adr/0018-schema-version-bump-rule.md)）。
 
-昇格対象になったら、次を同一コミット群で行う。
+- **封筒 v**：イベント封筒の `v`。定数は `internal/core/event/envelope.go` の `SchemaVersion`（書く値）と `MinSchemaVersion`（読める最古の値）。
+- **リポジトリ schema_version**：`refs/projects/meta/config` の `config.json` の `schema_version`（[docs/02-data-model.md](../../docs/02-data-model.md)「meta/config ref」）。定数は `internal/app/initapp` の `SchemaVersion`。
 
-1. `internal/core/event/envelope.go` の `SchemaVersion` 定数（現在 1）を上げる。
-2. `refs/projects/meta/config` の `config.json` が持つ `schema_version`（[docs/02-data-model.md](../../docs/02-data-model.md)「meta/config ref」）との関係を確認する。ツールは自分の対応バージョンより新しい `schema_version` を見たら操作を拒否する規則（[docs/01-architecture.md](../../docs/01-architecture.md)「バージョニングと互換性」）を壊さないこと。
-3. 変更前後の fold 結果が異なることを示す golden ベクタ（旧版で FAIL する／新版でのみ PASS するケース）を追加し、後方非互換を意図的なものとして記録する。
-4. `docs/adr/` に ADR を追加し、なぜ意味論を変えたか・後方互換性への影響を残す（`/adr` スキル参照）。
+「fold 意味論を変える」とは、同じイベント集合から生成される実体化ツリーが変わる変更を指す（例：ステータス遷移表の追加・変更、フィールドの初期値変更、コレクションの畳み込み順序の変更）。**既存 feature の reducer に、ツリーに影響する新しい kind を追加すること**も含む（旧ツールは未知の kind を無視するのでツリーが分岐する）。次は対象外：フィールドの追加のみで既存イベント集合の実体化結果が変わらない変更、`.checkpoint` 系のように fold が常に無視する kind の追加、新しい feature（新しい ref 名前空間）の追加。
+
+昇格対象になったら、次を同一コミット群で行う。現在値を文書に書き写さない（コードと spec スキーマが正）。
+
+1. `event.SchemaVersion` を上げ、`spec/schemas/envelope.schema.json` の `v` の `enum` に新しい値を加える。
+2. `initapp.SchemaVersion` を上げ、`spec/schemas/meta.schema.json` の `schema_version` の制約を確認する。
+3. 既存リポジトリの `config.json` を新しい値へ引き上げる経路を用意する（ADR-0018「既存リポジトリの引き上げ」。最初の昇格で実装する）。
+4. 変更前後の fold 結果が異なることを示す golden ベクタ（旧版で FAIL する／新版でのみ PASS するケース）を追加し、後方非互換を意図的なものとして記録する。
+5. `docs/adr/` に ADR を追加し、なぜ意味論を変えたか・後方互換性への影響を残す（`/adr` スキル参照）。
+
+封筒 v だけを上げても、旧い v のイベントだけでできたチェーンでは新旧ツールの実体化結果が黙って分岐する。それを止めるのがリポジトリ schema_version で、fold を行う操作（`entitychain.Writer.Append`・`Writer.Fold`・sync のマージ）は必ず先に `entitychain.CheckSchemaSupported` で検査する。fold を行う新しい経路を足すときも、この検査を通すこと。
 
 未知の `v` は読み取り拒否が原則（forward compatible な無視ではなく拒否）。バージョンを上げずに意味論だけ変えると、新旧ツール混在チームで実体化ツリーが分岐し、`verify` が偽の改竄検出をする（[docs/13-roadmap.md](../../docs/13-roadmap.md)「手戻りリスクと先回りの手当て」）。
 

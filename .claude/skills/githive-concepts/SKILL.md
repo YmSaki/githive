@@ -38,7 +38,7 @@ githive は「エンティティ = 追記専用コミットチェーン」（イ
 
 ## 決定性の不変条件（詳細は [[determinism]]）
 
-「同じイベント集合 → byte 単位で同一の実体化ツリー」。canonical JSON の一元化、fold の順序不変性（ID 昇順ソート後に畳み込み）、checkpoint 透過性の 3 つが柱。fold 意味論を変える変更は `event.SchemaVersion` の昇格が必須。
+「同じイベント集合 → byte 単位で同一の実体化ツリー」。canonical JSON の一元化、fold の順序不変性（ID 昇順ソート後に畳み込み）、checkpoint 透過性の 3 つが柱。fold 意味論を変える変更は、封筒 v（`event.SchemaVersion`）とリポジトリ schema_version（`initapp.SchemaVersion`）の両方の昇格が必須（ADR-0018）。
 
 ## spec/ との関係（詳細は [[spec-sync]]）
 

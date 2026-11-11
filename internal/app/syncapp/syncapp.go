@@ -14,6 +14,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
+	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
@@ -191,6 +192,9 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 				return orderedResults(refs, done), errors.Join(append(failures, err)...)
 			}
 		}
+		if err := checkSchemaBothSides(ctx, dir); err != nil {
+			return orderedResults(refs, done), errors.Join(append(failures, err)...)
+		}
 
 		var toPush []*pushPlan
 		for _, ref := range pending {
@@ -230,6 +234,23 @@ type pushPlan struct {
 	ref     string
 	action  Action
 	warning string
+}
+
+// checkSchemaBothSides refuses to merge anything when either the local or
+// the just-fetched remote meta/config declares a repository schema_version
+// newer than this build (ADR-0018). Event-union merge re-folds every ref, so
+// an outdated tool merging a newer repository would write trees under the
+// old fold semantics - and the meta/config merge itself would then carry
+// the newer schema_version into the local ref.
+func checkSchemaBothSides(ctx context.Context, dir string) error {
+	if err := entitychain.CheckSchemaSupported(ctx, dir); err != nil {
+		return err
+	}
+	tracking, err := refspace.RemoteTrackingRef(refspace.MetaConfigRef)
+	if err != nil {
+		return err
+	}
+	return entitychain.CheckSchemaSupportedAt(ctx, dir, tracking)
 }
 
 // fetchNamespace pulls the whole refs/projects/ namespace in one wildcard

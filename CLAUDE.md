@@ -13,7 +13,7 @@ P0〜P2・P5・P3 は実装済み（MVP + 署名まで完了）。P4（wiki/運�
 ## 絶対に守る不変条件
 
 - 決定的実体化：同じイベント集合からは byte 単位で同一の実体化ツリーが得られること（docs/02）。
-- fold 意味論を変える変更は schema_version の昇格を必須とする（docs/01）。
+- fold 意味論を変える変更は、封筒 v（`event.SchemaVersion`）とリポジトリ schema_version（meta/config の `config.json`、`initapp.SchemaVersion`）の両方の昇格を必須とする（docs/01、ADR-0018）。
 - canonical JSON の実装は 1 箇所に集約し、encoding/json を直接使わない（docs/14）。
 - 改行は LF 固定。.gitattributes がこれを強制する。
 

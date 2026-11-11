@@ -87,7 +87,7 @@ wiki だけは通常の git ブランチと同じ運用（自由なツリー編�
 }
 ```
 
-- **v**：封筒スキーマのバージョン。現在は 2（[ADR-0015](adr/0015-task-terminal-cancel-and-schema-version-2.md) で 1 から昇格）。
+- **v**：封筒 v（封筒スキーマのバージョン）。書き手は `event.SchemaVersion` を書き、読み手は `event.MinSchemaVersion` 以上 `event.SchemaVersion` 以下を受理する（[ADR-0015](adr/0015-task-terminal-cancel-and-schema-version-2.md)）。meta/config のリポジトリ schema_version とは別の値である（[ADR-0018](adr/0018-schema-version-bump-rule.md)）。
 - **kind**：`<機能>.<動詞>` 形式のイベント種別。正規表現 `^[a-z]+\.[a-z_]+$` に従う。各機能仕様で定義する。
 - **id**：イベント ID。ULID。リポジトリ全体で一意。
 - **ts**：発生時刻。RFC 3339、UTC、ミリ秒精度。ULID 内の時刻と同値を書く。
@@ -189,7 +189,7 @@ front matter は人間の閲覧と grep のためであり、機械処理はイ�
 }
 ```
 
-ツールは操作前に `schema_version` を確認し、自分の対応バージョンより新しければ操作を拒否する。
+この `schema_version` をリポジトリ schema_version と呼び、イベント封筒の `v`（封筒 v）と区別する（[ADR-0018](adr/0018-schema-version-bump-rule.md)）。ツールは fold を行う操作（書き込み・読み取り・sync のマージ）の前にこれを確認し、自分の対応バージョン（`initapp.SchemaVersion`）より新しければ操作を拒否する。
 
 ### meta.init イベント
 
@@ -199,7 +199,7 @@ front matter は人間の閲覧と grep のためであり、機械処理はイ�
 
 - kind: `meta.init`
 - data（`internal/app/initapp/initapp.go` の `ensureMetaConfig` が実際に入れるフィールド。`config.json` の内容とバイト単位で同一）:
-  - `schema_version`（int）：config.json の schema_version。現行の書き手は常に 1（`initapp.SchemaVersion`）。
+  - `schema_version`（int）：リポジトリ schema_version。書き手は `initapp.SchemaVersion` を書く。
   - `project`（string）：`githive init` に渡されたプロジェクト名。
   - `features`（string の配列）：有効機能一覧。現行のデフォルト（`initapp.DefaultFeatures`）は `["issue", "task", "notify", "users", "chat", "wiki"]`。
   - `created_at`（string）：init 実行時刻。RFC3339、UTC、ミリ秒精度（イベント封筒の `ts` と同値）。
