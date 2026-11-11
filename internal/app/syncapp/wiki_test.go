@@ -233,13 +233,10 @@ func TestConfigSchemaVersion(t *testing.T) {
 		t.Fatalf("configSchemaVersion read %d and %d", oldV, newV)
 	}
 
-	missing, err := configSchemaVersion([]byte(`{"project":"p"}` + "\n"))
-	if err != nil {
-		t.Fatal(err)
+	if _, err := configSchemaVersion([]byte(`{"project":"p"}` + "\n")); err == nil {
+		t.Fatal("missing schema_version must not become version zero")
 	}
-	if missing != 0 {
-		t.Errorf("a config.json without schema_version should read as 0, got %d", missing)
-	}
+
 }
 
 // TestSupportedFeaturesCoversEveryRefKind guards the list sync, status and

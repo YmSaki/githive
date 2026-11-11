@@ -179,6 +179,10 @@ func classifyError(err error) (int, cliout.ErrorInfo) {
 	}
 	var ambiguous *apperr.AmbiguousIDError
 	var schemaUnsupported *entitychain.SchemaUnsupportedError
+	var invalidConfig *entitychain.InvalidConfigError
+	if errors.As(err, &invalidConfig) {
+		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "invalid_config", Message: err.Error()}
+	}
 	if errors.As(err, &schemaUnsupported) {
 		return cliout.ExitEnvironment, cliout.ErrorInfo{Code: "schema_unsupported", Message: err.Error()}
 	}

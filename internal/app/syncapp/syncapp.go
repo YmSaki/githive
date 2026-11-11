@@ -26,6 +26,7 @@ import (
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/merge"
+	"github.com/ymsaki/githive/internal/core/projectconfig"
 	"github.com/ymsaki/githive/internal/core/refspace"
 	"github.com/ymsaki/githive/internal/core/sign"
 )
@@ -555,13 +556,11 @@ func metaMergeFiles(ctx context.Context, dir, localOID, remoteOID string) (map[s
 	local, localErr := r.Show(ctx, localOID, metaConfigPath)
 	remote, remoteErr := r.Show(ctx, remoteOID, metaConfigPath)
 
-	switch {
-	case localErr != nil && remoteErr != nil:
-		return nil, fmt.Errorf("syncapp: neither side of %s has %s: %v", refspace.MetaConfigRef, metaConfigPath, localErr)
-	case localErr != nil:
-		return map[string][]byte{metaConfigPath: remote}, nil
-	case remoteErr != nil:
-		return map[string][]byte{metaConfigPath: local}, nil
+	if localErr != nil {
+		return nil, fmt.Errorf("syncapp: read local config: %w", localErr)
+	}
+	if remoteErr != nil {
+		return nil, fmt.Errorf("syncapp: read remote config: %w", remoteErr)
 	}
 
 	localVersion, err := configSchemaVersion(local)
@@ -602,33 +601,9 @@ func metaMergeFiles(ctx context.Context, dir, localOID, remoteOID string) (map[s
 
 const metaConfigPath = "config.json"
 
-// configSchemaVersion reads schema_version out of a config.json blob. A
-// missing or non-numeric value counts as 0 so a malformed side never wins.
+// configSchemaVersion shares the exact positive-integer version contract used
+// by init, fold guards, and fsck. Missing, malformed, and fractional versions
+// return typed invalid-config errors; they never become version zero.
 func configSchemaVersion(blob []byte) (int, error) {
-	decoded, err := event.DecodeGeneric(blob)
-	if err != nil {
-		return 0, fmt.Errorf("syncapp: decode %s: %w", metaConfigPath, err)
-	}
-	obj, ok := decoded.(map[string]any)
-	if !ok {
-		return 0, fmt.Errorf("syncapp: %s is not a JSON object", metaConfigPath)
-	}
-	n, ok := obj["schema_version"]
-	if !ok {
-		return 0, nil
-	}
-	switch v := n.(type) {
-	case float64:
-		return int(v), nil
-	case int:
-		return v, nil
-	default:
-		// json.Number and anything else: fall back to its text form.
-		s := fmt.Sprintf("%v", v)
-		parsed := 0
-		if _, err := fmt.Sscanf(s, "%d", &parsed); err != nil {
-			return 0, nil
-		}
-		return parsed, nil
-	}
+	return projectconfig.Version(refspace.MetaConfigRef, blob)
 }

@@ -47,11 +47,11 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
-	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/materialize"
+	"github.com/ymsaki/githive/internal/core/projectconfig"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
 
@@ -335,53 +335,13 @@ func validateMetaConfig(repo *git.Repository, ref string, head plumbing.Hash) []
 			Message: "meta/config tree has no config.json",
 		})
 	}
-	v, err := event.DecodeGeneric(raw)
-	if err != nil {
-		return append(findings, Finding{
-			Ref: ref, Feature: string(refspace.FeatureMeta), Code: "invalid_config",
-			Message: fmt.Sprintf("config.json is not valid JSON: %v", err),
-		})
-	}
-	m, ok := v.(map[string]any)
-	if !ok {
-		return append(findings, Finding{
-			Ref: ref, Feature: string(refspace.FeatureMeta), Code: "invalid_config",
-			Message: "config.json is not a JSON object",
-		})
-	}
-	sv, ok := asInt(m["schema_version"])
-	if !ok {
-		return append(findings, Finding{
-			Ref: ref, Feature: string(refspace.FeatureMeta), Code: "invalid_config",
-			Message: "config.json has no integer schema_version",
-		})
-	}
-	if sv > initapp.SchemaVersion {
-		findings = append(findings, Finding{
-			Ref: ref, Feature: string(refspace.FeatureMeta), Code: "unsupported_schema_version",
-			Message: fmt.Sprintf("config.json schema_version %d is newer than supported %d", sv, initapp.SchemaVersion),
-		})
+	if err := projectconfig.Check(ref, raw); err != nil {
+		code := "invalid_config"
+		var unsupported *projectconfig.UnsupportedError
+		if errors.As(err, &unsupported) {
+			code = "unsupported_schema_version"
+		}
+		findings = append(findings, Finding{Ref: ref, Feature: string(refspace.FeatureMeta), Code: code, Message: err.Error()})
 	}
 	return findings
-}
-
-func asInt(v any) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int64:
-		return int(n), true
-	case float64:
-		return int(n), true
-	default:
-		// event.DecodeGeneric yields json.Number for numbers; probe it via
-		// its Float64 without importing encoding/json here.
-		type float64er interface{ Float64() (float64, error) }
-		if f, ok := v.(float64er); ok {
-			if got, err := f.Float64(); err == nil {
-				return int(got), true
-			}
-		}
-		return 0, false
-	}
 }

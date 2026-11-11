@@ -13,16 +13,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/go-git/go-git/v5/plumbing"
 
-	"github.com/ymsaki/githive/internal/app/initapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
 	"github.com/ymsaki/githive/internal/core/materialize"
+	"github.com/ymsaki/githive/internal/core/projectconfig"
 	"github.com/ymsaki/githive/internal/core/refspace"
 	"github.com/ymsaki/githive/internal/core/sign"
 )
@@ -42,14 +41,11 @@ const defaultRetries = 10
 // instead of silently rendering a different tree. The CLI maps it to exit
 // code 5 and error.code "schema_unsupported" (docs/10-cli-spec.md「終了コー
 // ド」).
-type SchemaUnsupportedError struct {
-	Found     int
-	Supported int
-}
+type SchemaUnsupportedError = projectconfig.UnsupportedError
 
-func (e *SchemaUnsupportedError) Error() string {
-	return fmt.Sprintf("entitychain: meta/config schema_version %d is newer than the %d this build supports", e.Found, e.Supported)
-}
+// InvalidConfigError distinguishes an existing broken config from day-zero
+// repositories that have no meta/config ref yet.
+type InvalidConfigError = projectconfig.InvalidError
 
 // CheckSchemaSupported rejects an operation when refs/projects/meta/config's
 // config.json declares a repository schema_version newer than
@@ -57,13 +53,9 @@ func (e *SchemaUnsupportedError) Error() string {
 // the envelope version event.SchemaVersion (ADR-0018 keeps the two terms
 // apart and raises both on a fold-semantics change).
 //
-// A repository with no meta/config ref yet (pre-`githive init`, or a partial
-// clone that never fetched it) skips the check entirely, preserving prior
-// behavior for those repositories. Likewise, a meta/config tree this
-// function cannot make sense of (missing/malformed config.json, no integer
-// schema_version) is left for `githive fsck` to report; the job here is
-// only to block operations against a config it can positively identify as
-// too new, not to duplicate fsck's broader validation.
+// An absent ref remains supported for bootstrap. An existing ref must carry
+// a valid positive integer version; unknown compatibility is never permission
+// to fold or mutate the repository.
 func CheckSchemaSupported(ctx context.Context, dir string) error {
 	return CheckSchemaSupportedAt(ctx, dir, refspace.MetaConfigRef)
 }
@@ -90,46 +82,9 @@ func CheckSchemaSupportedAt(ctx context.Context, dir, ref string) error {
 	}
 	raw, ok := files["config.json"]
 	if !ok {
-		return nil
+		return &projectconfig.InvalidError{Ref: ref, Reason: "config.json is missing"}
 	}
-	decoded, err := event.DecodeGeneric(raw)
-	if err != nil {
-		return nil
-	}
-	m, ok := decoded.(map[string]any)
-	if !ok {
-		return nil
-	}
-	sv, ok := schemaVersionAsInt(m["schema_version"])
-	if !ok {
-		return nil
-	}
-	if sv > initapp.SchemaVersion {
-		return &SchemaUnsupportedError{Found: sv, Supported: initapp.SchemaVersion}
-	}
-	return nil
-}
-
-// schemaVersionAsInt reads schema_version out of a map decoded by
-// event.DecodeGeneric, which yields json.Number for numbers (probed via its
-// Float64 method here without importing encoding/json).
-func schemaVersionAsInt(v any) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int64:
-		return int(n), true
-	case float64:
-		return int(n), true
-	default:
-		type float64er interface{ Float64() (float64, error) }
-		if f, ok := v.(float64er); ok {
-			if got, err := f.Float64(); err == nil {
-				return int(got), true
-			}
-		}
-		return 0, false
-	}
+	return projectconfig.Check(ref, raw)
 }
 
 // Writer drives reads and CAS-safe writes for one feature's ref(s).

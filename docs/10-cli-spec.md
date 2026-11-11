@@ -174,3 +174,7 @@ TUI と MCP サーバーは同一プロセス内で `app` を直接呼ぶため�
 sync / init は既知 kind の不正 data（`invalid_event_data`）や、kind と ref feature・entity と per-entity ref ID の不一致（`event_ref_mismatch`）を採用せず、終了コード4で検査を促す。fsck / verify にも対象コミットの診断を残す。users 台帳の data が検証できない場合、部分的な台帳で署名を正当化しない。
 
 未知 kind は `unknown_event_kind` 警告とし、既存の無視・保持の互換性を維持する。fsck は元のイベント本文の canonical bytes も照合し、`non_canonical_event` を報告する。未知フィールドの破棄、暦上の実在日の強制、opaque な source.kind の列挙追加は行わない（[ADR-0030](adr/0030-embedded-event-contract-validation.md)）。issue/task の有効な enum でも規則上無効な status 遷移は、実際の reducer の判定を使い `ignored_status_transition` 警告として報告する。記録済みのイベントや状態は変更せず、意図された同値更新・集合の重複排除を一般的なエラーにはしない。
+
+### 既存プロジェクト設定の版情報
+
+meta/config ref が無い init 前の day-zero は許可する。存在する ref の config.json 欠損・破損・非 object・schema_version の欠損／型違い／非整数／0 以下は、互換性不明として `invalid_config`（終了コード5）で読み書き・sync・init を拒否する。対応版を超える正の整数は従来の `schema_unsupported` とする。JSON の 1、1.0、1e0 は同じ整数版として扱い、浮動小数点丸めによる小数の切り捨てはしない。これは版情報の検査であり、meta 全 schema や過去イベントと設定 tree の一致を包括的に証明するものではない（ADR-0032）。
