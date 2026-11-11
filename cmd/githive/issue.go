@@ -65,7 +65,10 @@ func newIssueNewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, issueRef(id))
+			warnings, syncErr := syncIfEnabled(dir, issueRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
@@ -206,7 +209,10 @@ func newIssueCommentCmd() *cobra.Command {
 				return err
 			}
 			warnStrings := notifyReplyTarget(ctx, dir, svc, id, replyTo)
-			warnings := syncIfEnabled(dir, issueRef(id))
+			warnings, syncErr := syncIfEnabled(dir, issueRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			warnings = append(warnings, notifyWarnings(warnStrings)...)
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
@@ -246,7 +252,11 @@ func newIssueStatusCmd() *cobra.Command {
 			if !ok {
 				warnings = append(warnings, cliout.Warning{Code: "invalid_transition", Message: fmt.Sprintf("transition to %q was rejected", args[1])})
 			}
-			warnings = append(warnings, syncIfEnabled(dir, issueRef(id))...)
+			syncedWarnings, syncErr := syncIfEnabled(dir, issueRef(id), warnings)
+			if syncErr != nil {
+				return syncErr
+			}
+			warnings = syncedWarnings
 			if flags.json {
 				return cliout.PrintSuccess(map[string]any{"applied": ok}, warnings)
 			}
@@ -285,7 +295,10 @@ func newIssueEditCmd() *cobra.Command {
 			if err := svc.Edit(ctx, id, titlePtr, bodyPtr); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, issueRef(id))
+			warnings, syncErr := syncIfEnabled(dir, issueRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -371,7 +384,11 @@ func newIssueAssignCmd() *cobra.Command {
 				warnings = append(warnings, notifyWarnings(
 					notifyapp.NotifyAssigned(ctx, dir, "issue", id, selfEmail, assignee))...)
 			}
-			warnings = append(warnings, syncIfEnabled(dir, issueRef(id))...)
+			syncedWarnings, syncErr := syncIfEnabled(dir, issueRef(id), warnings)
+			if syncErr != nil {
+				return syncErr
+			}
+			warnings = syncedWarnings
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -400,7 +417,10 @@ func runSetOp(idArg string, add, remove []string, op func(*issueapp.Service, con
 	if err := op(svc, ctx, id, add, remove); err != nil {
 		return err
 	}
-	warnings := syncIfEnabled(dir, issueRef(id))
+	warnings, syncErr := syncIfEnabled(dir, issueRef(id))
+	if syncErr != nil {
+		return syncErr
+	}
 	if flags.json {
 		return cliout.PrintSuccess(nil, warnings)
 	}
@@ -429,7 +449,10 @@ func newIssueLinkCmd() *cobra.Command {
 			if err := svc.Link(ctx, id, rel, args[1], remove); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, issueRef(id))
+			warnings, syncErr := syncIfEnabled(dir, issueRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}

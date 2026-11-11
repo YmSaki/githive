@@ -48,7 +48,10 @@ func newUsersAddCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+				warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+				if syncErr != nil {
+					return syncErr
+				}
 				if flags.json {
 					return cliout.PrintSuccess(map[string]any{
 						"username":       setup.Username,
@@ -68,7 +71,10 @@ func newUsersAddCmd() *cobra.Command {
 			if err := svc.AddUser(ctx, username, display, email, kind, roles); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -154,7 +160,10 @@ func newUsersKeyAddCmd() *cobra.Command {
 			if err := svc.KeyAdd(ctx, args[0], key); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -187,7 +196,10 @@ func newUsersKeyRevokeCmd() *cobra.Command {
 			if err := svc.KeyRevoke(ctx, args[0], key); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -223,7 +235,10 @@ func newUsersGroupSetCmd() *cobra.Command {
 			if err := svc.GroupSet(ctx, args[0], members, description); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -251,7 +266,10 @@ func newUsersGroupRemoveCmd() *cobra.Command {
 			if err := svc.GroupRemove(ctx, args[0]); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -350,7 +368,10 @@ func newUsersPolicyEditCmd() *cobra.Command {
 				return err
 			}
 			discardDraft = true
-			warnings := syncIfEnabled(dir, usersapp.RegistryRef)
+			warnings, syncErr := syncIfEnabled(dir, usersapp.RegistryRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}

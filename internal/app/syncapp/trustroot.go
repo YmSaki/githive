@@ -105,24 +105,52 @@ func resolveTrustRoots(ctx context.Context, dir string, r *gitx.Runner, ref, loc
 	switch pin {
 	case localRoots[0]:
 		return Result{
-			Ref:    ref,
-			Action: ActionKeptLocalTrustRoot,
+			Ref:      ref,
+			Action:   ActionKeptLocalTrustRoot,
+			LocalOID: localOID, RemoteOID: remoteOID,
+			Recovery: "The local registry is preserved but not published; inspect both trust roots and choose the intended registry before syncing again.",
 			Warning: fmt.Sprintf("%s: the remote has an unrelated registry (root %s); kept the local one, which matches %s. The remote's entries were not merged in.",
 				ref, remoteRoots[0], TrustRootPinKey),
 		}, true, nil
 	case remoteRoots[0]:
+		backupRef, err := preserveRegistryTip(ctx, r, localOID)
+		if err != nil {
+			return Result{}, false, err
+		}
 		if err := chain.AdvanceRef(dir, plumbing.ReferenceName(ref), plumbing.NewHash(remoteOID), localOID); err != nil {
 			return Result{}, false, err
 		}
 		return Result{
-			Ref:    ref,
-			Action: ActionAdoptedRemoteTrustRoot,
-			Warning: fmt.Sprintf("%s: adopted the remote registry (root %s) per %s; the discarded local chain (%s) is still reachable through this ref's reflog.",
+			Ref:      ref,
+			Action:   ActionAdoptedRemoteTrustRoot,
+			LocalOID: localOID, RemoteOID: remoteOID, BackupRef: backupRef,
+			Recovery: fmt.Sprintf("The previous local tip %s is durably preserved at %s. Inspect it with `git show %s`; create a separate inspection branch with `git branch githive-recovered-users-%s %s`. Neither command overwrites the current registry or an existing branch. Reconcile trust roots explicitly; do not blindly retry the original write.", localOID, backupRef, backupRef, localOID[:12], backupRef),
+			Warning: fmt.Sprintf("%s: adopted the remote registry (root %s) per %s; the previous local tip (%s) is no longer current. Use the concrete recovery instructions; an existing reflog is left intact.",
 				ref, remoteRoots[0], TrustRootPinKey, localOID),
 		}, true, nil
 	default:
 		return Result{}, false, conflict
 	}
+}
+
+// preserveRegistryTip creates a local-only, GC-durable recovery root before
+// replacing a registry. It never overwrites an existing recovery ref.
+func preserveRegistryTip(ctx context.Context, r *gitx.Runner, oid string) (string, error) {
+	ref := "refs/githive-recovery/users/" + oid
+	existing, err := r.RevParse(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+	if existing == oid {
+		return ref, nil
+	}
+	if existing != "" {
+		return "", fmt.Errorf("syncapp: recovery ref %s points at %s instead of %s; refusing to replace the local registry", ref, existing, oid)
+	}
+	if err := r.UpdateRef(ctx, ref, oid, gitx.ZeroOID); err != nil {
+		return "", fmt.Errorf("syncapp: cannot preserve local registry at %s; refusing remote adoption: %w", ref, err)
+	}
+	return ref, nil
 }
 
 // RemoteTrackingRefOrSelf is the remote-tracking ref for ref, or ref itself

@@ -48,7 +48,10 @@ func newChatNewCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, chatRef(id))
+			warnings, syncErr := syncIfEnabled(dir, chatRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
@@ -164,7 +167,11 @@ func newChatPostCmd() *cobra.Command {
 				return err
 			}
 			warnings := notifyWarnings(notifyChatMentions(ctx, dir, id, message))
-			warnings = append(warnings, syncIfEnabled(dir, chatRef(id))...)
+			syncedWarnings, syncErr := syncIfEnabled(dir, chatRef(id), warnings)
+			if syncErr != nil {
+				return syncErr
+			}
+			warnings = syncedWarnings
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -198,7 +205,10 @@ func newChatArchiveCmd() *cobra.Command {
 			if err := svc.Archive(ctx, id); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, chatRef(id))
+			warnings, syncErr := syncIfEnabled(dir, chatRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -236,7 +246,10 @@ func newChatEditMetaCmd() *cobra.Command {
 			if err := svc.EditMetaFields(ctx, id, titleField, statusField); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, chatRef(id))
+			warnings, syncErr := syncIfEnabled(dir, chatRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}

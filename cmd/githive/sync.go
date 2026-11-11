@@ -61,9 +61,25 @@ func syncResultItems(results []syncapp.Result) ([]map[string]any, []cliout.Warni
 	var warnings []cliout.Warning
 	for i, r := range results {
 		items[i] = map[string]any{"ref": r.Ref, "action": string(r.Action)}
+		if r.LocalOID != "" {
+			items[i]["local_oid"] = r.LocalOID
+		}
+		if r.RemoteOID != "" {
+			items[i]["remote_oid"] = r.RemoteOID
+		}
+		if r.BackupRef != "" {
+			items[i]["backup_ref"] = r.BackupRef
+		}
+		if r.Recovery != "" {
+			items[i]["recovery"] = r.Recovery
+		}
+		if r.Action == syncapp.ActionAdoptedRemoteTrustRoot || r.Action == syncapp.ActionKeptLocalTrustRoot {
+			items[i]["published"] = false
+			items[i]["local_write_preserved"] = r.Action != syncapp.ActionAdoptedRemoteTrustRoot
+		}
 		if r.Warning != "" {
 			items[i]["warning"] = r.Warning
-			warnings = append(warnings, cliout.Warning{Code: "sync_warning", Message: r.Warning})
+			warnings = append(warnings, cliout.Warning{Code: "sync_warning", Message: r.Warning, Data: resolutionData(r)})
 		}
 	}
 	return items, warnings
@@ -73,11 +89,14 @@ func syncResultData(results []syncapp.Result) map[string]any {
 	items, warnings := syncResultItems(results)
 	data := cliout.ItemsMap(items, len(items))
 	if len(warnings) > 0 {
-		values := make([]any, len(warnings))
-		for i, w := range warnings {
-			values[i] = map[string]any{"code": w.Code, "message": w.Message}
-		}
-		data["warnings"] = values
+		data["warnings"] = warningItems(warnings)
 	}
 	return data
+}
+
+func resolutionData(r syncapp.Result) map[string]any {
+	if r.LocalOID == "" && r.RemoteOID == "" {
+		return nil
+	}
+	return map[string]any{"ref": r.Ref, "local_oid": r.LocalOID, "remote_oid": r.RemoteOID, "backup_ref": r.BackupRef, "recovery": r.Recovery, "published": false, "local_write_preserved": r.Action != syncapp.ActionAdoptedRemoteTrustRoot}
 }

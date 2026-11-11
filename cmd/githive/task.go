@@ -70,7 +70,10 @@ func newTaskNewCmd() *cobra.Command {
 					return err
 				}
 			}
-			warnings := syncIfEnabled(dir, taskRef(id))
+			warnings, syncErr := syncIfEnabled(dir, taskRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
@@ -213,7 +216,11 @@ func newTaskStatusCmd() *cobra.Command {
 			} else if args[1] == "done" {
 				warnings = append(warnings, notifyWarnings(notifyTaskDone(ctx, dir, svc, id))...)
 			}
-			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
+			syncedWarnings, syncErr := syncIfEnabled(dir, taskRef(id), warnings)
+			if syncErr != nil {
+				return syncErr
+			}
+			warnings = syncedWarnings
 			if flags.json {
 				return cliout.PrintSuccess(map[string]any{"applied": ok}, warnings)
 			}
@@ -252,7 +259,10 @@ func newTaskNoteCmd() *cobra.Command {
 			if err := svc.Note(ctx, id, message); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, taskRef(id))
+			warnings, syncErr := syncIfEnabled(dir, taskRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -308,7 +318,11 @@ func newTaskReassignCmd() *cobra.Command {
 				warnings = append(warnings, notifyWarnings(
 					notifyapp.NotifyAssigned(ctx, dir, "task", id, selfEmail, resolvedOwner))...)
 			}
-			warnings = append(warnings, syncIfEnabled(dir, taskRef(id))...)
+			syncedWarnings, syncErr := syncIfEnabled(dir, taskRef(id), warnings)
+			if syncErr != nil {
+				return syncErr
+			}
+			warnings = syncedWarnings
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}
@@ -342,7 +356,10 @@ func newTaskLinkCmd() *cobra.Command {
 			if err := svc.Link(ctx, id, rel, args[1], remove); err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, taskRef(id))
+			warnings, syncErr := syncIfEnabled(dir, taskRef(id))
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(nil, warnings)
 			}

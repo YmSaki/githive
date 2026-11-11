@@ -85,6 +85,12 @@ type Result struct {
 	Ref     string
 	Action  Action
 	Warning string
+	// Trust-root resolutions preserve both concrete tips for publication
+	// reporting and recovery; adapters must not extract facts from Warning.
+	LocalOID  string
+	RemoteOID string
+	BackupRef string
+	Recovery  string
 }
 
 // ErrRetriesExhausted is returned (exit code 3 at the CLI layer,

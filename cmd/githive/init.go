@@ -34,7 +34,11 @@ func newInitCmd() *cobra.Command {
 				warnings = append(warnings, cliout.Warning{Code: "init_warning", Message: w})
 			}
 			if result.MetaConfigMade && result.Remote.Configured {
-				warnings = append(warnings, syncIfEnabled(dir, refspace.MetaConfigRef)...)
+				syncedWarnings, syncErr := syncIfEnabled(dir, refspace.MetaConfigRef, warnings)
+				if syncErr != nil {
+					return syncErr
+				}
+				warnings = syncedWarnings
 			}
 			if flags.json {
 				adopted := make([]any, len(result.Remote.AdoptedRefs))

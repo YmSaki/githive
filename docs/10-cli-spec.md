@@ -91,6 +91,8 @@ notify は非空の title と宛先配列を要求し、宛先は `user:<email>`
 - `data` の形は「コマンド名 + スキーマバージョン」で安定させ、破壊的変更をしない。
 - 一覧系は `{ "items": [...], "total": n }` で統一する。例外は `githive users list` で、users/groups/policy という 3 種類の異なる一覧を同時に返す都合上 `{ "users": [...], "groups": [...], "policy": {...} }` の形をとる（[features/users.md](features/users.md)）。
 - `sync` の各 item は `ref` と `action` を持ち、対処を要する警告がある場合は `warning` も持つ。成功時は封筒の `warnings` にも同じ警告を返す。
+- 信頼の根の解決では `local_oid`・`remote_oid`・`backup_ref`・`recovery` と `published:false`・`local_write_preserved` を返す。local を保持する解決はローカルの書き込みを保存するが、その台帳を remote に配送したことにはならない。MCP の明示 sync も同じ結果情報を返す（MCP 書き込みは引き続き自動 sync しない）。
+- CLI 書き込み後の自動 sync も、成功経路の warning と部分配送結果を保持する。通信失敗でローカルの書き込みが残る場合は従来どおり成功と `sync_failed` warning を返し、warning の `data` に処理済み ref・`local_written`・`local_write_preserved`・書込対象の `published`・`delivery_complete:false` を含める。pin による remote 台帳採用で直前の書き込みが現在の ref から外れた場合は、`local_write_replaced`（終了1、`retryable:false`）と具体的な OID・回復案内を返す。remote 台帳採用の前に、旧 tip を `refs/githive-recovery/users/<old_oid>` へ CAS で永続退避する。保存済みの同じ OID は再利用し、異なる OID・保存失敗なら採用しない。このローカル専用 ref は自動送信せず、reflog の期限・GC に依存しない。回復案内は退避 ref の閲覧と別ブランチ作成を示し、現在の台帳や既存ブランチを上書きしない（ADR-0033）。
 - `sync` が一部の ref だけで失敗しても、処理済み ref の `items`・`total` と `warnings` を `error.data` に返す。既存のエラーコード・`retryable`・復旧手順は保持する。人間向け出力にも処理済み ref と警告を表示してからエラーを報告する。
 - JSON の ID は常に完全形（26 文字）で出力する。人間向け issue/task/chat list の ID 列は、同 feature の全ローカル ref に対して一意な最短の前方一致（最低 8 文字、最大 26 文字）を表示する。archived やフィルター非表示の ref も比較する。作成結果・show の主 ID は完全形のまま。show のコメント／note／message ヘッダにも一意なイベント ID を表示し、chat --tail では表示外のメッセージも候補に含める。その他の装飾的短縮表示や notify/status/log の表示列は、この一覧 ID 列の保証範囲に含めない（[ADR-0031](adr/0031-unambiguous-entity-list-ids.md)）。
 

@@ -31,6 +31,7 @@ const (
 type Warning struct {
 	Code    string
 	Message string
+	Data    map[string]any
 }
 
 // ErrorInfo is the shape of a failed command's "error" field.
@@ -116,6 +117,9 @@ func warningsToAny(warnings []Warning) []any {
 	out := make([]any, len(warnings))
 	for i, w := range warnings {
 		out[i] = map[string]any{"code": w.Code, "message": w.Message}
+		if w.Data != nil {
+			out[i].(map[string]any)["data"] = w.Data
+		}
 	}
 	return out
 }

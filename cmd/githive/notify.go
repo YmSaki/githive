@@ -70,7 +70,10 @@ func newNotifyPostCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, notifyapp.StreamRef)
+			warnings, syncErr := syncIfEnabled(dir, notifyapp.StreamRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(map[string]any{"id": id}, warnings)
 			}
@@ -169,7 +172,10 @@ func newNotifyAckCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			warnings := syncIfEnabled(dir, notifyapp.StreamRef)
+			warnings, syncErr := syncIfEnabled(dir, notifyapp.StreamRef)
+			if syncErr != nil {
+				return syncErr
+			}
 			if flags.json {
 				return cliout.PrintSuccess(map[string]any{"acked": ids}, warnings)
 			}
