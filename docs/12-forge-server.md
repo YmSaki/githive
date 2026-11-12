@@ -169,6 +169,7 @@ forge は **forge 署名鍵**でコミットに署名し、イベントの actor
 
 ## デプロイ形態
 
-- 単一バイナリ + 設定ファイル（TOML）。systemd unit の例を同梱する。
+- 単一バイナリ + 設定ファイル（TOML）。systemd unit の例を同梱する。図の `githive-shell` は別バイナリではなく `githive-forge shell` サブコマンドとする（[ADR-0019](adr/0019-forge-in-monorepo.md)）。
+- 配置は同一リポジトリ・同一 Go モジュール、Forge 専用ソースと結合配布物は AGPL-3.0-or-later、共有 core/app は MIT とする。適用表示・依存方向・対応ソース/notice は [ADR-0010](adr/0010-licensing.md) に従う。既存コードを再ライセンスするものではない。
 - 必須依存は system git と OpenSSH のみ。SQLite は埋め込み。
 - バックアップ対象は bare リポジトリ群と LFS ストア。jobs DB は消えても運用が継続できる。

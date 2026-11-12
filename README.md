@@ -110,8 +110,11 @@ python3 spec/validate.py
 
 ## ライセンス
 
-MIT（[LICENSE](LICENSE)）。
-forge サーバーは将来の別リポジトリで AGPL-3.0-or-later とする予定（[ADR-0010](docs/adr/0010-licensing.md)）。
+現行の core・app・CLI・MCP・クライアント・spec・docs は MIT（[LICENSE](LICENSE)）。
+将来の Forge 専用ソース（`cmd/githive-forge/`、`internal/forge/`、`web/`）は、同じリポジトリ・同じ Go モジュール内で **AGPL-3.0-or-later** とする。
+共有する core/app は MIT のままとし、Forge の結合配布物は AGPL の条件と MIT の表示義務を満たす。CLI は Forge 専用コード・UI をリンクしない。
+現時点で Forge の実装や AGPL 対象ソースは追加しておらず、既存コードとルートの LICENSE は変更しない。
+配置・ファイル単位の表示・配布境界は [ADR-0010](docs/adr/0010-licensing.md) と [ADR-0019](docs/adr/0019-forge-in-monorepo.md) を参照。
 
 ## 実装言語
 
