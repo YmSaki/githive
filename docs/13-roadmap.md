@@ -99,6 +99,14 @@ P0 --> P1 --> P2 --> P5 --> P3 --> P4
 P8 以降は forge の詳細設計（12a: CI 仕様、12b: Web UI 仕様）を先行して書く。
 リポジトリ構成・バイナリ分割・Web UI のビルドと CI は [ADR-0019](adr/0019-forge-in-monorepo.md) に従う。P8 の最初の実装 PR で、[ADR-0010](adr/0010-licensing.md) のファイル別ライセンス表示・依存分離・対応ソース/notice を検査する。pre-receive の署名・スキーマ・ツリー照合は、監査（#67）で見つかった検証側の不具合の修正と回帰検証を確認し、同 ADR に列挙した範囲 API・隔離領域の設計を決めてから着手する。
 
+### P8 着手（2026-11-15）
+
+[ADR-0019](adr/0019-forge-in-monorepo.md)「帰結」が検証側の不具合修正を待たずに先行できるとした範囲から始めた。
+
+- 済：`githive-forge hook pre-receive` による名前空間（予約名前空間の拒否、`namespace_mode`）と `refs/projects/**` の fast-forward 強制（[12](12-forge-server.md)「push パイプライン」の 1 と 6、[ADR-0035](adr/0035-forge-pre-receive-namespace-and-fast-forward.md)）。
+- 済：Forge 専用ディレクトリの AGPL 表示、MIT 側から Forge 専用パッケージへの依存の禁止、両バイナリの第三者ライセンス一覧と Forge 配布物の notice 生成を CI で検査（`scripts/check-license-boundary.py`）。
+- 未：`serve`（smart HTTP）・`shell`（SSH）・`admin`、forge 設定ファイル、policy 評価（2）、署名・スキーマ・実体化の一致（3〜5）、Web UI の骨組み（`web/`）。
+
 ### P4 着手中：設計書に記載があるが未実装の項目
 
 docs 内の調査で判明した「設計書には書かれているが、まだコードが無い」項目を棚卸しする。
