@@ -32,6 +32,12 @@ jobs:
         if: runner.os != 'Windows'
         run: bash scripts/check-canonical-json.sh
 
+      - name: license boundary and forge import direction
+        if: runner.os == 'Linux'
+        run: |
+          python3 scripts/check-license-boundary.py --notices "${{ runner.temp }}/githive-forge-THIRD_PARTY_NOTICES.txt"
+          bash scripts/test-check-license-boundary.sh
+
       - name: relay pack regression
         if: runner.os == 'Linux'
         run: bash scripts/test-githive-relay.sh
