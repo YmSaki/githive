@@ -1,6 +1,6 @@
 # githive 実装ガイド（Claude Code / 実装エージェント向け）
 
-P0〜P2・P5・P3 は実装済み（MVP + 署名まで完了）。P4（wiki/運用コマンド）着手中。
+P0〜P2・P5・P3 は実装済み（MVP + 署名まで完了）。P4（wiki/運用コマンド）着手中。P8（forge）は pre-receive の名前空間・fast-forward 強制から着手済み（ADR-0035）。
 現在のフェーズ状況は docs/13-roadmap.md と GitHub issues（`task`/`from-review` ラベル）を確認すること。
 
 ## 最初に読むもの

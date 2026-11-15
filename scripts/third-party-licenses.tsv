@@ -1,0 +1,33 @@
+# githive が配布するバイナリ（cmd/githive、cmd/githive-forge）にリンクされる第三者 Go モジュールと、そのライセンス。
+# scripts/check-license-boundary.py が、両バイナリの実際の依存とこの表の過不足を検査する。
+# 依存を追加・更新したら、モジュールのライセンスファイルを読んで SPDX 式を記入する（自動判定はしない）。
+# 形式：<module path><TAB><SPDX 式>
+dario.cat/mergo	BSD-3-Clause
+github.com/ProtonMail/go-crypto	BSD-3-Clause
+github.com/cloudflare/circl	BSD-3-Clause
+github.com/cyphar/filepath-securejoin	BSD-3-Clause AND MPL-2.0
+github.com/emirpasic/gods	BSD-2-Clause AND ISC
+github.com/go-git/gcfg	BSD-3-Clause
+github.com/go-git/go-billy/v5	Apache-2.0
+github.com/go-git/go-git/v5	Apache-2.0
+github.com/golang/groupcache	Apache-2.0
+github.com/google/jsonschema-go	MIT
+github.com/jbenet/go-context	MIT
+github.com/kevinburke/ssh_config	MIT
+github.com/klauspost/cpuid/v2	MIT
+github.com/modelcontextprotocol/go-sdk	Apache-2.0 AND MIT
+github.com/oklog/ulid/v2	Apache-2.0
+github.com/pjbgf/sha1cd	Apache-2.0
+github.com/segmentio/asm	MIT
+github.com/segmentio/encoding	MIT
+github.com/sergi/go-diff	MIT
+github.com/skeema/knownhosts	Apache-2.0
+github.com/spf13/cobra	Apache-2.0
+github.com/spf13/pflag	BSD-3-Clause
+github.com/xanzy/ssh-agent	Apache-2.0
+github.com/yosida95/uritemplate/v3	BSD-3-Clause
+golang.org/x/crypto	BSD-3-Clause
+golang.org/x/net	BSD-3-Clause
+golang.org/x/oauth2	BSD-3-Clause
+golang.org/x/sys	BSD-3-Clause
+gopkg.in/warnings.v0	BSD-2-Clause
