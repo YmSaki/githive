@@ -99,6 +99,9 @@ func verifySSHSigPayload(armored string, payload []byte, expectedNamespace strin
 	if err := ssh.Unmarshal(blob.Signature, &sig); err != nil {
 		return nil, "", fmt.Errorf("sign: unmarshal signature: %w", err)
 	}
+	if pubKey.Type() == ssh.KeyAlgoRSA && sig.Format != ssh.KeyAlgoRSASHA256 && sig.Format != ssh.KeyAlgoRSASHA512 {
+		return nil, "", fmt.Errorf("sign: disallowed RSA signature algorithm %q", sig.Format)
+	}
 
 	signed := append([]byte(sshSigMagic), ssh.Marshal(sshSigSignedData{
 		Namespace:     blob.Namespace,

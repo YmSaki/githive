@@ -2,17 +2,10 @@ package taskapp
 
 import (
 	"context"
-	"fmt"
-	"sort"
 
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-
+	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/idresolve"
-	"github.com/ymsaki/githive/internal/core/chain"
-	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
-	"github.com/ymsaki/githive/internal/core/localcache"
 	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
@@ -56,84 +49,17 @@ type ListFilter struct {
 // List returns a snapshot summary of every task, using the fast
 // snapshot-read path (meta.json at the ref head).
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
-	r := gitx.New(s.Dir)
-	entries, err := r.ForEachRef(ctx, "refs/projects/task/")
+	all, err := entitychain.ListSnapshotMetas(ctx, s.Dir, "refs/projects/task/", refspace.FeatureTask)
 	if err != nil {
 		return nil, err
 	}
-
-	var cache *localcache.Cache
-	var cached map[string]localcache.RefMetaEntry
-	if c, err := localcache.Open(s.Dir); err == nil {
-		cache = c
-		defer cache.Close()
-		cached, _ = cache.GetRefMetaByPrefix("refs/projects/task/")
-	}
-
-	var repo *git.Repository
-	var upserts []localcache.RefMetaEntry
-	seen := make(map[string]bool, len(entries))
-
 	var out []Meta
-	for _, e := range entries {
-		parsed, err := refspace.Parse(e.Ref)
-		if err != nil || parsed.Feature != refspace.FeatureTask {
-			continue
-		}
-		seen[e.Ref] = true
-		var metaRaw []byte
-		if c, ok := cached[e.Ref]; ok && c.HeadOID == e.OID {
-			metaRaw = c.MetaJSON
-		} else {
-			if repo == nil {
-				repo, err = chain.OpenRepository(s.Dir)
-				if err != nil {
-					return nil, err
-				}
-			}
-			var ok bool
-			metaRaw, ok, err = chain.ReadFile(repo, plumbing.NewHash(e.OID), "meta.json")
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				continue
-			}
-			if cache != nil {
-				upserts = append(upserts, localcache.RefMetaEntry{
-					RefName:  e.Ref,
-					HeadOID:  e.OID,
-					Feature:  "task",
-					EntityID: parsed.ID,
-					MetaJSON: metaRaw,
-				})
-			}
-		}
-		decoded, err := event.DecodeGeneric(metaRaw)
-		if err != nil {
-			return nil, fmt.Errorf("taskapp: decode %s meta.json: %w", parsed.ID, err)
-		}
-		meta, ok := decoded.(map[string]any)
-		if !ok {
-			continue
-		}
+	for _, meta := range all {
 		if !matchesFilter(meta, filter) {
 			continue
 		}
 		out = append(out, meta)
 	}
-	if cache != nil {
-		var deletes []string
-		for refName := range cached {
-			if !seen[refName] {
-				deletes = append(deletes, refName)
-			}
-		}
-		_ = cache.SyncRefMeta(upserts, deletes)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return fmt.Sprint(out[i]["id"]) < fmt.Sprint(out[j]["id"])
-	})
 	return out, nil
 }
 

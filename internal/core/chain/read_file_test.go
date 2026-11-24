@@ -7,6 +7,8 @@ import (
 	"time"
 
 	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/ymsaki/githive/internal/core/event"
 )
@@ -59,5 +61,37 @@ func TestReadFile(t *testing.T) {
 	}
 	if _, ok, err := ReadFile(repo, h, "comments"); err != nil || ok {
 		t.Fatalf("directory path: got ok=%v err=%v, want false, nil", ok, err)
+	}
+
+	// Missing blob for an existing tree entry must return an error, not (nil, false, nil).
+	badTree := &object.Tree{
+		Entries: []object.TreeEntry{
+			{Name: "meta.json", Mode: filemode.Regular, Hash: plumbing.NewHash("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")},
+		},
+	}
+	treeObj := repo.Storer.NewEncodedObject()
+	if err := badTree.Encode(treeObj); err != nil {
+		t.Fatal(err)
+	}
+	badTreeHash, err := repo.Storer.SetEncodedObject(treeObj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badCommit := &object.Commit{
+		Author:    sig,
+		Committer: sig,
+		Message:   "corrupt",
+		TreeHash:  badTreeHash,
+	}
+	commitObj := repo.Storer.NewEncodedObject()
+	if err := badCommit.Encode(commitObj); err != nil {
+		t.Fatal(err)
+	}
+	badCommitHash, err := repo.Storer.SetEncodedObject(commitObj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadFile(repo, badCommitHash, "meta.json"); err == nil {
+		t.Fatalf("expected error for missing blob on existing tree entry, got nil")
 	}
 }

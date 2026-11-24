@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/ymsaki/githive/internal/core/localcache"
 	"github.com/ymsaki/githive/internal/testutil/synthrepo"
 )
 
@@ -50,5 +51,31 @@ func TestListCacheConsistencyAndCorruptionFallback(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cold, recovered) {
 		t.Fatalf("recovered cache mismatch:\ncold=%+v\nrecovered=%+v", cold, recovered)
+	}
+
+	// 4. Corrupt one cached row payload and verify transparent fallback & repair
+	c, err := localcache.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := c.GetRefMetaByPrefix("refs/projects/issue/")
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("expected cached entries, got %d err=%v", len(entries), err)
+	}
+	for _, e := range entries {
+		e.MetaJSON = []byte("{broken-json")
+		if err := c.SyncRefMeta([]localcache.RefMetaEntry{e}, nil); err != nil {
+			t.Fatal(err)
+		}
+		break
+	}
+	_ = c.Close()
+
+	repaired, err := svc.List(ctx, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cold, repaired) {
+		t.Fatalf("repaired cache mismatch:\ncold=%+v\nrepaired=%+v", cold, repaired)
 	}
 }

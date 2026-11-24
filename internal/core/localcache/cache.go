@@ -81,6 +81,9 @@ func Open(repoDir string) (*Cache, error) {
 	dbPath := filepath.Join(gitDir, cacheFileName)
 	c, err := openAndInit(dbPath)
 	if err != nil {
+		if !isRebuildableError(err) {
+			return nil, err
+		}
 		// Corrupt or incompatible cache: remove and recreate once.
 		_ = os.Remove(dbPath)
 		c, err = openAndInit(dbPath)
@@ -89,6 +92,14 @@ func Open(repoDir string) (*Cache, error) {
 		}
 	}
 	return c, nil
+}
+
+func isRebuildableError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "schema version mismatch") ||
+		strings.Contains(msg, "not a database") ||
+		strings.Contains(msg, "malformed") ||
+		strings.Contains(msg, "corrupt")
 }
 
 func openAndInit(dbPath string) (*Cache, error) {

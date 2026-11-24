@@ -257,10 +257,13 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 	}
 	var ids event.IDSet
 	var envelopes []*event.Envelope
+	var uniqueEnvelopes []*event.Envelope
+	recomputeOK := true
 	commitByID := map[string]string{}
 	for _, c := range commits {
 		env, err := chain.ExtractEnvelope(c)
 		if err != nil {
+			recomputeOK = false
 			code := "invalid_envelope"
 			if errors.Is(err, event.ErrEventTooLarge) {
 				code = "event_too_large"
@@ -289,16 +292,21 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 				}
 			}
 			envelopes = append(envelopes, env)
-			if _, err := ids.Add(env); err != nil {
+			fresh, err := ids.Add(env)
+			if err != nil {
+				recomputeOK = false
 				code := "invalid_envelope"
 				if errors.Is(err, event.ErrConflictingEventID) {
 					code = "conflicting_event_id"
 				}
 				findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: c.Hash.String(), Code: code, Message: err.Error()})
+			} else if fresh {
+				uniqueEnvelopes = append(uniqueEnvelopes, env)
 			}
 		}
 	}
 	if err := event.ValidateEntityOrder(envelopes); err != nil {
+		recomputeOK = false
 		findings = append(findings, Finding{Ref: ref, Feature: string(feature), Code: "event_order_violation", Message: err.Error()})
 	}
 	if feature == refspace.FeatureUsers {
@@ -308,13 +316,13 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 	}
 	for _, finding := range findings {
 		if finding.Severity != SeverityWarning {
-			return findings, envelopes, true // do not infer transitions from contradictory/invalid data
+			return findings, uniqueEnvelopes, recomputeOK // do not infer transitions from contradictory/invalid data
 		}
 	}
 	for _, ignored := range materialize.IgnoredStatusTransitions(string(feature), envelopes) {
 		findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: commitByID[ignored.EventID], Code: "ignored_status_transition", Severity: SeverityWarning, Message: fmt.Sprintf("%s from %q to %q was ignored by the reducer", ignored.Kind, ignored.From, ignored.To)})
 	}
-	return findings, envelopes, true
+	return findings, uniqueEnvelopes, recomputeOK
 }
 
 // validateMetaConfig checks refs/projects/meta/config per its actual shape: it

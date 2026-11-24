@@ -497,14 +497,21 @@ func ReadFile(repo *git.Repository, commitHash plumbing.Hash, path string) ([]by
 	if err != nil {
 		return nil, false, fmt.Errorf("chain: get tree for %s: %w", commitHash, err)
 	}
-	file, err := tree.File(path)
+	entry, err := tree.FindEntry(path)
 	if err != nil {
-		if errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrEntryNotFound) {
+		if errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrEntryNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
 			return nil, false, nil
 		}
-		return nil, false, fmt.Errorf("chain: get file %s in %s: %w", path, commitHash, err)
+		return nil, false, fmt.Errorf("chain: find entry %s in %s: %w", path, commitHash, err)
 	}
-	reader, err := file.Reader()
+	if !entry.Mode.IsFile() {
+		return nil, false, nil
+	}
+	blob, err := object.GetBlob(repo.Storer, entry.Hash)
+	if err != nil {
+		return nil, false, fmt.Errorf("chain: get blob %s (%s): %w", entry.Hash, path, err)
+	}
+	reader, err := blob.Reader()
 	if err != nil {
 		return nil, false, err
 	}

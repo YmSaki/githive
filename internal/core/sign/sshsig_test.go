@@ -3,6 +3,7 @@ package sign
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"strings"
@@ -200,6 +201,77 @@ func TestVerifierInProcessSSHSig(t *testing.T) {
 		res := v.VerifyCommitObject(c, "alice@example.com", "2026-01-01T12:00:00.000Z")
 		if res.Valid {
 			t.Fatalf("expected tampered commit to fail verification")
+		}
+	})
+
+	t.Run("rsa_disallows_legacy_ssh_rsa", func(t *testing.T) {
+		priv, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rsaSigner, err := ssh.NewSignerFromKey(priv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		algSigner, ok := rsaSigner.(ssh.AlgorithmSigner)
+		if !ok {
+			t.Fatal("rsa signer does not implement AlgorithmSigner")
+		}
+		rsaPub := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(rsaSigner.PublicKey())))
+		rsaState := &materialize.State{
+			Collections: map[string]map[string]any{
+				"users": {
+					"carol": map[string]any{
+						"emails": []any{"carol@example.com"},
+						"keys":   []any{map[string]any{"pub": rsaPub}},
+					},
+				},
+			},
+		}
+		rv := NewVerifier(rsaState)
+
+		signWithAlg := func(alg string, payload []byte) string {
+			sum := sha256.Sum256(payload)
+			signed := append([]byte(sshSigMagic), ssh.Marshal(sshSigSignedData{
+				Namespace:     "git",
+				Reserved:      "",
+				HashAlgorithm: "sha256",
+				Hash:          sum[:],
+			})...)
+			sig, err := algSigner.SignWithAlgorithm(rand.Reader, signed, alg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			blob := append([]byte(sshSigMagic), ssh.Marshal(sshSigBlob{
+				Version:       1,
+				PublicKey:     rsaSigner.PublicKey().Marshal(),
+				Namespace:     "git",
+				Reserved:      "",
+				HashAlgorithm: "sha256",
+				Signature:     ssh.Marshal(sig),
+			})...)
+			return sshSigHeader + "\n" + base64.StdEncoding.EncodeToString(blob) + "\n" + sshSigFooter
+		}
+
+		sig := object.Signature{Name: "carol", Email: "carol@example.com", When: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}
+		cLegacy := &object.Commit{Author: sig, Committer: sig, Message: "legacy", TreeHash: plumbing.ZeroHash}
+		pLegacy, err := commitPayload(cLegacy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cLegacy.PGPSignature = signWithAlg(ssh.KeyAlgoRSA, pLegacy)
+		if res := rv.VerifyCommitObject(cLegacy, "carol@example.com", "2026-01-01T12:00:00.000Z"); res.Valid {
+			t.Fatalf("expected legacy ssh-rsa signature to be rejected")
+		}
+
+		cSHA256 := &object.Commit{Author: sig, Committer: sig, Message: "sha256", TreeHash: plumbing.ZeroHash}
+		pSHA256, err := commitPayload(cSHA256)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cSHA256.PGPSignature = signWithAlg(ssh.KeyAlgoRSASHA256, pSHA256)
+		if res := rv.VerifyCommitObject(cSHA256, "carol@example.com", "2026-01-01T12:00:00.000Z"); !res.Valid {
+			t.Fatalf("expected rsa-sha2-256 signature to succeed: %s", res.Output)
 		}
 	})
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
+	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/materialize"
 )
 
@@ -161,6 +162,45 @@ func VerifyCommit(ctx context.Context, dir string, commitHash string, state *mat
 		return Result{}, fmt.Errorf("sign: get commit %s: %w", commitHash, err)
 	}
 	return NewVerifier(state).VerifyCommitObject(commit, commitEmail, commitTime), nil
+}
+
+// VerifyCommitLegacy delegates verification to `git verify-commit` using a
+// temporary allowed_signers file, honoring git config settings such as
+// gpg.ssh.revocationFile.
+func VerifyCommitLegacy(ctx context.Context, dir string, commitHash string, state *materialize.State, commitEmail, commitTime string) (Result, error) {
+	if owners := materialize.EmailOwners(state)[commitEmail]; len(owners) > 1 {
+		return Result{Valid: false, Output: fmt.Sprintf("ambiguous email %q belongs to users %s", commitEmail, strings.Join(owners, ", "))}, nil
+	}
+	entries := materialize.AllowedSigners(state)
+	matched := make([]materialize.SignerEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Email == commitEmail {
+			matched = append(matched, entry)
+		}
+	}
+	body := BuildAllowedSigners(matched)
+	path, cleanup, err := WriteAllowedSignersTempFile(body)
+	if err != nil {
+		return Result{}, err
+	}
+	defer cleanup()
+
+	r := gitx.New(dir)
+	raw, err := r.VerifyCommit(ctx, commitHash, path)
+	if err != nil {
+		return Result{}, err
+	}
+	if !raw.Valid {
+		return Result{Valid: false, Output: raw.Output}, nil
+	}
+	principal := ParsePrincipal(raw.Output)
+	if principal != "" && principal != commitEmail {
+		return Result{Valid: false, Principal: principal, Output: raw.Output}, nil
+	}
+	if !signingKeyValidAt(matched, commitEmail, ParseFingerprint(raw.Output), commitTime) {
+		return Result{Valid: false, Principal: commitEmail, Output: raw.Output}, nil
+	}
+	return Result{Valid: true, Principal: commitEmail, Output: raw.Output}, nil
 }
 
 var fingerprintRe = regexp.MustCompile(`key (SHA256:[A-Za-z0-9+/]+)`)
