@@ -88,6 +88,9 @@ func newVerifyContext(ctx context.Context, dir string) (*verifyContext, error) {
 	if minTrust, err := gitx.New(dir).ConfigGet(ctx, "gpg.minTrustLevel"); err == nil && strings.TrimSpace(minTrust) != "" {
 		vctx.hasRevocationFile = true
 	}
+	if sshProg, err := gitx.New(dir).ConfigGet(ctx, "gpg.ssh.program"); err == nil && strings.TrimSpace(sshProg) != "" {
+		vctx.hasRevocationFile = true
+	}
 	state, err := loadRegistryState(ctx, dir, repo)
 	if err != nil {
 		var shallow *chain.ShallowHistoryError
@@ -364,126 +367,78 @@ func loadRegistryState(ctx context.Context, dir string, repo *git.Repository) (*
 	return materialize.UsersRegistry.Fold(events), nil
 }
 
-// computeRegistryStatesBefore computes the parent-folded registry state for
-// every non-merge commit in commits (root->tip topological order), validating
-// each parent's event ordering and releasing ancestor slices as soon as their
-// last child is processed so memory stays O(N) on linear ledgers.
+// computeRegistryAdminBefore checks role:admin as of each commit's parent(s)
+// without retaining per-commit event slices or state folds across the ledger,
+// keeping peak memory O(N) even on heavily branched histories.
 func computeRegistryAdminBefore(commits []*object.Commit, envByHash map[plumbing.Hash]*event.Envelope, trustRoot string) (map[plumbing.Hash]bool, error) {
 	adminOK := make(map[plumbing.Hash]bool, len(commits))
 	if len(commits) == 0 {
 		return adminOK, nil
 	}
-	remainingChildren := make(map[plumbing.Hash]int, len(commits))
-	for _, c := range commits {
-		for _, p := range c.ParentHashes {
-			remainingChildren[p]++
-		}
-	}
-	// Walk commits in reverse DFS post-order (roots first, tips last).
-	// Wait: WalkCommits returns DFS pre-order (tips first), so iterating
-	// backwards processes parents before children in linear chains, and
-	// we can do a simple topological sort by in-degree for arbitrary DAGs.
 	commitMap := make(map[plumbing.Hash]*object.Commit, len(commits))
-	childrenOf := make(map[plumbing.Hash][]plumbing.Hash, len(commits))
-	inDegree := make(map[plumbing.Hash]int, len(commits))
 	for _, c := range commits {
 		commitMap[c.Hash] = c
-		inDegree[c.Hash] = len(c.ParentHashes)
-		for _, p := range c.ParentHashes {
-			childrenOf[p] = append(childrenOf[p], c.Hash)
-		}
 	}
-	var queue []plumbing.Hash
+
+	collectFrom := func(root plumbing.Hash) ([]*event.Envelope, error) {
+		visited := map[plumbing.Hash]bool{}
+		seenID := map[string]bool{}
+		var out []*event.Envelope
+		stack := []plumbing.Hash{root}
+		for len(stack) > 0 {
+			h := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if visited[h] {
+				continue
+			}
+			visited[h] = true
+			c := commitMap[h]
+			if c == nil {
+				continue
+			}
+			if env := envByHash[h]; env != nil && !seenID[env.ID] {
+				seenID[env.ID] = true
+				out = append(out, env)
+			}
+			stack = append(stack, c.ParentHashes...)
+		}
+		if err := event.ValidateEntityOrder(out); err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
+
 	for _, c := range commits {
-		if inDegree[c.Hash] == 0 {
-			queue = append(queue, c.Hash)
+		env := envByHash[c.Hash]
+		if env == nil || (c.Hash.String() == trustRoot && len(c.ParentHashes) == 0) {
+			continue
 		}
-	}
-
-	reach := make(map[plumbing.Hash][]*event.Envelope)
-	for len(queue) > 0 {
-		h := queue[0]
-		queue = queue[1:]
-		c := commitMap[h]
-		env := envByHash[h]
-
-		if env != nil && !(h.String() == trustRoot && len(c.ParentHashes) == 0) {
-			var parentEvents []*event.Envelope
-			if len(c.ParentHashes) == 1 {
-				parentEvents = reach[c.ParentHashes[0]]
-			} else if len(c.ParentHashes) > 1 {
-				seen := map[string]bool{}
-				for _, p := range c.ParentHashes {
-					pe := reach[p]
-					if err := event.ValidateEntityOrder(pe); err != nil {
-						return nil, err
-					}
-					for _, e := range pe {
-						if !seen[e.ID] {
-							seen[e.ID] = true
-							parentEvents = append(parentEvents, e)
-						}
-					}
-				}
-				if err := event.ValidateEntityOrder(parentEvents); err != nil {
-					return nil, err
-				}
-			}
-			if len(c.ParentHashes) == 1 {
-				if err := event.ValidateEntityOrder(parentEvents); err != nil {
-					return nil, err
-				}
-			}
-			adminOK[h] = materialize.IsAdmin(materialize.UsersRegistry.Fold(parentEvents), env.Actor)
-		}
-
-		// Build reach[h] from parents + env, then release parents whose last child finished.
-		var cur []*event.Envelope
+		var parentEvents []*event.Envelope
 		if len(c.ParentHashes) == 1 {
-			p := c.ParentHashes[0]
-			if remainingChildren[p] == 1 {
-				// Exclusive owner: reuse backing slice without copying.
-				cur = reach[p]
-			} else {
-				cur = append([]*event.Envelope(nil), reach[p]...)
+			pe, err := collectFrom(c.ParentHashes[0])
+			if err != nil {
+				return nil, err
 			}
+			parentEvents = pe
 		} else if len(c.ParentHashes) > 1 {
-			seen := map[string]bool{}
+			seenID := map[string]bool{}
 			for _, p := range c.ParentHashes {
-				for _, e := range reach[p] {
-					if !seen[e.ID] {
-						seen[e.ID] = true
-						cur = append(cur, e)
+				pe, err := collectFrom(p)
+				if err != nil {
+					return nil, err
+				}
+				for _, e := range pe {
+					if !seenID[e.ID] {
+						seenID[e.ID] = true
+						parentEvents = append(parentEvents, e)
 					}
 				}
 			}
-		}
-		if env != nil {
-			dup := false
-			for _, e := range cur {
-				if e.ID == env.ID {
-					dup = true
-					break
-				}
-			}
-			if !dup {
-				cur = append(cur, env)
+			if err := event.ValidateEntityOrder(parentEvents); err != nil {
+				return nil, err
 			}
 		}
-		reach[h] = cur
-
-		for _, p := range c.ParentHashes {
-			remainingChildren[p]--
-			if remainingChildren[p] == 0 {
-				delete(reach, p)
-			}
-		}
-		for _, ch := range childrenOf[h] {
-			inDegree[ch]--
-			if inDegree[ch] == 0 {
-				queue = append(queue, ch)
-			}
-		}
+		adminOK[c.Hash] = materialize.IsAdmin(materialize.UsersRegistry.Fold(parentEvents), env.Actor)
 	}
 	return adminOK, nil
 }

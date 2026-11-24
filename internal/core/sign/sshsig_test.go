@@ -213,6 +213,48 @@ func TestVerifierInProcessSSHSig(t *testing.T) {
 		}
 	})
 
+	t.Run("malformed_armor_footer_same_line_fails", func(t *testing.T) {
+		c := makeSignedCommit(t, repo, signerA, "git", "alice@example.com", "footer inline")
+		c.PGPSignature = strings.Replace(c.PGPSignature, "\n"+sshSigFooter, sshSigFooter, 1)
+		res := v.VerifyCommitObject(c, "alice@example.com", "2026-01-01T12:00:00.000Z")
+		if res.Valid {
+			t.Fatalf("expected signature with footer on same line to fail")
+		}
+	})
+
+	t.Run("nonempty_reserved_field_ignored_like_openssh", func(t *testing.T) {
+		sig := object.Signature{Name: "alice", Email: "alice@example.com", When: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}
+		c := &object.Commit{Author: sig, Committer: sig, Message: "reserved", TreeHash: plumbing.ZeroHash}
+		payload, err := commitPayload(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(payload)
+		// OpenSSH signs with empty Reserved even if blob.Reserved is non-empty.
+		signed := append([]byte(sshSigMagic), ssh.Marshal(sshSigSignedData{
+			Namespace:     "git",
+			Reserved:      "",
+			HashAlgorithm: "sha256",
+			Hash:          sum[:],
+		})...)
+		s, err := signerA.Sign(rand.Reader, signed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		blob := append([]byte(sshSigMagic), ssh.Marshal(sshSigBlob{
+			Version:       1,
+			PublicKey:     signerA.PublicKey().Marshal(),
+			Namespace:     "git",
+			Reserved:      "non-empty-reserved",
+			HashAlgorithm: "sha256",
+			Signature:     ssh.Marshal(s),
+		})...)
+		c.PGPSignature = sshSigHeader + "\n" + base64.StdEncoding.EncodeToString(blob) + "\n" + sshSigFooter
+		if res := v.VerifyCommitObject(c, "alice@example.com", "2026-01-01T12:00:00.000Z"); !res.Valid {
+			t.Fatalf("expected non-empty reserved field to be ignored like OpenSSH: %s", res.Output)
+		}
+	})
+
 	t.Run("rsa_disallows_legacy_ssh_rsa", func(t *testing.T) {
 		priv, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {

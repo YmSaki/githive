@@ -6,6 +6,7 @@ package localcache
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,18 +16,19 @@ import (
 )
 
 // SchemaVersion is bumped whenever the cache table layout or semantics change.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 const cacheFileName = "githive-cache.db"
 
 // RefMetaEntry represents one cached ref's meta.json snapshot.
 type RefMetaEntry struct {
-	RefName    string
-	HeadOID    string
-	Feature    string
-	EntityID   string
-	MetaJSON   []byte
-	MetaSHA256 string
+	RefName     string
+	HeadOID     string
+	Feature     string
+	EntityID    string
+	MetaJSON    []byte
+	MetaSHA256  string
+	MetaBlobOID string
 }
 
 // SigEntry represents one commit's cached cryptographic signature check.
@@ -103,8 +105,17 @@ func isRebuildableError(err error) bool {
 		strings.Contains(msg, "corrupt")
 }
 
+func sqliteFileURI(dbPath string) string {
+	slashed := filepath.ToSlash(dbPath)
+	if !strings.HasPrefix(slashed, "/") {
+		slashed = "/" + slashed
+	}
+	u := url.URL{Scheme: "file", Path: slashed}
+	return u.String()
+}
+
 func openAndInit(dbPath string) (*Cache, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", sqliteFileURI(dbPath))
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +153,8 @@ func ensureSchema(db *sql.DB) error {
 			feature TEXT NOT NULL,
 			entity_id TEXT NOT NULL,
 			meta_json BLOB NOT NULL,
-			meta_sha256 TEXT NOT NULL
+			meta_sha256 TEXT NOT NULL,
+			meta_blob_oid TEXT NOT NULL
 		);`,
 		`CREATE TABLE IF NOT EXISTS verified_folds (
 			commit_oid TEXT NOT NULL,
@@ -191,7 +203,7 @@ func (c *Cache) Close() error {
 // starts with prefix.
 func (c *Cache) GetRefMetaByPrefix(prefix string) (map[string]RefMetaEntry, error) {
 	rows, err := c.db.Query(
-		`SELECT ref_name, head_oid, feature, entity_id, meta_json, meta_sha256 FROM ref_meta_index WHERE ref_name LIKE ?`,
+		`SELECT ref_name, head_oid, feature, entity_id, meta_json, meta_sha256, meta_blob_oid FROM ref_meta_index WHERE ref_name LIKE ?`,
 		prefix+"%",
 	)
 	if err != nil {
@@ -202,7 +214,7 @@ func (c *Cache) GetRefMetaByPrefix(prefix string) (map[string]RefMetaEntry, erro
 	out := make(map[string]RefMetaEntry)
 	for rows.Next() {
 		var e RefMetaEntry
-		if err := rows.Scan(&e.RefName, &e.HeadOID, &e.Feature, &e.EntityID, &e.MetaJSON, &e.MetaSHA256); err != nil {
+		if err := rows.Scan(&e.RefName, &e.HeadOID, &e.Feature, &e.EntityID, &e.MetaJSON, &e.MetaSHA256, &e.MetaBlobOID); err != nil {
 			return nil, err
 		}
 		out[e.RefName] = e
@@ -222,12 +234,12 @@ func (c *Cache) SyncRefMeta(upserts []RefMetaEntry, deletes []string) error {
 	defer tx.Rollback()
 
 	if len(upserts) > 0 {
-		stmt, err := tx.Prepare(`INSERT OR REPLACE INTO ref_meta_index (ref_name, head_oid, feature, entity_id, meta_json, meta_sha256) VALUES (?, ?, ?, ?, ?, ?)`)
+		stmt, err := tx.Prepare(`INSERT OR REPLACE INTO ref_meta_index (ref_name, head_oid, feature, entity_id, meta_json, meta_sha256, meta_blob_oid) VALUES (?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			return err
 		}
 		for _, u := range upserts {
-			if _, err := stmt.Exec(u.RefName, u.HeadOID, u.Feature, u.EntityID, u.MetaJSON, u.MetaSHA256); err != nil {
+			if _, err := stmt.Exec(u.RefName, u.HeadOID, u.Feature, u.EntityID, u.MetaJSON, u.MetaSHA256, u.MetaBlobOID); err != nil {
 				stmt.Close()
 				return err
 			}

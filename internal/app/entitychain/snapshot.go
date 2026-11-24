@@ -48,10 +48,18 @@ func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace
 		seen[e.Ref] = true
 
 		var meta map[string]any
-		if c, ok := cached[e.Ref]; ok && c.HeadOID == e.OID && c.MetaSHA256 != "" && c.MetaSHA256 == sha256Hex(c.MetaJSON) {
-			if decoded, err := event.DecodeGeneric(c.MetaJSON); err == nil {
-				if m, ok := decoded.(map[string]any); ok {
-					meta = m
+		if c, ok := cached[e.Ref]; ok && c.HeadOID == e.OID && c.MetaSHA256 != "" && c.MetaBlobOID != "" && c.MetaSHA256 == sha256Hex(c.MetaJSON) {
+			if repo == nil {
+				repo, err = chain.OpenRepository(dir)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if err := repo.Storer.HasEncodedObject(plumbing.NewHash(c.MetaBlobOID)); err == nil {
+				if decoded, err := event.DecodeGeneric(c.MetaJSON); err == nil {
+					if m, ok := decoded.(map[string]any); ok {
+						meta = m
+					}
 				}
 			}
 		}
@@ -62,7 +70,7 @@ func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace
 					return nil, err
 				}
 			}
-			metaRaw, ok, err := chain.ReadFile(repo, plumbing.NewHash(e.OID), "meta.json")
+			metaRaw, blobHash, ok, err := chain.ReadFileWithBlobHash(repo, plumbing.NewHash(e.OID), "meta.json")
 			if err != nil {
 				return nil, err
 			}
@@ -80,12 +88,13 @@ func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace
 			meta = m
 			if cache != nil {
 				upserts = append(upserts, localcache.RefMetaEntry{
-					RefName:    e.Ref,
-					HeadOID:    e.OID,
-					Feature:    string(feature),
-					EntityID:   parsed.ID,
-					MetaJSON:   metaRaw,
-					MetaSHA256: sha256Hex(metaRaw),
+					RefName:     e.Ref,
+					HeadOID:     e.OID,
+					Feature:     string(feature),
+					EntityID:    parsed.ID,
+					MetaJSON:    metaRaw,
+					MetaSHA256:  sha256Hex(metaRaw),
+					MetaBlobOID: blobHash.String(),
 				})
 			}
 		}

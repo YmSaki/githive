@@ -157,6 +157,9 @@ func (w *Writer) foldInputsAt(oid, newEventID string, newEvent *event.Envelope) 
 	// Compare a new event with the full history, including checkpoint envelopes
 	// and events hidden behind the snapshot, before selecting the shortcut.
 	if newEvent != nil {
+		if _, err := newEvent.CanonicalJSON(); err != nil {
+			return nil, nil, err
+		}
 		var ids event.IDSet
 		if _, err := ids.Add(newEvent); err != nil {
 			return nil, nil, err

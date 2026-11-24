@@ -48,9 +48,13 @@ func parseSSHSig(armored string) (*sshSigBlob, error) {
 	default:
 		return nil, errors.New("sign: SSH SIGNATURE header must appear at start")
 	}
-	end := strings.Index(rest, sshSigFooter)
+	end := strings.Index(rest, "\n"+sshSigFooter)
 	if end < 0 {
-		return nil, errors.New("sign: missing SSH SIGNATURE footer")
+		if strings.HasPrefix(rest, sshSigFooter) {
+			end = 0
+		} else {
+			return nil, errors.New("sign: missing SSH SIGNATURE footer on new line")
+		}
 	}
 	b64 := strings.Map(func(r rune) rune {
 		if r == ' ' || r == '\t' || r == '\r' || r == '\n' {
@@ -99,17 +103,24 @@ func verifySSHSigPayload(armored string, payload []byte, expectedNamespace strin
 	if err != nil {
 		return nil, "", fmt.Errorf("sign: parse public key: %w", err)
 	}
+	if _, isCert := pubKey.(*ssh.Certificate); isCert {
+		return nil, "", errors.New("sign: ssh certificates are not supported")
+	}
 	var sig ssh.Signature
 	if err := ssh.Unmarshal(blob.Signature, &sig); err != nil {
 		return nil, "", fmt.Errorf("sign: unmarshal signature: %w", err)
 	}
-	if pubKey.Type() == ssh.KeyAlgoRSA && sig.Format != ssh.KeyAlgoRSASHA256 && sig.Format != ssh.KeyAlgoRSASHA512 {
-		return nil, "", fmt.Errorf("sign: disallowed RSA signature algorithm %q", sig.Format)
+	if pubKey.Type() == ssh.KeyAlgoRSA {
+		if sig.Format != ssh.KeyAlgoRSASHA256 && sig.Format != ssh.KeyAlgoRSASHA512 {
+			return nil, "", fmt.Errorf("sign: disallowed RSA signature algorithm %q", sig.Format)
+		}
+	} else if sig.Format != pubKey.Type() {
+		return nil, "", fmt.Errorf("sign: signature format %q does not match key type %q", sig.Format, pubKey.Type())
 	}
 
 	signed := append([]byte(sshSigMagic), ssh.Marshal(sshSigSignedData{
 		Namespace:     blob.Namespace,
-		Reserved:      blob.Reserved,
+		Reserved:      "",
 		HashAlgorithm: blob.HashAlgorithm,
 		Hash:          msgHash,
 	})...)
