@@ -493,6 +493,30 @@ func ReadFile(repo *git.Repository, commitHash plumbing.Hash, path string) ([]by
 	return data, ok, err
 }
 
+// ReadFileEntryHash returns the blob hash for path in commitHash's tree
+// without reading or decompressing the blob itself.
+func ReadFileEntryHash(repo *git.Repository, commitHash plumbing.Hash, path string) (plumbing.Hash, bool, error) {
+	commit, err := object.GetCommit(repo.Storer, commitHash)
+	if err != nil {
+		return plumbing.ZeroHash, false, fmt.Errorf("chain: get commit %s: %w", commitHash, err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return plumbing.ZeroHash, false, fmt.Errorf("chain: get tree for %s: %w", commitHash, err)
+	}
+	entry, err := tree.FindEntry(path)
+	if err != nil {
+		if errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrEntryNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
+			return plumbing.ZeroHash, false, nil
+		}
+		return plumbing.ZeroHash, false, fmt.Errorf("chain: find entry %s in %s: %w", path, commitHash, err)
+	}
+	if !entry.Mode.IsFile() {
+		return plumbing.ZeroHash, false, nil
+	}
+	return entry.Hash, true, nil
+}
+
 // ReadFileWithBlobHash is like ReadFile and also returns the blob's object hash.
 func ReadFileWithBlobHash(repo *git.Repository, commitHash plumbing.Hash, path string) ([]byte, plumbing.Hash, bool, error) {
 	commit, err := object.GetCommit(repo.Storer, commitHash)

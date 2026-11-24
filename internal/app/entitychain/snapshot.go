@@ -55,7 +55,11 @@ func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace
 					return nil, err
 				}
 			}
-			if err := repo.Storer.HasEncodedObject(plumbing.NewHash(c.MetaBlobOID)); err == nil {
+			entryHash, found, err := chain.ReadFileEntryHash(repo, plumbing.NewHash(e.OID), "meta.json")
+			if err != nil {
+				return nil, err
+			}
+			if found && entryHash.String() == c.MetaBlobOID && plumbing.ComputeHash(plumbing.BlobObject, c.MetaJSON) == entryHash {
 				if decoded, err := event.DecodeGeneric(c.MetaJSON); err == nil {
 					if m, ok := decoded.(map[string]any); ok {
 						meta = m

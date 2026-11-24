@@ -81,7 +81,10 @@ func Open(repoDir string) (*Cache, error) {
 	if err != nil {
 		return nil, err
 	}
-	dbPath := filepath.Join(gitDir, cacheFileName)
+	dbPath, err := filepath.Abs(filepath.Join(gitDir, cacheFileName))
+	if err != nil {
+		return nil, err
+	}
 	c, err := openAndInit(dbPath)
 	if err != nil {
 		if !isRebuildableError(err) {

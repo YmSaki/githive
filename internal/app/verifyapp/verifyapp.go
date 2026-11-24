@@ -76,7 +76,7 @@ type verifyContext struct {
 	hasRevocationFile bool
 }
 
-func newVerifyContext(ctx context.Context, dir string) (*verifyContext, error) {
+func newVerifyContext(ctx context.Context, dir, registryOID string) (*verifyContext, error) {
 	repo, err := chain.OpenRepository(dir)
 	if err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func newVerifyContext(ctx context.Context, dir string) (*verifyContext, error) {
 	if sshProg, err := gitx.New(dir).ConfigGet(ctx, "gpg.ssh.program"); err == nil && strings.TrimSpace(sshProg) != "" {
 		vctx.hasRevocationFile = true
 	}
-	state, err := loadRegistryState(ctx, dir, repo)
+	state, err := loadRegistryState(ctx, dir, repo, registryOID)
 	if err != nil {
 		var shallow *chain.ShallowHistoryError
 		if errors.As(err, &shallow) {
@@ -115,7 +115,11 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 	if oid == "" {
 		return &RefReport{Ref: ref}, nil // ref doesn't exist locally; nothing to verify
 	}
-	vctx, err := newVerifyContext(ctx, dir)
+	registryOID := ""
+	if ref == refspace.UsersRegistryRef {
+		registryOID = oid
+	}
+	vctx, err := newVerifyContext(ctx, dir, registryOID)
 	if err != nil {
 		return nil, err
 	}
@@ -223,14 +227,20 @@ func verifyRefWithContext(ctx context.Context, vctx *verifyContext, ref, oid, tr
 	var adminBefore map[plumbing.Hash]bool
 	if isRegistry {
 		var err error
-		adminBefore, err = computeRegistryAdminBefore(commits, envByHash, trustRoot)
+		adminBefore, err = computeRegistryAdminBefore(ctx, commits, envByHash, trustRoot)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
 			report.Issues = append(report.Issues, Issue{Code: "event_order_violation", Message: err.Error()})
 			return report, nil
 		}
 	}
 
 	for _, commit := range commits {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		committerEmail := commit.Committer.Email
 		commitTime := formatGitTime(commit.Committer.When)
 
@@ -317,7 +327,14 @@ func VerifyAll(ctx context.Context, dir string, trustRootPin string) ([]RefRepor
 	if err != nil {
 		return nil, err
 	}
-	vctx, err := newVerifyContext(ctx, dir)
+	registryOID := ""
+	for _, e := range entries {
+		if e.Ref == refspace.UsersRegistryRef {
+			registryOID = e.OID
+			break
+		}
+	}
+	vctx, err := newVerifyContext(ctx, dir, registryOID)
 	if err != nil {
 		return nil, err
 	}
@@ -342,11 +359,14 @@ func VerifyAll(ctx context.Context, dir string, trustRootPin string) ([]RefRepor
 	return reports, nil
 }
 
-func loadRegistryState(ctx context.Context, dir string, repo *git.Repository) (*materialize.State, error) {
-	r := gitx.New(dir)
-	oid, err := r.RevParse(ctx, refspace.UsersRegistryRef)
-	if err != nil {
-		return nil, err
+func loadRegistryState(ctx context.Context, dir string, repo *git.Repository, oid string) (*materialize.State, error) {
+	if oid == "" {
+		r := gitx.New(dir)
+		var err error
+		oid, err = r.RevParse(ctx, refspace.UsersRegistryRef)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if oid == "" {
 		return materialize.NewState(), nil
@@ -370,7 +390,7 @@ func loadRegistryState(ctx context.Context, dir string, repo *git.Repository) (*
 // computeRegistryAdminBefore checks role:admin as of each commit's parent(s)
 // without retaining per-commit event slices or state folds across the ledger,
 // keeping peak memory O(N) even on heavily branched histories.
-func computeRegistryAdminBefore(commits []*object.Commit, envByHash map[plumbing.Hash]*event.Envelope, trustRoot string) (map[plumbing.Hash]bool, error) {
+func computeRegistryAdminBefore(ctx context.Context, commits []*object.Commit, envByHash map[plumbing.Hash]*event.Envelope, trustRoot string) (map[plumbing.Hash]bool, error) {
 	adminOK := make(map[plumbing.Hash]bool, len(commits))
 	if len(commits) == 0 {
 		return adminOK, nil
@@ -409,6 +429,9 @@ func computeRegistryAdminBefore(commits []*object.Commit, envByHash map[plumbing
 	}
 
 	for _, c := range commits {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		env := envByHash[c.Hash]
 		if env == nil || (c.Hash.String() == trustRoot && len(c.ParentHashes) == 0) {
 			continue
