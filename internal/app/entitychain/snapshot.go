@@ -2,6 +2,8 @@ package entitychain
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 
@@ -46,7 +48,7 @@ func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace
 		seen[e.Ref] = true
 
 		var meta map[string]any
-		if c, ok := cached[e.Ref]; ok && c.HeadOID == e.OID {
+		if c, ok := cached[e.Ref]; ok && c.HeadOID == e.OID && c.MetaSHA256 != "" && c.MetaSHA256 == sha256Hex(c.MetaJSON) {
 			if decoded, err := event.DecodeGeneric(c.MetaJSON); err == nil {
 				if m, ok := decoded.(map[string]any); ok {
 					meta = m
@@ -78,11 +80,12 @@ func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace
 			meta = m
 			if cache != nil {
 				upserts = append(upserts, localcache.RefMetaEntry{
-					RefName:  e.Ref,
-					HeadOID:  e.OID,
-					Feature:  string(feature),
-					EntityID: parsed.ID,
-					MetaJSON: metaRaw,
+					RefName:    e.Ref,
+					HeadOID:    e.OID,
+					Feature:    string(feature),
+					EntityID:   parsed.ID,
+					MetaJSON:   metaRaw,
+					MetaSHA256: sha256Hex(metaRaw),
 				})
 			}
 		}
@@ -103,4 +106,9 @@ func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace
 		return fmt.Sprint(out[i]["id"]) < fmt.Sprint(out[j]["id"])
 	})
 	return out, nil
+}
+
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }

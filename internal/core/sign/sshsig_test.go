@@ -204,6 +204,15 @@ func TestVerifierInProcessSSHSig(t *testing.T) {
 		}
 	})
 
+	t.Run("malformed_armor_with_leading_junk_fails", func(t *testing.T) {
+		c := makeSignedCommit(t, repo, signerA, "git", "alice@example.com", "junk prefix")
+		c.PGPSignature = "junk\n" + c.PGPSignature
+		res := v.VerifyCommitObject(c, "alice@example.com", "2026-01-01T12:00:00.000Z")
+		if res.Valid {
+			t.Fatalf("expected signature with leading junk before armor header to fail")
+		}
+	})
+
 	t.Run("rsa_disallows_legacy_ssh_rsa", func(t *testing.T) {
 		priv, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {

@@ -78,4 +78,30 @@ func TestListCacheConsistencyAndCorruptionFallback(t *testing.T) {
 	if !reflect.DeepEqual(cold, repaired) {
 		t.Fatalf("repaired cache mismatch:\ncold=%+v\nrepaired=%+v", cold, repaired)
 	}
+
+	// 5. Tamper cached payload with valid JSON and verify SHA-256 mismatch fallback
+	c2, err := localcache.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries2, err := c2.GetRefMetaByPrefix("refs/projects/issue/")
+	if err != nil || len(entries2) == 0 {
+		t.Fatalf("expected cached entries, got %d err=%v", len(entries2), err)
+	}
+	for _, e := range entries2 {
+		e.MetaJSON = []byte(`{"id":"tampered","title":"wrong","status":"closed"}`)
+		if err := c2.SyncRefMeta([]localcache.RefMetaEntry{e}, nil); err != nil {
+			t.Fatal(err)
+		}
+		break
+	}
+	_ = c2.Close()
+
+	afterTamper, err := svc.List(ctx, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cold, afterTamper) {
+		t.Fatalf("tampered-JSON cache mismatch:\ncold=%+v\nafterTamper=%+v", cold, afterTamper)
+	}
 }

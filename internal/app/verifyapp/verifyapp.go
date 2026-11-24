@@ -85,6 +85,9 @@ func newVerifyContext(ctx context.Context, dir string) (*verifyContext, error) {
 	if revFile, err := gitx.New(dir).ConfigGet(ctx, "gpg.ssh.revocationFile"); err == nil && strings.TrimSpace(revFile) != "" {
 		vctx.hasRevocationFile = true
 	}
+	if minTrust, err := gitx.New(dir).ConfigGet(ctx, "gpg.minTrustLevel"); err == nil && strings.TrimSpace(minTrust) != "" {
+		vctx.hasRevocationFile = true
+	}
 	state, err := loadRegistryState(ctx, dir, repo)
 	if err != nil {
 		var shallow *chain.ShallowHistoryError
@@ -214,10 +217,10 @@ func verifyRefWithContext(ctx context.Context, vctx *verifyContext, ref, oid, tr
 	}
 
 	isRegistry := ref == refspace.UsersRegistryRef
-	var registryBefore map[plumbing.Hash]*materialize.State
+	var adminBefore map[plumbing.Hash]bool
 	if isRegistry {
 		var err error
-		registryBefore, err = computeRegistryStatesBefore(commits, envByHash, trustRoot)
+		adminBefore, err = computeRegistryAdminBefore(commits, envByHash, trustRoot)
 		if err != nil {
 			report.Issues = append(report.Issues, Issue{Code: "event_order_violation", Message: err.Error()})
 			return report, nil
@@ -264,8 +267,7 @@ func verifyRefWithContext(ctx context.Context, vctx *verifyContext, ref, oid, tr
 			if commit.Hash.String() == trustRoot && len(commit.ParentHashes) == 0 {
 				continue
 			}
-			before := registryBefore[commit.Hash]
-			if !materialize.IsAdmin(before, env.Actor) {
+			if !adminBefore[commit.Hash] {
 				report.Issues = append(report.Issues, Issue{
 					CommitHash: commit.Hash.String(),
 					Code:       "registry_change_without_admin",
@@ -366,10 +368,10 @@ func loadRegistryState(ctx context.Context, dir string, repo *git.Repository) (*
 // every non-merge commit in commits (root->tip topological order), validating
 // each parent's event ordering and releasing ancestor slices as soon as their
 // last child is processed so memory stays O(N) on linear ledgers.
-func computeRegistryStatesBefore(commits []*object.Commit, envByHash map[plumbing.Hash]*event.Envelope, trustRoot string) (map[plumbing.Hash]*materialize.State, error) {
-	states := make(map[plumbing.Hash]*materialize.State, len(commits))
+func computeRegistryAdminBefore(commits []*object.Commit, envByHash map[plumbing.Hash]*event.Envelope, trustRoot string) (map[plumbing.Hash]bool, error) {
+	adminOK := make(map[plumbing.Hash]bool, len(commits))
 	if len(commits) == 0 {
-		return states, nil
+		return adminOK, nil
 	}
 	remainingChildren := make(map[plumbing.Hash]int, len(commits))
 	for _, c := range commits {
@@ -432,7 +434,7 @@ func computeRegistryStatesBefore(commits []*object.Commit, envByHash map[plumbin
 					return nil, err
 				}
 			}
-			states[h] = materialize.UsersRegistry.Fold(parentEvents)
+			adminOK[h] = materialize.IsAdmin(materialize.UsersRegistry.Fold(parentEvents), env.Actor)
 		}
 
 		// Build reach[h] from parents + env, then release parents whose last child finished.
@@ -483,7 +485,7 @@ func computeRegistryStatesBefore(commits []*object.Commit, envByHash map[plumbin
 			}
 		}
 	}
-	return states, nil
+	return adminOK, nil
 }
 
 func formatGitTime(t time.Time) string {

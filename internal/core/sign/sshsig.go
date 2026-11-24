@@ -39,11 +39,15 @@ type sshSigSignedData struct {
 }
 
 func parseSSHSig(armored string) (*sshSigBlob, error) {
-	start := strings.Index(armored, sshSigHeader)
-	if start < 0 {
-		return nil, errors.New("sign: missing SSH SIGNATURE header")
+	var rest string
+	switch {
+	case strings.HasPrefix(armored, sshSigHeader+"\n"):
+		rest = armored[len(sshSigHeader)+1:]
+	case strings.HasPrefix(armored, sshSigHeader+"\r\n"):
+		rest = armored[len(sshSigHeader)+2:]
+	default:
+		return nil, errors.New("sign: SSH SIGNATURE header must appear at start")
 	}
-	rest := armored[start+len(sshSigHeader):]
 	end := strings.Index(rest, sshSigFooter)
 	if end < 0 {
 		return nil, errors.New("sign: missing SSH SIGNATURE footer")
@@ -157,10 +161,13 @@ func NewVerifier(state *materialize.State) *Verifier {
 		if keyField == "" || !safePrincipal(e.Email) || !safeKeyField(keyField) {
 			continue
 		}
-		fp := Fingerprint(e.Pub)
-		if fp == "" {
+		declaredType, _, _ := strings.Cut(keyField, " ")
+		pubKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(keyField))
+		if err != nil || pubKey.Type() != declaredType {
 			continue
 		}
+		sum := sha256.Sum256(pubKey.Marshal())
+		fp := "SHA256:" + base64.RawStdEncoding.EncodeToString(sum[:])
 		byEmail[e.Email] = append(byEmail[e.Email], indexedSigner{
 			fp:        fp,
 			revokedAt: e.RevokedAt,
