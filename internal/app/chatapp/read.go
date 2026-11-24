@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/ymsaki/githive/internal/app/idresolve"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
+	"github.com/ymsaki/githive/internal/core/localcache"
 	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
@@ -55,10 +57,18 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 	if err != nil {
 		return nil, err
 	}
-	repo, err := chain.OpenRepository(s.Dir)
-	if err != nil {
-		return nil, err
+
+	var cache *localcache.Cache
+	var cached map[string]localcache.RefMetaEntry
+	if c, err := localcache.Open(s.Dir); err == nil {
+		cache = c
+		defer cache.Close()
+		cached, _ = cache.GetRefMetaByPrefix("refs/projects/chat/")
 	}
+
+	var repo *git.Repository
+	var upserts []localcache.RefMetaEntry
+	seen := make(map[string]bool, len(entries))
 
 	var out []Meta
 	for _, e := range entries {
@@ -66,13 +76,34 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 		if err != nil || parsed.Feature != refspace.FeatureChat {
 			continue
 		}
-		files, err := chain.ReadTree(repo, plumbing.NewHash(e.OID))
-		if err != nil {
-			return nil, err
-		}
-		metaRaw, ok := files["meta.json"]
-		if !ok {
-			continue
+		seen[e.Ref] = true
+		var metaRaw []byte
+		if c, ok := cached[e.Ref]; ok && c.HeadOID == e.OID {
+			metaRaw = c.MetaJSON
+		} else {
+			if repo == nil {
+				repo, err = chain.OpenRepository(s.Dir)
+				if err != nil {
+					return nil, err
+				}
+			}
+			var ok bool
+			metaRaw, ok, err = chain.ReadFile(repo, plumbing.NewHash(e.OID), "meta.json")
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				continue
+			}
+			if cache != nil {
+				upserts = append(upserts, localcache.RefMetaEntry{
+					RefName:  e.Ref,
+					HeadOID:  e.OID,
+					Feature:  "chat",
+					EntityID: parsed.ID,
+					MetaJSON: metaRaw,
+				})
+			}
 		}
 		decoded, err := event.DecodeGeneric(metaRaw)
 		if err != nil {
@@ -88,6 +119,15 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
 			}
 		}
 		out = append(out, meta)
+	}
+	if cache != nil {
+		var deletes []string
+		for refName := range cached {
+			if !seen[refName] {
+				deletes = append(deletes, refName)
+			}
+		}
+		_ = cache.SyncRefMeta(upserts, deletes)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return fmt.Sprint(out[i]["id"]) < fmt.Sprint(out[j]["id"])
