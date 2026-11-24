@@ -42,3 +42,7 @@
 - **読み出し**（`Show`、`Log`、`RevParse`、`IsAncestor`、`ForEachRef`）。ネットワークを伴わない読み取りだが、go-git の実装コストより system git の呼び出しの方が単純だった箇所に system git を使っている。
 
 したがって決定 3 は「ネットワーク操作と署名検証」に限定されず、実際には「go-git は決定的な実体化（materialize/merge が読み書きするコミット・ツリー生成）に、system git はそれ以外（通信、wiki の worktree・plumbing、各種読み出し）に使う」という運用に近い。この使い分けは [ADR-0002] の理由（認証互換性、実装コスト）とも整合するため、決定自体の変更ではなく実態の追記として記録する。
+
+## 追記：インプロセス SSH 署名検証（#199）
+
+2026-11-24 のスケーラビリティ最適化（#199）により、コミット単位の SSH 署名**検証**（`internal/core/sign`）は `git verify-commit` 子プロセス委譲から `golang.org/x/crypto/ssh` を用いたインプロセス `PROTOCOL.sshsig` 検証へ移行した。暗号プリミティブは自前実装せず標準準拠ライブラリに委譲する原則を維持しつつ、コミット数に比例する子プロセス起動と一時ファイル I/O を排除している。なお、署名**作成**（`ssh-keygen` / `ssh-agent` 連携）は引き続き `system git` / OpenSSH に委ねる。

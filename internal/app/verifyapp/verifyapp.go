@@ -230,11 +230,15 @@ func verifyRefWithContext(ctx context.Context, vctx *verifyContext, ref, oid, tr
 	var cachedSigs map[string]localcache.SigEntry
 	var newSigs []localcache.SigEntry
 	if vctx.cache != nil && len(commits) > 0 {
-		oids := make([]string, len(commits))
-		for i, c := range commits {
-			oids[i] = c.Hash.String()
+		oids := make([]string, 0, len(commits))
+		for _, c := range commits {
+			if strings.TrimSpace(c.PGPSignature) != "" {
+				oids = append(oids, c.Hash.String())
+			}
 		}
-		cachedSigs, _ = vctx.cache.GetSigVerifications(oids)
+		if len(oids) > 0 {
+			cachedSigs, _ = vctx.cache.GetSigVerifications(oids)
+		}
 	}
 
 	for _, commit := range commits {
@@ -242,19 +246,23 @@ func verifyRefWithContext(ctx context.Context, vctx *verifyContext, ref, oid, tr
 		commitTime := formatGitTime(commit.Committer.When)
 
 		var result sign.Result
-		oidStr := commit.Hash.String()
-		if sc, ok := cachedSigs[oidStr]; ok {
-			result = vctx.verifier.CheckPolicy(sc.SigValid, sc.PubKeyFP, sc.KeyType, committerEmail, commitTime)
+		if strings.TrimSpace(commit.PGPSignature) == "" {
+			result = vctx.verifier.CheckPolicy(false, "", "", committerEmail, commitTime)
 		} else {
-			sigValid, fp, kt := sign.VerifyCommitCrypto(commit)
-			result = vctx.verifier.CheckPolicy(sigValid, fp, kt, committerEmail, commitTime)
-			if vctx.cache != nil {
-				newSigs = append(newSigs, localcache.SigEntry{
-					CommitOID: oidStr,
-					SigValid:  sigValid,
-					PubKeyFP:  fp,
-					KeyType:   kt,
-				})
+			oidStr := commit.Hash.String()
+			if sc, ok := cachedSigs[oidStr]; ok {
+				result = vctx.verifier.CheckPolicy(sc.SigValid, sc.PubKeyFP, sc.KeyType, committerEmail, commitTime)
+			} else {
+				sigValid, fp, kt := sign.VerifyCommitCrypto(commit)
+				result = vctx.verifier.CheckPolicy(sigValid, fp, kt, committerEmail, commitTime)
+				if vctx.cache != nil {
+					newSigs = append(newSigs, localcache.SigEntry{
+						CommitOID: oidStr,
+						SigValid:  sigValid,
+						PubKeyFP:  fp,
+						KeyType:   kt,
+					})
+				}
 			}
 		}
 		if !result.Valid {
@@ -277,10 +285,10 @@ func verifyRefWithContext(ctx context.Context, vctx *verifyContext, ref, oid, tr
 			})
 		}
 		if vctx.cache != nil && len(newSigs) > 0 {
-		_ = vctx.cache.PutSigVerifications(newSigs)
-	}
+			_ = vctx.cache.PutSigVerifications(newSigs)
+		}
 
-	if isRegistry {
+		if isRegistry {
 			// 規則 4 は変更時点（= 親までのイベントを fold した台帳）で判定する。
 			// 信頼の根のルートコミットだけは、台帳が空の時点で admin を
 			// 自己登録する唯一の正当な書き込みなので対象外とする。
