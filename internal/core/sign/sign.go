@@ -15,7 +15,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ymsaki/githive/internal/core/gitx"
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
+
 	"github.com/ymsaki/githive/internal/core/materialize"
 )
 
@@ -149,45 +152,15 @@ func ParsePrincipal(output string) string {
 //     to the conservative rule that every key registered for commitEmail
 //     must be valid at commitTime.
 func VerifyCommit(ctx context.Context, dir string, commitHash string, state *materialize.State, commitEmail, commitTime string) (Result, error) {
-	if owners := materialize.EmailOwners(state)[commitEmail]; len(owners) > 1 {
-		return Result{Valid: false, Output: fmt.Sprintf("ambiguous email %q belongs to users %s", commitEmail, strings.Join(owners, ", "))}, nil
-	}
-	entries := materialize.AllowedSigners(state)
-	// A key may legitimately belong to several aliases of one user. Ask Git
-	// to verify only the requested principal rather than whichever alias it
-	// encounters first in allowed_signers (#111).
-	matched := entries[:0]
-	for _, entry := range entries {
-		if entry.Email == commitEmail {
-			matched = append(matched, entry)
-		}
-	}
-	entries = matched
-	body := BuildAllowedSigners(entries)
-	path, cleanup, err := WriteAllowedSignersTempFile(body)
+	repo, err := git.PlainOpenWithOptions(dir, &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("sign: open repository at %s: %w", dir, err)
 	}
-	defer cleanup()
-
-	r := gitx.New(dir)
-	raw, err := r.VerifyCommit(ctx, commitHash, path)
+	commit, err := object.GetCommit(repo.Storer, plumbing.NewHash(commitHash))
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("sign: get commit %s: %w", commitHash, err)
 	}
-	if !raw.Valid {
-		return Result{Valid: false, Output: raw.Output}, nil
-	}
-
-	principal := ParsePrincipal(raw.Output)
-	if principal != "" && principal != commitEmail {
-		return Result{Valid: false, Principal: principal, Output: raw.Output}, nil
-	}
-
-	if !signingKeyValidAt(entries, commitEmail, ParseFingerprint(raw.Output), commitTime) {
-		return Result{Valid: false, Principal: commitEmail, Output: raw.Output}, nil
-	}
-	return Result{Valid: true, Principal: commitEmail, Output: raw.Output}, nil
+	return NewVerifier(state).VerifyCommitObject(commit, commitEmail, commitTime), nil
 }
 
 var fingerprintRe = regexp.MustCompile(`key (SHA256:[A-Za-z0-9+/]+)`)
