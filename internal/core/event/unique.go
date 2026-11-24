@@ -18,6 +18,10 @@ type idEntry struct {
 // IDSet validates event identity at history and merge boundaries. The zero
 // value is ready to use. Identical copies are accepted and reported as seen;
 // all envelope fields, including unknown extension fields, participate.
+//
+// CanonicalJSON is computed lazily only when an ID is seen a second time, so
+// the first Add does not validate encodability (callers passing freshly built
+// envelopes rather than event.Decode outputs must validate CanonicalJSON first).
 type IDSet struct{ entries map[string]*idEntry }
 
 // Add returns true for the first occurrence of env.ID and false for an

@@ -47,7 +47,10 @@ func (r RefReport) OK() bool { return len(r.Issues) == 0 }
 // VerifyRef walks every commit reachable from ref's current head and
 // checks (docs/11-security.md「検証規則」):
 //  1. the commit's SSH signature is valid against the users registry
-//     (core/sign.VerifyCommit, including the revoked-key timing rule);
+//     (in-process core/sign.Verifier.VerifyCommitObject by default, or
+//     core/sign.VerifyCommitLegacy when gpg.ssh.revocationFile,
+//     gpg.minTrustLevel, or gpg.ssh.program is configured, including the
+//     revoked-key timing rule);
 //  2. for non-merge commits, the event's actor equals the commit's
 //     committer email;
 //  3. (unsigned/no-registry note) if the users registry itself has no
