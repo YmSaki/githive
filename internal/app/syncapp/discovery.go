@@ -2,6 +2,7 @@ package syncapp
 
 import (
 	"context"
+	"strings"
 
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/refspace"
@@ -29,13 +30,18 @@ func DiscoverRefs(ctx context.Context, dir, remote string, kinds []string) ([]st
 		return nil, err
 	}
 
-	localEntries, err := r.ForEachRef(ctx, refspace.Root+"/")
+	entries, err := r.ForEachRef(ctx, refspace.Root+"/", refspace.RemoteTrackingRoot+"/")
 	if err != nil {
 		return nil, err
 	}
-	trackingEntries, err := r.ForEachRef(ctx, refspace.RemoteTrackingRoot+"/")
-	if err != nil {
-		return nil, err
+	var localEntries, trackingEntries []gitx.RefEntry
+	for _, e := range entries {
+		switch {
+		case strings.HasPrefix(e.Ref, refspace.Root+"/"):
+			localEntries = append(localEntries, e)
+		case strings.HasPrefix(e.Ref, refspace.RemoteTrackingRoot+"/"):
+			trackingEntries = append(trackingEntries, e)
+		}
 	}
 
 	allowed := map[string]bool{}
@@ -82,12 +88,22 @@ func DiscoverRefs(ctx context.Context, dir, remote string, kinds []string) ([]st
 // current state.
 func UnpushedRefs(ctx context.Context, dir string) ([]string, error) {
 	r := gitx.New(dir)
-	entries, err := r.ForEachRef(ctx, refspace.Root+"/")
+	entries, err := r.ForEachRef(ctx, refspace.Root+"/", refspace.RemoteTrackingRoot+"/")
 	if err != nil {
 		return nil, err
 	}
-	var unpushed []string
+	trackingOIDs := make(map[string]string)
+	var localEntries []gitx.RefEntry
 	for _, e := range entries {
+		switch {
+		case strings.HasPrefix(e.Ref, refspace.RemoteTrackingRoot+"/"):
+			trackingOIDs[e.Ref] = e.OID
+		case strings.HasPrefix(e.Ref, refspace.Root+"/"):
+			localEntries = append(localEntries, e)
+		}
+	}
+	var unpushed []string
+	for _, e := range localEntries {
 		parsed, err := refspace.Parse(e.Ref)
 		if err != nil || !SupportedFeatures[parsed.Feature] {
 			continue
@@ -96,11 +112,7 @@ func UnpushedRefs(ctx context.Context, dir string) ([]string, error) {
 		if err != nil {
 			continue
 		}
-		trackingOID, err := r.RevParse(ctx, trackingRef)
-		if err != nil {
-			return nil, err
-		}
-		if trackingOID != e.OID {
+		if trackingOIDs[trackingRef] != e.OID {
 			unpushed = append(unpushed, e.Ref)
 		}
 	}

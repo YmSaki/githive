@@ -9,6 +9,7 @@ package chain
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -106,13 +107,13 @@ func attachSignature(commit *object.Commit, signer Signer) error {
 // (normalized to one line, then truncated to 72 runes) followed by a blank
 // line and the event's canonical JSON (docs/02-data-model.md「コミットの規
 // 約」「イベント封筒」).
-func buildMessage(summary string, env *event.Envelope) (string, error) {
+func buildMessage(summary string, env *event.Envelope) (string, []byte, error) {
 	line := truncateSummary(normalizeSummary(summary))
 	body, err := env.CanonicalJSON()
 	if err != nil {
-		return "", fmt.Errorf("chain: encode event: %w", err)
+		return "", nil, fmt.Errorf("chain: encode event: %w", err)
 	}
-	return line + "\n\n" + string(body), nil
+	return line + "\n\n" + string(body), body, nil
 }
 
 // normalizeSummary turns every control character (CR and LF included) into
@@ -150,11 +151,11 @@ func AppendEvent(repo *git.Repository, parent plumbing.Hash, env *event.Envelope
 	}
 	// Validate/encode the event before storing its tree, so malformed or
 	// oversized events do not leave otherwise-unreachable blobs behind.
-	msg, err := buildMessage(summary, env)
+	msg, body, err := buildMessage(summary, env)
 	if err != nil {
 		return plumbing.ZeroHash, err
 	}
-	if err := verifyRoundTrip(msg, env); err != nil {
+	if err := verifyRoundTrip(msg, body); err != nil {
 		return plumbing.ZeroHash, err
 	}
 	treeHash, err := WriteTree(repo, files)
@@ -269,7 +270,7 @@ func eventBodyFromMessage(msg string) string {
 // verifyRoundTrip checks, before anything is committed, that msg decodes
 // back to exactly env. A write that could not be read back would leave an
 // append-only chain permanently broken and spread to every clone on sync.
-func verifyRoundTrip(msg string, env *event.Envelope) error {
+func verifyRoundTrip(msg string, want []byte) error {
 	got, err := envelopeFromMessage(msg)
 	if err != nil {
 		return fmt.Errorf("chain: commit message does not decode back: %w", err)
@@ -277,15 +278,11 @@ func verifyRoundTrip(msg string, env *event.Envelope) error {
 	if got == nil {
 		return fmt.Errorf("chain: commit message has no event body")
 	}
-	want, err := env.CanonicalJSON()
-	if err != nil {
-		return fmt.Errorf("chain: encode event: %w", err)
-	}
 	have, err := got.CanonicalJSON()
 	if err != nil {
 		return fmt.Errorf("chain: encode decoded event: %w", err)
 	}
-	if string(have) != string(want) {
+	if !bytes.Equal(have, want) {
 		return fmt.Errorf("chain: commit message decodes to a different event")
 	}
 	return nil
@@ -488,6 +485,37 @@ func ReadTree(repo *git.Repository, commitHash plumbing.Hash) (map[string][]byte
 	return files, nil
 }
 
+// ReadFile reads a single file at path from commitHash's tree without
+// walking or decoding any other entries. Returns (nil, false, nil) when path
+// does not exist or refers to a directory.
+func ReadFile(repo *git.Repository, commitHash plumbing.Hash, path string) ([]byte, bool, error) {
+	commit, err := object.GetCommit(repo.Storer, commitHash)
+	if err != nil {
+		return nil, false, fmt.Errorf("chain: get commit %s: %w", commitHash, err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, false, fmt.Errorf("chain: get tree for %s: %w", commitHash, err)
+	}
+	file, err := tree.File(path)
+	if err != nil {
+		if errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrEntryNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("chain: get file %s in %s: %w", path, commitHash, err)
+	}
+	reader, err := file.Reader()
+	if err != nil {
+		return nil, false, err
+	}
+	defer reader.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(reader); err != nil {
+		return nil, false, err
+	}
+	return buf.Bytes(), true, nil
+}
+
 // fileTree is a node in the in-memory tree built from a flat path->content
 // map before it is written out as nested git tree objects.
 type fileTree struct {
@@ -579,6 +607,10 @@ func writeTreeNode(repo *git.Repository, node *fileTree) (plumbing.Hash, error) 
 	if err := tree.Encode(obj); err != nil {
 		return plumbing.ZeroHash, fmt.Errorf("chain: encode tree: %w", err)
 	}
+	h := obj.Hash()
+	if err := repo.Storer.HasEncodedObject(h); err == nil {
+		return h, nil
+	}
 	return repo.Storer.SetEncodedObject(obj)
 }
 
@@ -611,6 +643,10 @@ func writeBlob(repo *git.Repository, content []byte) (plumbing.Hash, error) {
 	}
 	if err := w.Close(); err != nil {
 		return plumbing.ZeroHash, err
+	}
+	h := obj.Hash()
+	if err := repo.Storer.HasEncodedObject(h); err == nil {
+		return h, nil
 	}
 	return repo.Storer.SetEncodedObject(obj)
 }

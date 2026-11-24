@@ -204,8 +204,10 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 		switch parsed.Feature {
 		case refspace.FeatureIssue, refspace.FeatureTask, refspace.FeatureChat,
 			refspace.FeatureNotify, refspace.FeatureUsers:
-			findings := validateChain(repo, e.Ref, parsed.Feature, head)
-			findings = append(findings, checkMaterialization(repo, e.Ref, parsed.Feature, head)...)
+			findings, envelopes, walkOK := validateChain(repo, e.Ref, parsed.Feature, head)
+			if walkOK {
+				findings = append(findings, checkMaterializationFromEvents(repo, e.Ref, parsed.Feature, head, envelopes)...)
+			}
 			report.Findings = append(report.Findings, findings...)
 			valid := true
 			for _, finding := range findings {
@@ -244,14 +246,14 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 // aborting at the first (chain.WalkCommits returns raw commits and never
 // decodes, so a corrupt envelope does not stop the walk). Merge commits carry
 // no envelope (chain.ExtractEnvelope returns nil) and are skipped.
-func validateChain(repo *git.Repository, ref string, feature refspace.Feature, head plumbing.Hash) []Finding {
+func validateChain(repo *git.Repository, ref string, feature refspace.Feature, head plumbing.Hash) ([]Finding, []*event.Envelope, bool) {
 	var findings []Finding
 	parsed, parseErr := refspace.Parse(ref)
 	commits, err := chain.WalkCommits(repo, head)
 	if err != nil {
 		return []Finding{{
 			Ref: ref, Feature: string(feature), Code: "walk_failed", Message: err.Error(),
-		}}
+		}}, nil, false
 	}
 	var ids event.IDSet
 	var envelopes []*event.Envelope
@@ -306,13 +308,13 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 	}
 	for _, finding := range findings {
 		if finding.Severity != SeverityWarning {
-			return findings // do not infer transitions from contradictory/invalid data
+			return findings, envelopes, true // do not infer transitions from contradictory/invalid data
 		}
 	}
 	for _, ignored := range materialize.IgnoredStatusTransitions(string(feature), envelopes) {
 		findings = append(findings, Finding{Ref: ref, Feature: string(feature), Commit: commitByID[ignored.EventID], Code: "ignored_status_transition", Severity: SeverityWarning, Message: fmt.Sprintf("%s from %q to %q was ignored by the reducer", ignored.Kind, ignored.From, ignored.To)})
 	}
-	return findings
+	return findings, envelopes, true
 }
 
 // validateMetaConfig checks refs/projects/meta/config per its actual shape: it
@@ -320,7 +322,7 @@ func validateChain(repo *git.Repository, ref string, feature refspace.Feature, h
 // additionally the tree's config.json must declare a schema_version this build
 // supports (docs/01-architecture.md「バージョニングと互換性」).
 func validateMetaConfig(repo *git.Repository, ref string, head plumbing.Hash) []Finding {
-	findings := validateChain(repo, ref, refspace.FeatureMeta, head)
+	findings, _, _ := validateChain(repo, ref, refspace.FeatureMeta, head)
 
 	files, err := chain.ReadTree(repo, head)
 	if err != nil {

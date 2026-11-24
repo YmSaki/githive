@@ -205,10 +205,20 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 			return orderedResults(refs, done), errors.Join(append(failures, err)...)
 		}
 
+		localOIDs, trackingOIDs, err := snapshotRefOIDs(ctx, r)
+		if err != nil {
+			return orderedResults(refs, done), errors.Join(append(failures, err)...)
+		}
+
 		var toPush []*pushPlan
 		var next []string
 		for _, ref := range pending {
-			plan, res, err := planRef(ctx, dir, r, ref)
+			trackingRef, err := refspace.RemoteTrackingRef(ref)
+			if err != nil {
+				failures = append(failures, err)
+				continue
+			}
+			plan, res, err := planRef(ctx, dir, r, ref, localOIDs[ref], trackingOIDs[trackingRef])
 			switch {
 			case errors.Is(err, gitx.ErrRefCASMismatch):
 				// A local writer advanced after planning. Read its new head
@@ -274,36 +284,41 @@ func fetchNamespace(ctx context.Context, r *gitx.Runner, remote string) error {
 	return r.FetchPruned(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot))
 }
 
+func snapshotRefOIDs(ctx context.Context, r *gitx.Runner) (localOIDs, trackingOIDs map[string]string, err error) {
+	entries, err := r.ForEachRef(ctx, refspace.Root+"/", refspace.RemoteTrackingRoot+"/")
+	if err != nil {
+		return nil, nil, err
+	}
+	localOIDs = make(map[string]string)
+	trackingOIDs = make(map[string]string)
+	for _, e := range entries {
+		switch {
+		case strings.HasPrefix(e.Ref, refspace.Root+"/"):
+			localOIDs[e.Ref] = e.OID
+		case strings.HasPrefix(e.Ref, refspace.RemoteTrackingRoot+"/"):
+			trackingOIDs[e.Ref] = e.OID
+		}
+	}
+	return localOIDs, trackingOIDs, nil
+}
+
 // planRef decides what one ref needs, doing any purely local work (a
 // fast-forward of the local ref, an event-union merge, a trust-root
 // resolution) immediately. It returns exactly one of: a plan to push, a
 // finished Result, or an error (a local CAS mismatch must be replanned).
-func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*pushPlan, Result, error) {
-	trackingRef, err := refspace.RemoteTrackingRef(ref)
-	if err != nil {
-		return nil, Result{}, err
-	}
+func planRef(ctx context.Context, dir string, r *gitx.Runner, ref, localOID, remoteOID string) (*pushPlan, Result, error) {
 	parsed, err := refspace.Parse(ref)
 	if err != nil {
 		return nil, Result{}, err
 	}
-	localOID, err := r.RevParse(ctx, ref)
-	if err != nil {
-		return nil, Result{}, err
-	}
-	remoteOID, err := r.RevParse(ctx, trackingRef)
-	if err != nil {
-		return nil, Result{}, err
+	if localOID == remoteOID {
+		return nil, Result{Ref: ref, Action: ActionUpToDate}, nil
 	}
 
 	if parsed.Feature != refspace.FeatureWiki {
 		if err := validateEventIDs(dir, parsed, localOID, remoteOID); err != nil {
 			return nil, Result{}, err
 		}
-	}
-
-	if localOID == remoteOID {
-		return nil, Result{Ref: ref, Action: ActionUpToDate}, nil
 	}
 
 	// wiki is not event-sourced, so it gets fetch + fast-forward only

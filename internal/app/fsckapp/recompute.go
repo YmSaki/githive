@@ -31,13 +31,9 @@ import (
 // materialize from head, and one fold per ref keeps fsck linear in the
 // chain length (docs/14 性能目標). A chain whose envelopes cannot be read is
 // skipped here; validateChain has already reported it.
-func checkMaterialization(repo *git.Repository, ref string, feature refspace.Feature, head plumbing.Hash) []Finding {
+func checkMaterializationFromEvents(repo *git.Repository, ref string, feature refspace.Feature, head plumbing.Hash, events []*event.Envelope) []Finding {
 	fw, ok := featureWriters[feature]
 	if !ok {
-		return nil
-	}
-	events, err := chain.WalkChain(repo, head)
-	if err != nil {
 		return nil
 	}
 
