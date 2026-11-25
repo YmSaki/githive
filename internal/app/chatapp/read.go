@@ -45,20 +45,14 @@ type ListFilter struct {
 // List returns a snapshot summary of every chat thread, using the fast
 // snapshot-read path (meta.json at the ref head).
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
-	all, err := entitychain.ListSnapshotMetas(ctx, s.Dir, "refs/projects/chat/", refspace.FeatureChat)
-	if err != nil {
-		return nil, err
-	}
-	var out []Meta
-	for _, meta := range all {
+	return entitychain.ListSnapshotMetas(ctx, s.Dir, "refs/projects/chat/", refspace.FeatureChat, func(meta map[string]any) bool {
 		if filter.Status != "" {
 			if st, _ := meta["status"].(string); st != filter.Status {
-				continue
+				return false
 			}
 		}
-		out = append(out, meta)
-	}
-	return out, nil
+		return true
+	})
 }
 
 // Show returns the full state of one chat thread (meta, messages).

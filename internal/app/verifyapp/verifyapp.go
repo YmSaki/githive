@@ -85,14 +85,16 @@ func newVerifyContext(ctx context.Context, dir, registryOID string) (*verifyCont
 		return nil, err
 	}
 	vctx := &verifyContext{dir: dir, repo: repo}
-	if revFile, err := gitx.New(dir).ConfigGet(ctx, "gpg.ssh.revocationFile"); err == nil && strings.TrimSpace(revFile) != "" {
-		vctx.hasRevocationFile = true
-	}
-	if minTrust, err := gitx.New(dir).ConfigGet(ctx, "gpg.minTrustLevel"); err == nil && strings.TrimSpace(minTrust) != "" {
-		vctx.hasRevocationFile = true
-	}
-	if sshProg, err := gitx.New(dir).ConfigGet(ctx, "gpg.ssh.program"); err == nil && strings.TrimSpace(sshProg) != "" {
-		vctx.hasRevocationFile = true
+	cfgRunner := gitx.New(dir)
+	for _, key := range []string{"gpg.ssh.revocationFile", "gpg.minTrustLevel", "gpg.ssh.program"} {
+		val, err := cfgRunner.ConfigGet(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(val) != "" {
+			vctx.hasRevocationFile = true
+			break
+		}
 	}
 	state, err := loadRegistryState(ctx, dir, repo, registryOID)
 	if err != nil {

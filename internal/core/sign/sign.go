@@ -1,9 +1,9 @@
 // Package sign implements SSH commit-signature verification against the
-// users registry (docs/11-security.md「SSH 署名」, ADR-0007). All
-// cryptographic work is delegated to system git/ssh
-// (`git verify-commit`) - this package only builds the allowed_signers
-// input and interprets the result; docs/11-security.md「実装上の注意」:
-// 暗号処理を自前実装しない.
+// users registry (docs/11-security.md「SSH 署名」, ADR-0007). Cryptographic
+// signature verification runs in-process via golang.org/x/crypto/ssh
+// (PROTOCOL.sshsig), falling back to system git (`git verify-commit`) when
+// repository git config overrides verification behavior (such as
+// gpg.ssh.revocationFile, gpg.minTrustLevel, or gpg.ssh.program).
 package sign
 
 import (
@@ -153,6 +153,16 @@ func ParsePrincipal(output string) string {
 //     to the conservative rule that every key registered for commitEmail
 //     must be valid at commitTime.
 func VerifyCommit(ctx context.Context, dir string, commitHash string, state *materialize.State, commitEmail, commitTime string) (Result, error) {
+	cfgRunner := gitx.New(dir)
+	for _, key := range []string{"gpg.ssh.revocationFile", "gpg.minTrustLevel", "gpg.ssh.program"} {
+		val, err := cfgRunner.ConfigGet(ctx, key)
+		if err != nil {
+			return Result{}, err
+		}
+		if strings.TrimSpace(val) != "" {
+			return VerifyCommitLegacy(ctx, dir, commitHash, state, commitEmail, commitTime)
+		}
+	}
 	repo, err := git.PlainOpenWithOptions(dir, &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {
 		return Result{}, fmt.Errorf("sign: open repository at %s: %w", dir, err)

@@ -16,7 +16,7 @@ import (
 )
 
 // SchemaVersion is bumped whenever the cache table layout or semantics change.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 const cacheFileName = "githive-cache.db"
 
@@ -172,6 +172,11 @@ func ensureSchema(db *sql.DB) error {
 			pubkey_fp TEXT NOT NULL,
 			key_type TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS validated_tips (
+			ref_name TEXT PRIMARY KEY,
+			head_oid TEXT NOT NULL,
+			validator_ver INTEGER NOT NULL
+		);`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -320,6 +325,50 @@ func (c *Cache) PutSigVerifications(entries []SigEntry) error {
 			validInt = 1
 		}
 		if _, err := stmt.Exec(e.CommitOID, validInt, e.PubKeyFP, e.KeyType); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// GetValidatedTips returns ref_name -> head_oid for all tips validated under validatorVer.
+func (c *Cache) GetValidatedTips(validatorVer int) (map[string]string, error) {
+	rows, err := c.db.Query(`SELECT ref_name, head_oid FROM validated_tips WHERE validator_ver = ?`, validatorVer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]string)
+	for rows.Next() {
+		var refName, headOID string
+		if err := rows.Scan(&refName, &headOID); err != nil {
+			return nil, err
+		}
+		out[refName] = headOID
+	}
+	return out, rows.Err()
+}
+
+// PutValidatedTips records validated (ref_name, head_oid) pairs in one transaction.
+func (c *Cache) PutValidatedTips(validatorVer int, tips map[string]string) error {
+	if len(tips) == 0 {
+		return nil
+	}
+	tx, err := c.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`INSERT OR REPLACE INTO validated_tips (ref_name, head_oid, validator_ver) VALUES (?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for refName, headOID := range tips {
+		if _, err := stmt.Exec(refName, headOID, validatorVer); err != nil {
 			return err
 		}
 	}

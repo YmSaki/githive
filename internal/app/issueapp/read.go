@@ -49,18 +49,9 @@ type ListFilter struct {
 // snapshot-read path (meta.json at the ref head) rather than a full
 // history fold (docs/01-architecture.md「読み取り（高速路と互換路）」).
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
-	all, err := entitychain.ListSnapshotMetas(ctx, s.Dir, "refs/projects/issue/", refspace.FeatureIssue)
-	if err != nil {
-		return nil, err
-	}
-	var out []Meta
-	for _, meta := range all {
-		if !matchesFilter(meta, filter) {
-			continue
-		}
-		out = append(out, meta)
-	}
-	return out, nil
+	return entitychain.ListSnapshotMetas(ctx, s.Dir, "refs/projects/issue/", refspace.FeatureIssue, func(meta map[string]any) bool {
+		return matchesFilter(meta, filter)
+	})
 }
 
 // statusArchived is excluded from List by default

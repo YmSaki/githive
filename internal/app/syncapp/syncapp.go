@@ -24,6 +24,7 @@ import (
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
+	"github.com/ymsaki/githive/internal/core/localcache"
 	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/merge"
 	"github.com/ymsaki/githive/internal/core/projectconfig"
@@ -181,6 +182,8 @@ func SkipInitialFetch() Option {
 // Refs that completed are returned in the order they were given, even when
 // other refs failed; the error aggregates every per-ref failure
 // (docs/01-architecture.md「部分的成功は正常系として報告する」).
+const syncValidatorVersion = 1
+
 func Sync(ctx context.Context, dir, remote string, refs []string, retries int, opts ...Option) ([]Result, error) {
 	if retries < 0 {
 		retries = DefaultRetries
@@ -193,6 +196,14 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 	r := gitx.New(dir)
 	done := make(map[string]Result, len(refs))
 	var failures []error
+
+	var cache *localcache.Cache
+	var validatedTips map[string]string
+	if c, err := localcache.Open(dir); err == nil {
+		cache = c
+		defer cache.Close()
+		validatedTips, _ = cache.GetValidatedTips(syncValidatorVersion)
+	}
 
 	pending := append([]string(nil), refs...)
 	for round := 0; len(pending) > 0; round++ {
@@ -212,13 +223,16 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 
 		var toPush []*pushPlan
 		var next []string
+		var newlyValidated map[string]string
 		for _, ref := range pending {
 			trackingRef, err := refspace.RemoteTrackingRef(ref)
 			if err != nil {
 				failures = append(failures, err)
 				continue
 			}
-			plan, res, err := planRef(ctx, dir, r, ref, localOIDs[ref], trackingOIDs[trackingRef])
+			localOID := localOIDs[ref]
+			remoteOID := trackingOIDs[trackingRef]
+			plan, res, err := planRef(ctx, dir, r, ref, localOID, remoteOID, validatedTips)
 			switch {
 			case errors.Is(err, gitx.ErrRefCASMismatch):
 				// A local writer advanced after planning. Read its new head
@@ -229,7 +243,22 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 			case plan != nil:
 				toPush = append(toPush, plan)
 			default:
+				if cache != nil && res.Action == ActionUpToDate && localOID != "" && validatedTips[ref] != localOID {
+					if newlyValidated == nil {
+						newlyValidated = make(map[string]string)
+					}
+					newlyValidated[ref] = localOID
+				}
 				done[ref] = res
+			}
+		}
+		if cache != nil && len(newlyValidated) > 0 {
+			_ = cache.PutValidatedTips(syncValidatorVersion, newlyValidated)
+			for k, v := range newlyValidated {
+				if validatedTips == nil {
+					validatedTips = make(map[string]string)
+				}
+				validatedTips[k] = v
 			}
 		}
 		if len(toPush) > 0 {
@@ -306,12 +335,17 @@ func snapshotRefOIDs(ctx context.Context, r *gitx.Runner) (localOIDs, trackingOI
 // fast-forward of the local ref, an event-union merge, a trust-root
 // resolution) immediately. It returns exactly one of: a plan to push, a
 // finished Result, or an error (a local CAS mismatch must be replanned).
-func planRef(ctx context.Context, dir string, r *gitx.Runner, ref, localOID, remoteOID string) (*pushPlan, Result, error) {
+func planRef(ctx context.Context, dir string, r *gitx.Runner, ref, localOID, remoteOID string, validatedTips map[string]string) (*pushPlan, Result, error) {
 	parsed, err := refspace.Parse(ref)
 	if err != nil {
 		return nil, Result{}, err
 	}
 	if localOID == remoteOID {
+		if parsed.Feature != refspace.FeatureWiki && localOID != "" && validatedTips[ref] != localOID {
+			if err := validateEventIDs(dir, parsed, localOID); err != nil {
+				return nil, Result{}, err
+			}
+		}
 		return nil, Result{Ref: ref, Action: ActionUpToDate}, nil
 	}
 

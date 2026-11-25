@@ -20,7 +20,8 @@ import (
 // ListSnapshotMetas reads meta.json at the head of every ref matching feature
 // under prefix, using .git/githive-cache.db when available and falling back
 // transparently to Git on cache miss, invalid cached payload, or cache error.
-func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace.Feature) ([]map[string]any, error) {
+// If match is non-nil, only matching entries are retained and sorted.
+func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace.Feature, match func(map[string]any) bool) ([]map[string]any, error) {
 	r := gitx.New(dir)
 	entries, err := r.ForEachRef(ctx, prefix)
 	if err != nil {
@@ -59,7 +60,7 @@ func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace
 			if err != nil {
 				return nil, err
 			}
-			if found && entryHash.String() == c.MetaBlobOID && plumbing.ComputeHash(plumbing.BlobObject, c.MetaJSON) == entryHash {
+			if found && entryHash.String() == c.MetaBlobOID && plumbing.ComputeHash(plumbing.BlobObject, c.MetaJSON) == entryHash && repo.Storer.HasEncodedObject(entryHash) == nil {
 				if decoded, err := event.DecodeGeneric(c.MetaJSON); err == nil {
 					if m, ok := decoded.(map[string]any); ok {
 						meta = m
@@ -101,6 +102,9 @@ func ListSnapshotMetas(ctx context.Context, dir, prefix string, feature refspace
 					MetaBlobOID: blobHash.String(),
 				})
 			}
+		}
+		if match != nil && !match(meta) {
+			continue
 		}
 		out = append(out, meta)
 	}

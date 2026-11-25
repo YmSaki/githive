@@ -3,17 +3,24 @@
 package synthrepo
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
+	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/projectconfig"
 	"github.com/ymsaki/githive/internal/core/refspace"
 )
@@ -24,6 +31,7 @@ type Config struct {
 	CommentsPerIssue     int
 	MirrorRemoteTracking bool
 	InitBareRemote       bool
+	SignWithEd25519      bool
 }
 
 // Result holds the paths and refs created by Generate.
@@ -51,7 +59,7 @@ func deterministicTS(seq int64) string {
 }
 
 // Generate creates a githive repository under dir (which must be empty or
-// non-existent) with Config.Issues issue chains.
+// non-existent) with Config.Issues issue chains that pass fsck.
 func Generate(dir string, cfg Config) (*Result, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("synthrepo: mkdir %s: %w", dir, err)
@@ -67,6 +75,22 @@ func Generate(dir string, cfg Config) (*Result, error) {
 		When:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
 
+	var commitOpts []chain.Option
+	var sshSigner ssh.Signer
+	var pubLine string
+	if cfg.SignWithEd25519 {
+		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, fmt.Errorf("synthrepo: generate ed25519 key: %w", err)
+		}
+		sshSigner, err = ssh.NewSignerFromKey(priv)
+		if err != nil {
+			return nil, fmt.Errorf("synthrepo: ssh signer: %w", err)
+		}
+		pubLine = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshSigner.PublicKey())))
+		commitOpts = append(commitOpts, chain.WithSigner(makeSSHSigSigner(sshSigner)))
+	}
+
 	var seq int64 = 1
 	nextID := func() (string, string) {
 		id := deterministicULID(seq)
@@ -75,8 +99,14 @@ func Generate(dir string, cfg Config) (*Result, error) {
 		return id, ts
 	}
 
-	// Seed refs/projects/meta/config so CheckSchemaSupported passes.
+	// Seed refs/projects/meta/config with all required meta.init fields.
 	cfgID, cfgTS := nextID()
+	cfgData := map[string]any{
+		"schema_version": projectconfig.SchemaVersion,
+		"project":        "synth-bench",
+		"features":       []any{"issue", "task", "notify", "users", "chat", "wiki"},
+		"created_at":     cfgTS,
+	}
 	cfgEnv := &event.Envelope{
 		V:      event.SchemaVersion,
 		Kind:   "meta.init",
@@ -84,19 +114,15 @@ func Generate(dir string, cfg Config) (*Result, error) {
 		TS:     cfgTS,
 		Actor:  sig.Email,
 		Entity: cfgID,
-		Data: map[string]any{
-			"schema_version": projectconfig.SchemaVersion,
-		},
+		Data:   cfgData,
 	}
-	cfgBytes, err := event.Encode(map[string]any{
-		"schema_version": projectconfig.SchemaVersion,
-	})
+	cfgBytes, err := event.Encode(cfgData)
 	if err != nil {
 		return nil, fmt.Errorf("synthrepo: encode config: %w", err)
 	}
 	cfgHash, err := chain.AppendEvent(repo, chain.ZeroHash, cfgEnv, "meta: init", map[string][]byte{
 		"config.json": cfgBytes,
-	}, sig)
+	}, sig, commitOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("synthrepo: append meta/config: %w", err)
 	}
@@ -110,6 +136,73 @@ func Generate(dir string, cfg Config) (*Result, error) {
 		}
 		if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(tr), cfgHash)); err != nil {
 			return nil, err
+		}
+	}
+
+	// Seed refs/projects/users/registry when SignWithEd25519 is enabled.
+	if cfg.SignWithEd25519 {
+		regEvents := []*event.Envelope{}
+		uID, uTS := nextID()
+		uEnv := &event.Envelope{
+			V:      event.SchemaVersion,
+			Kind:   "users.user_set",
+			ID:     uID,
+			TS:     uTS,
+			Actor:  sig.Email,
+			Entity: uID,
+			Data: map[string]any{
+				"username": "benchadmin",
+				"fields": map[string]any{
+					"emails": []any{sig.Email},
+					"roles":  []any{"admin"},
+					"kind":   "human",
+					"status": "active",
+				},
+			},
+		}
+		regEvents = append(regEvents, uEnv)
+		regFiles, err := renderUsersTree(materialize.UsersRegistry.Fold(regEvents))
+		if err != nil {
+			return nil, err
+		}
+		regHead, err := chain.AppendEvent(repo, chain.ZeroHash, uEnv, "users: add benchadmin", regFiles, sig, commitOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("synthrepo: user_set: %w", err)
+		}
+
+		kID, kTS := nextID()
+		kEnv := &event.Envelope{
+			V:      event.SchemaVersion,
+			Kind:   "users.key_add",
+			ID:     kID,
+			TS:     kTS,
+			Actor:  sig.Email,
+			Entity: kID,
+			Data: map[string]any{
+				"username": "benchadmin",
+				"pub":      pubLine,
+			},
+		}
+		regEvents = append(regEvents, kEnv)
+		regFiles, err = renderUsersTree(materialize.UsersRegistry.Fold(regEvents))
+		if err != nil {
+			return nil, err
+		}
+		regHead, err = chain.AppendEvent(repo, regHead, kEnv, "users: key_add", regFiles, sig, commitOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("synthrepo: key_add: %w", err)
+		}
+		if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(refspace.UsersRegistryRef), regHead)); err != nil {
+			return nil, fmt.Errorf("synthrepo: set users/registry ref: %w", err)
+		}
+		if cfg.MirrorRemoteTracking {
+			tr, err := refspace.RemoteTrackingRef(refspace.UsersRegistryRef)
+			if err != nil {
+				return nil, err
+			}
+			if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.ReferenceName(tr), regHead)); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -133,25 +226,12 @@ func Generate(dir string, cfg Config) (*Result, error) {
 				"labels": []any{"bench"},
 			},
 		}
-		metaMap := map[string]any{
-			"id":         issueID,
-			"title":      fmt.Sprintf("Synthetic issue %d", i),
-			"status":     "open",
-			"labels":     []any{"bench"},
-			"assignees":  []any{},
-			"created_at": createTS,
-			"updated_at": createTS,
-			"author":     sig.Email,
-		}
-		metaBytes, err := event.Encode(metaMap)
+		issueEvents := []*event.Envelope{createEnv}
+		files, err := renderIssueTree(materialize.IssueRegistry.Fold(issueEvents))
 		if err != nil {
 			return nil, err
 		}
-		files := map[string][]byte{
-			"meta.json": metaBytes,
-			"body.md":   []byte("Synthetic issue body for benchmarking.\n"),
-		}
-		head, err := chain.AppendEvent(repo, chain.ZeroHash, createEnv, "issue: create", files, sig)
+		head, err := chain.AppendEvent(repo, chain.ZeroHash, createEnv, "issue: create", files, sig, commitOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("synthrepo: create issue %d: %w", i, err)
 		}
@@ -169,23 +249,12 @@ func Generate(dir string, cfg Config) (*Result, error) {
 					"body": fmt.Sprintf("Comment %d on issue %d", c, i),
 				},
 			}
-			metaMap["updated_at"] = cts
-			metaBytes, err = event.Encode(metaMap)
+			issueEvents = append(issueEvents, cEnv)
+			files, err = renderIssueTree(materialize.IssueRegistry.Fold(issueEvents))
 			if err != nil {
 				return nil, err
 			}
-			files["meta.json"] = metaBytes
-			commentBytes, err := event.Encode(map[string]any{
-				"id":     cid,
-				"author": sig.Email,
-				"ts":     cts,
-				"body":   fmt.Sprintf("Comment %d on issue %d", c, i),
-			})
-			if err != nil {
-				return nil, err
-			}
-			files[fmt.Sprintf("comments/%s.json", cid)] = commentBytes
-			head, err = chain.AppendEvent(repo, head, cEnv, "issue: comment", files, sig)
+			head, err = chain.AppendEvent(repo, head, cEnv, "issue: comment", files, sig, commitOpts...)
 			if err != nil {
 				return nil, fmt.Errorf("synthrepo: comment %d on issue %d: %w", c, i, err)
 			}
@@ -219,4 +288,114 @@ func Generate(dir string, cfg Config) (*Result, error) {
 	}
 
 	return res, nil
+}
+
+func renderIssueTree(state *materialize.State) (map[string][]byte, error) {
+	files := map[string][]byte{}
+	metaCopy := make(map[string]any, len(state.Meta))
+	body := ""
+	for k, v := range state.Meta {
+		if k == "body" {
+			if s, ok := v.(string); ok {
+				body = s
+			}
+			continue
+		}
+		metaCopy[k] = v
+	}
+	metaJSON, err := event.Encode(metaCopy)
+	if err != nil {
+		return nil, err
+	}
+	files["meta.json"] = metaJSON
+	files["body.md"] = []byte(body)
+	for id, raw := range state.Collections["comments"] {
+		comment, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		var b strings.Builder
+		b.WriteString("---\n")
+		for _, pair := range [][2]string{{"author", "author"}, {"ts", "ts"}, {"id", "event"}} {
+			if v, ok := comment[pair[0]].(string); ok && v != "" {
+				b.WriteString(pair[1] + ": " + v + "\n")
+			}
+		}
+		b.WriteString("---\n\n")
+		if cb, ok := comment["body"].(string); ok {
+			b.WriteString(cb)
+			if !strings.HasSuffix(cb, "\n") {
+				b.WriteString("\n")
+			}
+		}
+		files["comments/"+id+".md"] = []byte(b.String())
+	}
+	return files, nil
+}
+
+func renderUsersTree(state *materialize.State) (map[string][]byte, error) {
+	files := map[string][]byte{}
+	for name, raw := range state.Collections["users"] {
+		b, err := event.Encode(raw)
+		if err != nil {
+			return nil, err
+		}
+		files["users/"+name+".json"] = b
+	}
+	for name, raw := range state.Collections["groups"] {
+		b, err := event.Encode(raw)
+		if err != nil {
+			return nil, err
+		}
+		files["groups/"+name+".json"] = b
+	}
+	return files, nil
+}
+
+func makeSSHSigSigner(signer ssh.Signer) chain.Signer {
+	return func(payload []byte) (string, error) {
+		sum := sha256.Sum256(payload)
+		signed := append([]byte("SSHSIG"), ssh.Marshal(struct {
+			Namespace     string
+			Reserved      string
+			HashAlgorithm string
+			Hash          []byte
+		}{
+			Namespace:     "git",
+			Reserved:      "",
+			HashAlgorithm: "sha256",
+			Hash:          sum[:],
+		})...)
+		sig, err := signer.Sign(rand.Reader, signed)
+		if err != nil {
+			return "", err
+		}
+		blob := append([]byte("SSHSIG"), ssh.Marshal(struct {
+			Version       uint32
+			PublicKey     []byte
+			Namespace     string
+			Reserved      string
+			HashAlgorithm string
+			Signature     []byte
+		}{
+			Version:       1,
+			PublicKey:     signer.PublicKey().Marshal(),
+			Namespace:     "git",
+			Reserved:      "",
+			HashAlgorithm: "sha256",
+			Signature:     ssh.Marshal(sig),
+		})...)
+		b64 := base64.StdEncoding.EncodeToString(blob)
+		var b strings.Builder
+		b.WriteString("-----BEGIN SSH SIGNATURE-----\n")
+		for i := 0; i < len(b64); i += 70 {
+			end := i + 70
+			if end > len(b64) {
+				end = len(b64)
+			}
+			b.WriteString(b64[i:end] + "\n")
+		}
+		b.WriteString("-----END SSH SIGNATURE-----")
+		return b.String(), nil
+	}
 }

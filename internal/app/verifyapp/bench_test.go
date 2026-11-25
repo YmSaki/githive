@@ -7,11 +7,12 @@ import (
 	"github.com/ymsaki/githive/internal/testutil/synthrepo"
 )
 
-func BenchmarkVerifyAll(b *testing.B) {
+func BenchmarkVerifyAllSigned(b *testing.B) {
 	dir := b.TempDir()
 	if _, err := synthrepo.Generate(dir, synthrepo.Config{
 		Issues:           100,
 		CommentsPerIssue: 5,
+		SignWithEd25519:  true,
 	}); err != nil {
 		b.Fatal(err)
 	}
@@ -23,8 +24,14 @@ func BenchmarkVerifyAll(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		if len(reports) != 100 {
-			b.Fatalf("got %d reports, want 100", len(reports))
+		// 100 issues + 1 users/registry
+		if len(reports) != 101 {
+			b.Fatalf("got %d reports, want 101", len(reports))
+		}
+		for _, r := range reports {
+			if !r.OK() {
+				b.Fatalf("ref %s failed verify: %+v", r.Ref, r.Issues)
+			}
 		}
 	}
 }

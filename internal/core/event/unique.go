@@ -25,7 +25,11 @@ type idEntry struct {
 type IDSet struct{ entries map[string]*idEntry }
 
 // Add returns true for the first occurrence of env.ID and false for an
-// identical copy. Conflicting copies and unencodable envelopes return errors.
+// identical copy, returning ErrConflictingEventID if a second occurrence differs.
+//
+// For performance, the first occurrence stores env without computing
+// CanonicalJSON; callers must treat envelopes as immutable after Add and must
+// validate freshly built envelopes (e.g. via CanonicalJSON) before folding.
 func (s *IDSet) Add(env *Envelope) (bool, error) {
 	if env == nil {
 		return false, fmt.Errorf("event: nil envelope")

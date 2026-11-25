@@ -49,18 +49,9 @@ type ListFilter struct {
 // List returns a snapshot summary of every task, using the fast
 // snapshot-read path (meta.json at the ref head).
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
-	all, err := entitychain.ListSnapshotMetas(ctx, s.Dir, "refs/projects/task/", refspace.FeatureTask)
-	if err != nil {
-		return nil, err
-	}
-	var out []Meta
-	for _, meta := range all {
-		if !matchesFilter(meta, filter) {
-			continue
-		}
-		out = append(out, meta)
-	}
-	return out, nil
+	return entitychain.ListSnapshotMetas(ctx, s.Dir, "refs/projects/task/", refspace.FeatureTask, func(meta map[string]any) bool {
+		return matchesFilter(meta, filter)
+	})
 }
 
 func matchesFilter(meta Meta, filter ListFilter) bool {
