@@ -2,14 +2,9 @@ package issueapp
 
 import (
 	"context"
-	"fmt"
-	"sort"
 
-	"github.com/go-git/go-git/v5/plumbing"
-
+	"github.com/ymsaki/githive/internal/app/entitychain"
 	"github.com/ymsaki/githive/internal/app/idresolve"
-	"github.com/ymsaki/githive/internal/core/chain"
-	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/refspace"
@@ -54,47 +49,9 @@ type ListFilter struct {
 // snapshot-read path (meta.json at the ref head) rather than a full
 // history fold (docs/01-architecture.md「読み取り（高速路と互換路）」).
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]Meta, error) {
-	r := gitx.New(s.Dir)
-	entries, err := r.ForEachRef(ctx, "refs/projects/issue/")
-	if err != nil {
-		return nil, err
-	}
-	repo, err := chain.OpenRepository(s.Dir)
-	if err != nil {
-		return nil, err
-	}
-
-	var out []Meta
-	for _, e := range entries {
-		parsed, err := refspace.Parse(e.Ref)
-		if err != nil || parsed.Feature != refspace.FeatureIssue {
-			continue
-		}
-		files, err := chain.ReadTree(repo, plumbing.NewHash(e.OID))
-		if err != nil {
-			return nil, err
-		}
-		metaRaw, ok := files["meta.json"]
-		if !ok {
-			continue
-		}
-		decoded, err := event.DecodeGeneric(metaRaw)
-		if err != nil {
-			return nil, fmt.Errorf("issueapp: decode %s meta.json: %w", parsed.ID, err)
-		}
-		meta, ok := decoded.(map[string]any)
-		if !ok {
-			continue
-		}
-		if !matchesFilter(meta, filter) {
-			continue
-		}
-		out = append(out, meta)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return fmt.Sprint(out[i]["id"]) < fmt.Sprint(out[j]["id"])
+	return entitychain.ListSnapshotMetas(ctx, s.Dir, "refs/projects/issue/", refspace.FeatureIssue, func(meta map[string]any) bool {
+		return matchesFilter(meta, filter)
 	})
-	return out, nil
 }
 
 // statusArchived is excluded from List by default

@@ -47,7 +47,10 @@ func (r RefReport) OK() bool { return len(r.Issues) == 0 }
 // VerifyRef walks every commit reachable from ref's current head and
 // checks (docs/11-security.md「検証規則」):
 //  1. the commit's SSH signature is valid against the users registry
-//     (core/sign.VerifyCommit, including the revoked-key timing rule);
+//     (in-process core/sign.Verifier.VerifyCommitObject by default, or
+//     core/sign.VerifyCommitLegacy when gpg.ssh.revocationFile,
+//     gpg.minTrustLevel, or gpg.ssh.program is configured, including the
+//     revoked-key timing rule);
 //  2. for non-merge commits, the event's actor equals the commit's
 //     committer email;
 //  3. (unsigned/no-registry note) if the users registry itself has no
@@ -66,23 +69,76 @@ func (r RefReport) OK() bool { return len(r.Issues) == 0 }
 //   - the history has a single root: every root other than trustRootPin
 //     (all of them, if no pin is set) is reported as multiple_trust_roots,
 //     and a pin matching no root as trust_root_mismatch (#113).
+type verifyContext struct {
+	dir               string
+	repo              *git.Repository
+	registryState     *materialize.State
+	registryErr       error
+	emailConflicts    []materialize.EmailConflict
+	verifier          *sign.Verifier
+	hasRevocationFile bool
+}
+
+func newVerifyContext(ctx context.Context, dir, registryOID string) (*verifyContext, error) {
+	repo, err := chain.OpenRepository(dir)
+	if err != nil {
+		return nil, err
+	}
+	vctx := &verifyContext{dir: dir, repo: repo}
+	cfgRunner := gitx.New(dir)
+	for _, key := range []string{"gpg.ssh.revocationFile", "gpg.minTrustLevel", "gpg.ssh.program"} {
+		val, err := cfgRunner.ConfigGet(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(val) != "" {
+			vctx.hasRevocationFile = true
+			break
+		}
+	}
+	state, err := loadRegistryState(ctx, dir, repo, registryOID)
+	if err != nil {
+		var shallow *chain.ShallowHistoryError
+		if errors.As(err, &shallow) {
+			return nil, err
+		}
+		vctx.registryErr = err
+		return vctx, nil
+	}
+	vctx.registryState = state
+	vctx.emailConflicts = materialize.EmailConflicts(state)
+	vctx.verifier = sign.NewVerifier(state)
+	return vctx, nil
+}
+
 func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefReport, error) {
 	r := gitx.New(dir)
 	oid, err := r.RevParse(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	report := &RefReport{Ref: ref}
 	if oid == "" {
-		return report, nil // ref doesn't exist locally; nothing to verify
+		return &RefReport{Ref: ref}, nil // ref doesn't exist locally; nothing to verify
 	}
-
-	repo, err := chain.OpenRepository(dir)
+	registryOID := ""
+	if ref == refspace.UsersRegistryRef {
+		registryOID = oid
+	}
+	vctx, err := newVerifyContext(ctx, dir, registryOID)
 	if err != nil {
 		return nil, err
 	}
+	return verifyRefWithContext(ctx, vctx, ref, oid, trustRootPin)
+}
+
+func verifyRefWithContext(ctx context.Context, vctx *verifyContext, ref, oid, trustRootPin string) (*RefReport, error) {
+	report := &RefReport{Ref: ref}
+	if oid == "" {
+		return report, nil
+	}
+
 	head := plumbing.NewHash(oid)
-	commits, err := chain.WalkCommits(repo, head)
+	commits, err := chain.WalkCommits(vctx.repo, head)
 	if err != nil {
 		var shallow *chain.ShallowHistoryError
 		if errors.As(err, &shallow) {
@@ -95,6 +151,7 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 
 	var ids event.IDSet
 	var envelopes []*event.Envelope
+	envByHash := make(map[plumbing.Hash]*event.Envelope, len(commits))
 	commitByID := map[string]string{}
 	parsed, parseErr := refspace.Parse(ref)
 	for _, commit := range commits {
@@ -103,6 +160,7 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 			report.Issues = append(report.Issues, Issue{CommitHash: commit.Hash.String(), Code: "invalid_envelope", Message: err.Error()})
 			continue
 		}
+		envByHash[commit.Hash] = env
 		if env == nil {
 			continue
 		}
@@ -141,20 +199,13 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 		}
 	}
 
-	registryState, err := loadRegistryState(ctx, dir)
-	if err != nil {
-		var shallow *chain.ShallowHistoryError
-		if errors.As(err, &shallow) {
-			return nil, err
-		}
-		report.Issues = append(report.Issues, Issue{Code: "invalid_registry", Message: fmt.Sprintf("cannot verify against the users registry: %v", err)})
+	if vctx.registryErr != nil {
+		report.Issues = append(report.Issues, Issue{Code: "invalid_registry", Message: fmt.Sprintf("cannot verify against the users registry: %v", vctx.registryErr)})
 		return report, nil
 	}
-	for _, conflict := range materialize.EmailConflicts(registryState) {
+	for _, conflict := range vctx.emailConflicts {
 		report.Issues = append(report.Issues, Issue{Code: "ambiguous_email", Message: fmt.Sprintf("email %q belongs to multiple users: %s", conflict.Email, strings.Join(conflict.Usernames, ", "))})
 	}
-
-	isRegistry := ref == refspace.UsersRegistryRef
 
 	var roots []string
 	for _, commit := range commits {
@@ -177,13 +228,36 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 		}
 	}
 
+	isRegistry := ref == refspace.UsersRegistryRef
+	var adminBefore map[plumbing.Hash]bool
+	if isRegistry {
+		var err error
+		adminBefore, err = computeRegistryAdminBefore(ctx, commits, envByHash, trustRoot)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			report.Issues = append(report.Issues, Issue{Code: "event_order_violation", Message: err.Error()})
+			return report, nil
+		}
+	}
+
 	for _, commit := range commits {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		committerEmail := commit.Committer.Email
 		commitTime := formatGitTime(commit.Committer.When)
 
-		result, err := sign.VerifyCommit(ctx, dir, commit.Hash.String(), registryState, committerEmail, commitTime)
-		if err != nil {
-			return nil, err
+		var result sign.Result
+		if vctx.hasRevocationFile {
+			var err error
+			result, err = sign.VerifyCommitLegacy(ctx, vctx.dir, commit.Hash.String(), vctx.registryState, committerEmail, commitTime)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			result = vctx.verifier.VerifyCommitObject(commit, committerEmail, commitTime)
 		}
 		if !result.Valid {
 			report.Issues = append(report.Issues, Issue{
@@ -193,10 +267,7 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 			})
 		}
 
-		env, err := chain.ExtractEnvelope(commit)
-		if err != nil {
-			return nil, err
-		}
+		env := envByHash[commit.Hash]
 		if env == nil {
 			continue // merge commit: no envelope-level checks apply
 		}
@@ -214,11 +285,7 @@ func VerifyRef(ctx context.Context, dir, ref string, trustRootPin string) (*RefR
 			if commit.Hash.String() == trustRoot && len(commit.ParentHashes) == 0 {
 				continue
 			}
-			before, err := registryStateBefore(repo, commit)
-			if err != nil {
-				return nil, err
-			}
-			if !materialize.IsAdmin(before, env.Actor) {
+			if !adminBefore[commit.Hash] {
 				report.Issues = append(report.Issues, Issue{
 					CommitHash: commit.Hash.String(),
 					Code:       "registry_change_without_admin",
@@ -265,6 +332,17 @@ func VerifyAll(ctx context.Context, dir string, trustRootPin string) ([]RefRepor
 	if err != nil {
 		return nil, err
 	}
+	registryOID := ""
+	for _, e := range entries {
+		if e.Ref == refspace.UsersRegistryRef {
+			registryOID = e.OID
+			break
+		}
+	}
+	vctx, err := newVerifyContext(ctx, dir, registryOID)
+	if err != nil {
+		return nil, err
+	}
 	var reports []RefReport
 	for _, e := range entries {
 		parsed, err := refspace.Parse(e.Ref)
@@ -277,7 +355,7 @@ func VerifyAll(ctx context.Context, dir string, trustRootPin string) ([]RefRepor
 		default:
 			continue
 		}
-		report, err := VerifyRef(ctx, dir, e.Ref, trustRootPin)
+		report, err := verifyRefWithContext(ctx, vctx, e.Ref, e.OID, trustRootPin)
 		if err != nil {
 			return nil, err
 		}
@@ -286,18 +364,17 @@ func VerifyAll(ctx context.Context, dir string, trustRootPin string) ([]RefRepor
 	return reports, nil
 }
 
-func loadRegistryState(ctx context.Context, dir string) (*materialize.State, error) {
-	r := gitx.New(dir)
-	oid, err := r.RevParse(ctx, refspace.UsersRegistryRef)
-	if err != nil {
-		return nil, err
+func loadRegistryState(ctx context.Context, dir string, repo *git.Repository, oid string) (*materialize.State, error) {
+	if oid == "" {
+		r := gitx.New(dir)
+		var err error
+		oid, err = r.RevParse(ctx, refspace.UsersRegistryRef)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if oid == "" {
 		return materialize.NewState(), nil
-	}
-	repo, err := chain.OpenRepository(dir)
-	if err != nil {
-		return nil, err
 	}
 	events, err := chain.WalkChain(repo, plumbing.NewHash(oid))
 	if err != nil {
@@ -315,27 +392,83 @@ func loadRegistryState(ctx context.Context, dir string) (*materialize.State, err
 	return materialize.UsersRegistry.Fold(events), nil
 }
 
-// registryStateBefore folds every registry event reachable from commit's
-// parents: the registry "as of" the moment commit was written
-// (docs/11-security.md 検証規則 4「変更時点の台帳」). A root commit gets the
-// empty state. This re-walks the ancestry per commit (quadratic in the
-// registry's length), which is acceptable for a ledger of users/keys.
-func registryStateBefore(repo *git.Repository, commit *object.Commit) (*materialize.State, error) {
-	seen := map[string]bool{}
-	var events []*event.Envelope
-	for _, parent := range commit.ParentHashes {
-		envs, err := chain.WalkChain(repo, parent)
-		if err != nil {
+// computeRegistryAdminBefore checks role:admin as of each commit's parent(s)
+// without retaining per-commit event slices or state folds across the ledger,
+// keeping peak memory O(N) even on heavily branched histories.
+func computeRegistryAdminBefore(ctx context.Context, commits []*object.Commit, envByHash map[plumbing.Hash]*event.Envelope, trustRoot string) (map[plumbing.Hash]bool, error) {
+	adminOK := make(map[plumbing.Hash]bool, len(commits))
+	if len(commits) == 0 {
+		return adminOK, nil
+	}
+	commitMap := make(map[plumbing.Hash]*object.Commit, len(commits))
+	for _, c := range commits {
+		commitMap[c.Hash] = c
+	}
+
+	collectFrom := func(root plumbing.Hash) ([]*event.Envelope, error) {
+		visited := map[plumbing.Hash]bool{}
+		seenID := map[string]bool{}
+		var out []*event.Envelope
+		stack := []plumbing.Hash{root}
+		for len(stack) > 0 {
+			h := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if visited[h] {
+				continue
+			}
+			visited[h] = true
+			c := commitMap[h]
+			if c == nil {
+				continue
+			}
+			if env := envByHash[h]; env != nil && !seenID[env.ID] {
+				seenID[env.ID] = true
+				out = append(out, env)
+			}
+			stack = append(stack, c.ParentHashes...)
+		}
+		if err := event.ValidateEntityOrder(out); err != nil {
 			return nil, err
 		}
-		for _, env := range envs {
-			if !seen[env.ID] {
-				seen[env.ID] = true
-				events = append(events, env)
+		return out, nil
+	}
+
+	for _, c := range commits {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		env := envByHash[c.Hash]
+		if env == nil || (c.Hash.String() == trustRoot && len(c.ParentHashes) == 0) {
+			continue
+		}
+		var parentEvents []*event.Envelope
+		if len(c.ParentHashes) == 1 {
+			pe, err := collectFrom(c.ParentHashes[0])
+			if err != nil {
+				return nil, err
+			}
+			parentEvents = pe
+		} else if len(c.ParentHashes) > 1 {
+			seenID := map[string]bool{}
+			for _, p := range c.ParentHashes {
+				pe, err := collectFrom(p)
+				if err != nil {
+					return nil, err
+				}
+				for _, e := range pe {
+					if !seenID[e.ID] {
+						seenID[e.ID] = true
+						parentEvents = append(parentEvents, e)
+					}
+				}
+			}
+			if err := event.ValidateEntityOrder(parentEvents); err != nil {
+				return nil, err
 			}
 		}
+		adminOK[c.Hash] = materialize.IsAdmin(materialize.UsersRegistry.Fold(parentEvents), env.Actor)
 	}
-	return materialize.UsersRegistry.Fold(events), nil
+	return adminOK, nil
 }
 
 func formatGitTime(t time.Time) string {

@@ -76,11 +76,10 @@ func CheckSchemaSupportedAt(ctx context.Context, dir, ref string) error {
 	if err != nil {
 		return err
 	}
-	files, err := chain.ReadTree(repo, plumbing.NewHash(oid))
+	raw, ok, err := chain.ReadFile(repo, plumbing.NewHash(oid), "config.json")
 	if err != nil {
 		return err
 	}
-	raw, ok := files["config.json"]
 	if !ok {
 		return &projectconfig.InvalidError{Ref: ref, Reason: "config.json is missing"}
 	}
@@ -158,6 +157,9 @@ func (w *Writer) foldInputsAt(oid, newEventID string, newEvent *event.Envelope) 
 	// Compare a new event with the full history, including checkpoint envelopes
 	// and events hidden behind the snapshot, before selecting the shortcut.
 	if newEvent != nil {
+		if _, err := newEvent.CanonicalJSON(); err != nil {
+			return nil, nil, err
+		}
 		var ids event.IDSet
 		if _, err := ids.Add(newEvent); err != nil {
 			return nil, nil, err

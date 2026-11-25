@@ -1,9 +1,9 @@
 // Package sign implements SSH commit-signature verification against the
-// users registry (docs/11-security.md「SSH 署名」, ADR-0007). All
-// cryptographic work is delegated to system git/ssh
-// (`git verify-commit`) - this package only builds the allowed_signers
-// input and interprets the result; docs/11-security.md「実装上の注意」:
-// 暗号処理を自前実装しない.
+// users registry (docs/11-security.md「SSH 署名」, ADR-0007). Cryptographic
+// signature verification runs in-process via golang.org/x/crypto/ssh
+// (PROTOCOL.sshsig), falling back to system git (`git verify-commit`) when
+// repository git config overrides verification behavior (such as
+// gpg.ssh.revocationFile, gpg.minTrustLevel, or gpg.ssh.program).
 package sign
 
 import (
@@ -14,6 +14,10 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/materialize"
@@ -149,21 +153,42 @@ func ParsePrincipal(output string) string {
 //     to the conservative rule that every key registered for commitEmail
 //     must be valid at commitTime.
 func VerifyCommit(ctx context.Context, dir string, commitHash string, state *materialize.State, commitEmail, commitTime string) (Result, error) {
+	cfgRunner := gitx.New(dir)
+	for _, key := range []string{"gpg.ssh.revocationFile", "gpg.minTrustLevel", "gpg.ssh.program"} {
+		val, err := cfgRunner.ConfigGet(ctx, key)
+		if err != nil {
+			return Result{}, err
+		}
+		if strings.TrimSpace(val) != "" {
+			return VerifyCommitLegacy(ctx, dir, commitHash, state, commitEmail, commitTime)
+		}
+	}
+	repo, err := git.PlainOpenWithOptions(dir, &git.PlainOpenOptions{DetectDotGit: true})
+	if err != nil {
+		return Result{}, fmt.Errorf("sign: open repository at %s: %w", dir, err)
+	}
+	commit, err := object.GetCommit(repo.Storer, plumbing.NewHash(commitHash))
+	if err != nil {
+		return Result{}, fmt.Errorf("sign: get commit %s: %w", commitHash, err)
+	}
+	return NewVerifier(state).VerifyCommitObject(commit, commitEmail, commitTime), nil
+}
+
+// VerifyCommitLegacy delegates verification to `git verify-commit` using a
+// temporary allowed_signers file, honoring git config settings such as
+// gpg.ssh.revocationFile.
+func VerifyCommitLegacy(ctx context.Context, dir string, commitHash string, state *materialize.State, commitEmail, commitTime string) (Result, error) {
 	if owners := materialize.EmailOwners(state)[commitEmail]; len(owners) > 1 {
 		return Result{Valid: false, Output: fmt.Sprintf("ambiguous email %q belongs to users %s", commitEmail, strings.Join(owners, ", "))}, nil
 	}
 	entries := materialize.AllowedSigners(state)
-	// A key may legitimately belong to several aliases of one user. Ask Git
-	// to verify only the requested principal rather than whichever alias it
-	// encounters first in allowed_signers (#111).
-	matched := entries[:0]
+	matched := make([]materialize.SignerEntry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Email == commitEmail {
 			matched = append(matched, entry)
 		}
 	}
-	entries = matched
-	body := BuildAllowedSigners(entries)
+	body := BuildAllowedSigners(matched)
 	path, cleanup, err := WriteAllowedSignersTempFile(body)
 	if err != nil {
 		return Result{}, err
@@ -178,13 +203,11 @@ func VerifyCommit(ctx context.Context, dir string, commitHash string, state *mat
 	if !raw.Valid {
 		return Result{Valid: false, Output: raw.Output}, nil
 	}
-
 	principal := ParsePrincipal(raw.Output)
 	if principal != "" && principal != commitEmail {
 		return Result{Valid: false, Principal: principal, Output: raw.Output}, nil
 	}
-
-	if !signingKeyValidAt(entries, commitEmail, ParseFingerprint(raw.Output), commitTime) {
+	if !signingKeyValidAt(matched, commitEmail, ParseFingerprint(raw.Output), commitTime) {
 		return Result{Valid: false, Principal: commitEmail, Output: raw.Output}, nil
 	}
 	return Result{Valid: true, Principal: commitEmail, Output: raw.Output}, nil
