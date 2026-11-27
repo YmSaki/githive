@@ -1,0 +1,73 @@
+{
+  "description": "create.links の同一 {rel,id} 重複は 1 件に統合され (rel,id) 昇順で保存される。不正・自己参照は除外。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "workpackage.create",
+      "id": "01jzc0wpaaaaaaaaaaaaa00001",
+      "ts": "2026-07-04T10:00:01.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "title": "links",
+        "links": [
+          {
+            "rel": "task",
+            "id": "01jzc0wpaaaaaaaaaaaaaaaak1"
+          },
+          {
+            "rel": "issue",
+            "id": "01jzc0wpaaaaaaaaaaaaaaaak1"
+          },
+          {
+            "rel": "task",
+            "id": "01jzc0wpaaaaaaaaaaaaaaaak1"
+          },
+          {
+            "rel": "workpackage",
+            "id": "01jzc0wpaaaaaaaaaaaaaaaaea"
+          },
+          {
+            "rel": "bogus",
+            "id": "01jzc0wpaaaaaaaaaaaaaaaak1"
+          },
+          {
+            "rel": "chat",
+            "id": "not-a-ulid"
+          }
+        ]
+      }
+    }
+  ],
+  "expected_meta": {
+    "acceptance_version": "01jzc0wpaaaaaaaaaaaaa00001",
+    "acceptances": [],
+    "cancellations": [],
+    "claims": [],
+    "created_at": "2026-07-04T10:00:01.000Z",
+    "created_by": "dev@example.org",
+    "current_submission_id": null,
+    "depends_on": [],
+    "finding_of": null,
+    "id": "01jzc0wpaaaaaaaaaaaaaaaaea",
+    "kind": "work",
+    "links": [
+      {
+        "id": "01jzc0wpaaaaaaaaaaaaaaaak1",
+        "rel": "issue"
+      },
+      {
+        "id": "01jzc0wpaaaaaaaaaaaaaaaak1",
+        "rel": "task"
+      }
+    ],
+    "parent_id": null,
+    "priority": "normal",
+    "submissions": [],
+    "title": "links",
+    "updated_at": "2026-07-04T10:00:01.000Z",
+    "waivers": []
+  },
+  "expected_body": "",
+  "expected_notes": {}
+}

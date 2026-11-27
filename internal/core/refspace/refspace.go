@@ -32,6 +32,9 @@ const (
 	FeatureChat   Feature = "chat"
 	FeatureWiki   Feature = "wiki"
 	FeatureMeta   Feature = "meta"
+	// FeatureWorkpackage is the project-management unit (WBS, DAG, claims,
+	// acceptance records). Its CLI alias is "wp".
+	FeatureWorkpackage Feature = "workpackage"
 )
 
 // perEntityFeatures are the features that have one ref per entity ID
@@ -40,6 +43,8 @@ var perEntityFeatures = map[Feature]bool{
 	FeatureIssue: true,
 	FeatureTask:  true,
 	FeatureChat:  true,
+	// workpackage is per-entity too (refs/projects/workpackage/<id>).
+	FeatureWorkpackage: true,
 }
 
 // shardedFeatures are the features that, alongside their singleton ref,
@@ -69,7 +74,7 @@ const (
 )
 
 // EntityRef builds the ref name for a single entity of the given feature.
-// Only issue/task/chat are per-entity; other features are singletons and
+// Only issue/task/chat/workpackage are per-entity; other features are singletons and
 // must be referenced via their dedicated constant.
 func EntityRef(feature Feature, id string) (string, error) {
 	if !perEntityFeatures[feature] {

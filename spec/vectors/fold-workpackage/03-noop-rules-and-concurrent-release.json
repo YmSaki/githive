@@ -1,0 +1,163 @@
+{
+  "description": "実質変化なしは no-op で updated_at を進めない。並行 release の 2 件目は no-op で notes を作らない。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "workpackage.create",
+      "id": "01jzc0wpaaaaaaaaaaaaa00001",
+      "ts": "2026-07-04T10:00:01.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "title": "t",
+        "depends_on": [
+          "01jzc0wpaaaaaaaaaaaaaaadd1"
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00002",
+      "ts": "2026-07-04T10:00:02.000Z",
+      "actor": "name+@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2026-07-05T00:00:00.000Z"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.edit",
+      "id": "01jzc0wpaaaaaaaaaaaaa00003",
+      "ts": "2026-07-04T10:00:03.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {}
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.edit",
+      "id": "01jzc0wpaaaaaaaaaaaaa00004",
+      "ts": "2026-07-04T10:00:04.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "title": "t",
+        "priority": "normal"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.dependency",
+      "id": "01jzc0wpaaaaaaaaaaaaa00005",
+      "ts": "2026-07-04T10:00:05.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "target": "01jzc0wpaaaaaaaaaaaaaaadd1"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.dependency",
+      "id": "01jzc0wpaaaaaaaaaaaaa00006",
+      "ts": "2026-07-04T10:00:06.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "target": "01jzc0wpaaaaaaaaaaaaaaadd2",
+        "remove": true
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.release",
+      "id": "01jzc0wpaaaaaaaaaaaaa00007",
+      "ts": "2026-07-04T10:00:07.000Z",
+      "actor": "name+@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "claim_id": "01jzc0wpaaaaaaaaaaaaa00002",
+        "note": "first"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.release",
+      "id": "01jzc0wpaaaaaaaaaaaaa00008",
+      "ts": "2026-07-04T10:00:08.000Z",
+      "actor": "name+@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "claim_id": "01jzc0wpaaaaaaaaaaaaa00002",
+        "note": "second"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.link",
+      "id": "01jzc0wpaaaaaaaaaaaaa00009",
+      "ts": "2026-07-04T10:00:09.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "rel": "issue",
+        "id": "01jzc0wpaaaaaaaaaaaaaaaak1",
+        "remove": true
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.create",
+      "id": "01jzc0wpaaaaaaaaaaaaa00011",
+      "ts": "2026-07-04T10:00:11.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "title": "second create"
+      }
+    }
+  ],
+  "expected_meta": {
+    "acceptance_version": "01jzc0wpaaaaaaaaaaaaa00001",
+    "acceptances": [],
+    "cancellations": [],
+    "claims": [
+      {
+        "branch": null,
+        "claim_id": "01jzc0wpaaaaaaaaaaaaa00002",
+        "holder": "name+@example.org",
+        "lease_until": "2026-07-05T00:00:00.000Z",
+        "released_at": "2026-07-04T10:00:07.000Z",
+        "ts": "2026-07-04T10:00:02.000Z"
+      }
+    ],
+    "created_at": "2026-07-04T10:00:01.000Z",
+    "created_by": "dev@example.org",
+    "current_submission_id": null,
+    "depends_on": [
+      "01jzc0wpaaaaaaaaaaaaaaadd1"
+    ],
+    "finding_of": null,
+    "id": "01jzc0wpaaaaaaaaaaaaaaaaea",
+    "kind": "work",
+    "links": [],
+    "parent_id": null,
+    "priority": "normal",
+    "submissions": [],
+    "title": "t",
+    "updated_at": "2026-07-04T10:00:07.000Z",
+    "waivers": []
+  },
+  "expected_body": "",
+  "expected_notes": {
+    "01jzc0wpaaaaaaaaaaaaa00007": {
+      "actor": "name+@example.org",
+      "body": "first",
+      "event_id": "01jzc0wpaaaaaaaaaaaaa00007",
+      "kind": "workpackage.release",
+      "ts": "2026-07-04T10:00:07.000Z"
+    }
+  }
+}

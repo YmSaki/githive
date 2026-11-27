@@ -24,6 +24,13 @@ func (e *ClockSkewError) Recovery() string {
 	return "no event was recorded; check this machine's clock and the originating peer's clock, then retry the original write once its new ID sorts after the known history"
 }
 
+// ValidateNewEventOrder is the ADR-0026 max-ID check of a new event against
+// the non-checkpoint history it will be appended to, for callers (wp start)
+// that must report clock_skew before their own state prechecks.
+func ValidateNewEventOrder(env *event.Envelope, history []*event.Envelope) error {
+	return validateNewEventOrder(env, history)
+}
+
 func validateNewEventOrder(env *event.Envelope, history []*event.Envelope) error {
 	if strings.HasSuffix(env.Kind, ".checkpoint") {
 		return nil // checkpoints are ignored by reducers and have no mutation order

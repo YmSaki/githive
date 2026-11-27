@@ -1,0 +1,386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://githive.dev/spec/schemas/workpackage.schema.json",
+  "title": "workpackage.* イベントの data スキーマ群",
+  "description": "workpackage（エイリアス wp）機能の 13 種のイベント。fold は不適格な値を no-op として扱い、書き込み時の詳細検査は app 層が行う。重複を含む配列（links / depends_on / reviewers）は書き込み時に受理し fold で統合するため uniqueItems は付けない。",
+  "$defs": {
+    "ulid": {
+      "type": "string",
+      "pattern": "^[0-9a-hjkmnp-tv-z]{26}$"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "normal",
+        "high"
+      ]
+    },
+    "commit_oid": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "link_rel": {
+      "type": "string",
+      "enum": [
+        "issue",
+        "task",
+        "chat",
+        "workpackage"
+      ]
+    },
+    "link": {
+      "type": "object",
+      "properties": {
+        "rel": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rel",
+        "id"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.create": {
+      "type": "object",
+      "description": "初期状態。チェーンの非 checkpoint 先頭イベントに限り適用する。",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        },
+        "priority": {
+          "$ref": "#/$defs/priority"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "work",
+            "container"
+          ]
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ulid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "finding_of": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "workpackage": {
+                  "$ref": "#/$defs/ulid"
+                },
+                "submit_id": {
+                  "$ref": "#/$defs/ulid"
+                }
+              },
+              "required": [
+                "workpackage",
+                "submit_id"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/link"
+          }
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.edit": {
+      "type": "object",
+      "description": "指定フィールドのみ評価する。body の変化は acceptance_version を更新する。",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        },
+        "priority": {
+          "$ref": "#/$defs/priority"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ulid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "workpackage.dependency": {
+      "type": "object",
+      "description": "depends_on 集合への追加・削除。",
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/ulid"
+        },
+        "remove": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.claim": {
+      "type": "object",
+      "description": "新しい claim レコードを追加する。lease_until は UTC ミリ秒へ正規化し [ts, ts+7日] にクランプする。",
+      "properties": {
+        "lease_until": {
+          "type": "string",
+          "minLength": 1
+        },
+        "branch": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "lease_until"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.renew": {
+      "type": "object",
+      "description": "holder 本人・未解除・期限内の claim の lease_until（と branch）を更新する。",
+      "properties": {
+        "claim_id": {
+          "$ref": "#/$defs/ulid"
+        },
+        "lease_until": {
+          "type": "string",
+          "minLength": 1
+        },
+        "branch": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id",
+        "lease_until"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.release": {
+      "type": "object",
+      "description": "holder 本人・未解除の claim を解除する（期限切れ後も可）。",
+      "properties": {
+        "claim_id": {
+          "$ref": "#/$defs/ulid"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.submit": {
+      "type": "object",
+      "description": "提出を追記する。commit は完全 OID か null。reviewers は null か 1 件以上の配列。",
+      "properties": {
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/commit_oid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "acceptance_version": {
+          "$ref": "#/$defs/ulid"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "pr_url": {
+          "type": "string"
+        },
+        "reviewers": {
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "commit",
+        "acceptance_version"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.accept": {
+      "type": "object",
+      "description": "提出への承認を追記する。資格判定は wpgraph が行う。",
+      "properties": {
+        "submit_id": {
+          "$ref": "#/$defs/ulid"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "submit_id"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.waive": {
+      "type": "object",
+      "description": "finding の免除を追記する。reason は notes にも保存する。",
+      "properties": {
+        "target_id": {
+          "$ref": "#/$defs/ulid"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "target_id",
+        "reason"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.cancel": {
+      "type": "object",
+      "description": "cancellations に追記する（後続イベントは破棄しない）。",
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "workpackage.note": {
+      "type": "object",
+      "description": "notes に追記する。",
+      "properties": {
+        "body": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.link": {
+      "type": "object",
+      "description": "links 集合に適用する。",
+      "properties": {
+        "rel": {
+          "$ref": "#/$defs/link_rel"
+        },
+        "id": {
+          "$ref": "#/$defs/ulid"
+        },
+        "remove": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "rel",
+        "id"
+      ],
+      "additionalProperties": true
+    },
+    "workpackage.checkpoint": {
+      "type": "object",
+      "description": "読み出し起点。fold はこの kind を常に無視する（ADR-0013 / ADR-0016）。state は {meta, collections: {body: {text}, notes}, scratch: {}}。",
+      "properties": {
+        "state": {
+          "type": "object",
+          "properties": {
+            "meta": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "collections": {
+              "type": "object"
+            },
+            "scratch": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": true
+        },
+        "event_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "head": {
+          "type": "string"
+        },
+        "max_event_id": {
+          "type": "string",
+          "pattern": "^[0-9a-hjkmnp-tv-z]{26}$"
+        }
+      },
+      "required": [
+        "state",
+        "event_count",
+        "head",
+        "max_event_id"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

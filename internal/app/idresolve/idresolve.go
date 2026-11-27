@@ -50,8 +50,8 @@ func Match(input string, candidates []string) (string, error) {
 // different namespace. Full IDs also require an existing ref.
 func Entity(ctx context.Context, dir, feature, input string) (string, error) {
 	kind := refspace.Feature(feature)
-	if kind != refspace.FeatureIssue && kind != refspace.FeatureTask && kind != refspace.FeatureChat {
-		return "", &event.InvalidInputError{Kind: "reference", Field: "kind", Rule: "must be issue, task, or chat"}
+	if kind != refspace.FeatureIssue && kind != refspace.FeatureTask && kind != refspace.FeatureChat && kind != refspace.FeatureWorkpackage {
+		return "", &event.InvalidInputError{Kind: "reference", Field: "kind", Rule: "must be issue, task, chat, or workpackage"}
 	}
 	normalized, err := normalizePrefix(input)
 	if err != nil {
@@ -126,9 +126,9 @@ func Event(ctx context.Context, dir, feature, entity, input, kind string) (strin
 // and may name an offline/unfetched entity; prefixes require a local match in
 // the specified feature. An opaque source kind can only carry a full ID.
 func Related(ctx context.Context, dir, feature, input string, opaqueKind bool) (string, error) {
-	known := feature == "issue" || feature == "task" || feature == "chat"
+	known := feature == "issue" || feature == "task" || feature == "chat" || feature == "workpackage"
 	if !known && !opaqueKind {
-		return "", &event.InvalidInputError{Kind: "reference", Field: "kind", Rule: "must be issue, task, or chat"}
+		return "", &event.InvalidInputError{Kind: "reference", Field: "kind", Rule: "must be issue, task, chat, or workpackage"}
 	}
 	normalized := strings.ToLower(input)
 	if event.IsValidULID(normalized) {

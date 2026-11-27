@@ -17,6 +17,7 @@
 | P2 | task / chat / notify | 3 機能が issue と同じ機構で動く。自動 notify、未読検出が動く |
 | P3 | users / 署名 / verify | 台帳、SSH 署名付与、`githive verify`、`whoami` が動く |
 | P4 | wiki / 運用コマンド | wiki edit/save、fsck、チェックポイント、log（横断タイムライン） |
+| P4 追補 | workpackage（`githive wp`）フェーズ 1 | 実装済み（gates/attest・quorum は含まない）。fold の golden ベクタが `python3 spec/validate.py` で PASS、`internal/core/wpgraph` の導出テスト、CLI/MCP、sync/fsck/verify への登録が揃っている |
 | P5 | MCP サーバー（P2 直後に実施） | `githive mcp serve` で Agent が全機能を操作できる。Claude/Codex plugin パッケージ生成 |
 | P6 | TUI | ダッシュボード、issue/task/chat 操作 |
 | P7 | VSCode 拡張 | サイドバー、閲覧、投稿 |
@@ -58,6 +59,7 @@ P0 --> P1 --> P2 --> P5 --> P3 --> P4
 - P5（MCP）を P2 直後に前倒しする。MCP は CLI `--json` の薄い写像であり、署名（P3）に依存しない。イベント封筒は actor を初日から持つ（方針 2）ため、署名の後付けはデータ移行を伴わない。
 - P8（forge）が P3 に依存するのは、pre-receive の権限・署名検証が users 台帳と検証ロジックの再利用だからである。ここを別実装にすると仕様の二重管理になる。
 - P10/P11 は P9 と独立に進められる。
+- workpackage（P4 追補）は P2 の task/issue（`link` の対象）と P3 の users 台帳（受け入れ資格の判定）に依存する。台帳が無い環境でも動作し、その場合は検出注記の警告に留める。フェーズ 1 の範囲は gates/attest と quorum を含まない。これらを追加する場合は、ADR-0018 に従い封筒 v とリポジトリ schema_version の両方を昇格する。
 
 ## 各フェーズの作業分解（実装 Agent への指示粒度）
 

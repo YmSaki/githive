@@ -11,10 +11,12 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/ymsaki/githive/internal/app/chatapp"
+	"github.com/ymsaki/githive/internal/app/fsckapp"
 	"github.com/ymsaki/githive/internal/app/issueapp"
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
+	"github.com/ymsaki/githive/internal/app/workpackageapp"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
@@ -238,5 +240,62 @@ func TestListSkipsCheckpoints(t *testing.T) {
 		if e["id"] == cpEnv.ID {
 			t.Errorf("checkpoint event %q leaked into List() output", cpEnv.ID)
 		}
+	}
+}
+
+// TestListIncludesWorkpackageEvents: workpackage lifecycle events are timeline
+// activity, while a workpackage.checkpoint written by fsck --compact stays
+// hidden like every other feature's checkpoint.
+func TestListIncludesWorkpackageEvents(t *testing.T) {
+	requireGit(t)
+	dir := newTestRepo(t)
+	ctx := context.Background()
+	wp := workpackageapp.New(dir)
+	id, err := wp.Create(ctx, workpackageapp.CreateInput{Title: "wp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wp.Start(ctx, id, workpackageapp.StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wp.Submit(ctx, id, workpackageapp.SubmitInput{NoCommit: true}); err != nil {
+		t.Fatal(err)
+	}
+	gitConfig(t, dir, "user.email", "reviewer@example.com")
+	if _, err := wp.Accept(ctx, id, "", "ok"); err != nil {
+		t.Fatal(err)
+	}
+	report, err := fsckapp.New(dir).Run(ctx, fsckapp.Options{Compact: true, MaxEvents: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Checkpoints) == 0 {
+		t.Fatalf("fixture: no checkpoint written: %+v", report.Findings)
+	}
+
+	entries, err := New(dir).List(ctx, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]bool{}
+	for _, e := range entries {
+		if e["feature"] == "workpackage" {
+			kinds[e["kind"].(string)] = true
+		}
+	}
+	for _, k := range []string{"workpackage.create", "workpackage.claim", "workpackage.submit", "workpackage.accept"} {
+		if !kinds[k] {
+			t.Errorf("missing %s in timeline: %v", k, kinds)
+		}
+	}
+	if kinds["workpackage.checkpoint"] {
+		t.Errorf("workpackage.checkpoint leaked into the timeline: %v", kinds)
+	}
+}
+
+func gitConfig(t *testing.T, dir, key, value string) {
+	t.Helper()
+	if out, err := exec.Command("git", "-C", dir, "config", key, value).CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v\n%s", err, out)
 	}
 }

@@ -31,6 +31,8 @@ githive notify  post|list|ack     # list は [--unread] [--all] を取る（[fea
 githive chat    new|list|show|post|archive|edit-meta
 githive users   add|list|key|group|policy
 githive wiki    edit|save|show|log
+githive wp      new|edit|finding|list|show|start|renew|release|submit|accept|waive|cancel|dep|note|link
+                                 # githive workpackage の別名
 githive whoami
 
 githive verify [--ref <ref>] [--all]   # 署名とチェーン整合の検証（[11]）
@@ -92,7 +94,7 @@ notify は非空の title と宛先配列を要求し、宛先は `user:<email>`
 - 一覧系は `{ "items": [...], "total": n }` で統一する。例外は `githive users list` で、users/groups/policy という 3 種類の異なる一覧を同時に返す都合上 `{ "users": [...], "groups": [...], "policy": {...} }` の形をとる（[features/users.md](features/users.md)）。
 - `sync` の各 item は `ref` と `action` を持ち、対処を要する警告がある場合は `warning` も持つ。成功時は封筒の `warnings` にも同じ警告を返す。
 - 信頼の根の解決では `local_oid`・`remote_oid`・`backup_ref`・`recovery` と `published:false`・`local_write_preserved` を返す。local を保持する解決はローカルの書き込みを保存するが、その台帳を remote に配送したことにはならない。MCP の明示 sync も同じ結果情報を返す（MCP 書き込みは引き続き自動 sync しない）。
-- CLI 書き込み後の自動 sync も、成功経路の warning と部分配送結果を保持する。通信失敗でローカルの書き込みが残る場合は従来どおり成功と `sync_failed` warning を返し、warning の `data` に処理済み ref・`local_written`・`local_write_preserved`・書込対象の `published`・`delivery_complete:false` を含める。pin による remote 台帳採用で直前の書き込みが現在の ref から外れた場合は、`local_write_replaced`（終了1、`retryable:false`）と具体的な OID・回復案内を返す。remote 台帳採用の前に、旧 tip を `refs/githive-recovery/users/<old_oid>` へ CAS で永続退避する。保存済みの同じ OID は再利用し、異なる OID・保存失敗なら採用しない。このローカル専用 ref は自動送信せず、reflog の期限・GC に依存しない。回復案内は退避 ref の閲覧と別ブランチ作成を示し、現在の台帳や既存ブランチを上書きしない（ADR-0033）。
+- CLI 書き込み後の自動 sync も、成功経路の warning と部分配送結果を保持する。通信失敗でローカルの書き込みが残る場合は従来どおり成功と `sync_failed` warning を返し、warning の `data` に処理済み ref・`local_written`・`local_write_preserved`・書込対象の `published`・`delivery_complete:false` を含める。`sync_failed` の `data` は、同期に成功した各 ref の `items`、その件数 `total`、書込対象の ref 名 `write_ref` を持つ（既存の `local_written`・`local_write_preserved`・`published`・`delivery_complete` に加える）。pin による remote 台帳採用で直前の書き込みが現在の ref から外れた場合は、`local_write_replaced`（終了1、`retryable:false`）と具体的な OID・回復案内を返す。remote 台帳採用の前に、旧 tip を `refs/githive-recovery/users/<old_oid>` へ CAS で永続退避する。保存済みの同じ OID は再利用し、異なる OID・保存失敗なら採用しない。このローカル専用 ref は自動送信せず、reflog の期限・GC に依存しない。回復案内は退避 ref の閲覧と別ブランチ作成を示し、現在の台帳や既存ブランチを上書きしない（ADR-0033）。
 - `sync` が一部の ref だけで失敗しても、処理済み ref の `items`・`total` と `warnings` を `error.data` に返す。既存のエラーコード・`retryable`・復旧手順は保持する。人間向け出力にも処理済み ref と警告を表示してからエラーを報告する。
 - JSON の ID は常に完全形（26 文字）で出力する。人間向け issue/task/chat list の ID 列は、同 feature の全ローカル ref に対して一意な最短の前方一致（最低 8 文字、最大 26 文字）を表示する。archived やフィルター非表示の ref も比較する。作成結果・show の主 ID は完全形のまま。show のコメント／note／message ヘッダにも一意なイベント ID を表示し、chat --tail では表示外のメッセージも候補に含める。その他の装飾的短縮表示や notify/status/log の表示列は、この一覧 ID 列の保証範囲に含めない（[ADR-0031](adr/0031-unambiguous-entity-list-ids.md)）。
 
@@ -107,7 +109,39 @@ notify は非空の title と宛先配列を要求し、宛先は `user:<email>`
 | 4 | 検証失敗（署名不正、スキーマ違反の検出）。`githive sync` が users 台帳に無関係な 2 つの信頼の根を見つけ、`githive.trust.root` の pin で決着できない場合を含み、その場合は `error.code: "trust_root_conflict"`、`error.data` に両側のルート OID と復旧手順（`recovery`）を入れる（[03](03-sync-and-concurrency.md)「共通祖先が無い場合」） |
 | 5 | 環境不備（git が古い、リポジトリでない、schema_version 非対応、時計ずれで新しいイベントが既知の履歴より後に並ばない）。`clock_skew` は保存前に失敗し、既知の ID・時刻と復旧手順を返す |
 
-issue/task/chat の生の履歴に create より前の変更や異なる複数 create がある場合、および users の鍵依存順序・pub 一致に違反する場合は、`event_order_violation`（終了コード 4、再試行不可）として扱う。イベントや履歴は自動修正しない（[ADR-0026](adr/0026-reject-lossy-event-order.md)、[ADR-0027](adr/0027-reject-ignored-users-key-events.md)）。
+issue/task/chat/workpackage の生の履歴に create より前の変更や異なる複数 create がある場合、workpackage の履歴に非 checkpoint の create が 1 件もない場合、および users の鍵依存順序・pub 一致に違反する場合は、`event_order_violation`（終了コード 4、再試行不可）として扱う。イベントや履歴は自動修正しない（[ADR-0026](adr/0026-reject-lossy-event-order.md)、[ADR-0027](adr/0027-reject-ignored-users-key-events.md)）。
+
+### `githive wp`（`githive workpackage` の別名）
+
+```
+githive wp new --title <t> [--body <b>] [--kind work|container] [--priority p] [--parent id] [--depends-on id,...]
+githive wp edit <id> [--title <t>] [--body <b>] [--priority p] [--parent id | --clear-parent]
+githive wp finding <parent-id> --title <t> [--body <b>] [--submit-id id] [--parent id]
+githive wp list [--ready] [--mine] [--blocked] [--in-review] [--parent id]
+githive wp show <id>
+githive wp start <id> [--branch <name>] [--lease <duration>]
+githive wp renew <id> [--claim-id <cid>] [--lease <duration>] [--branch <name>]
+githive wp release <id> [--claim-id <cid>] [-m note]
+githive wp submit <id> [--commit <sha> | --no-commit] [--branch <name>] [--pr-url <url>] [--reviewers u1,u2] [-m note]
+githive wp accept <id> [--submit-id <eid>] [-m note]
+githive wp waive <id> --target <finding-id> -m <reason>
+githive wp cancel <id> [-m reason]
+githive wp dep <id> <target-id> [--remove]
+githive wp note <id> -m <note>
+githive wp link <id> <linked-id> --rel <issue|task|chat|workpackage> [--remove]
+```
+
+`wp start` は、`--no-sync` でなければ最初に remote 名を検査する（不正なら `invalid_remote`、終了 2、保存しない）。続けて事前 fetch を行い、通信に失敗したら `prefetch_failed` 警告（`data.remote` は選択した remote 名）を出してローカルで続行する。追跡側の状態は、その fetch の結果から一組で取る（[ADR-0035](adr/0035-wp-start-private-fetch-snapshot.md)）。MCP は事前 fetch も sync も行わない。
+
+`--lease`（MCP の `lease`）を省略すると 24h になる。明示した値は 1ms 以上 168h 以下でなければならない。`0s` や `1ns` のように 1ms 未満の値は、ミリ秒に切り捨てると `lease_until` が claim の `ts` 以下になるため、`invalid_input`（終了 2）で拒否し、何も保存しない。`wp start` はこの検査を remote 名の検査より前に行う。`wp renew` も同じ範囲で検査する。MCP では空文字の `lease` を省略と同じに扱う。範囲内でも `1ms` のように極端に短い lease は、claim を保存したうえで、保存後の判定で `claim_expired`（終了 3）になり得る。
+
+人間向け出力では、`wp show` は導出した警告（`self_accept`・`unverified_accept`・`self_waive`・`unverified_waive` など）を `warning: <code>` 行で、`wp list` は行末の `[<code> ...]` で表示する。コマンドがエラーで終わる場合も、それまでに出た警告（`prefetch_failed` など）をエラーの前に標準エラーへ表示する。
+
+終了コードは上記の表に従う。workpackage 固有のエラーコードは次のとおり。
+
+- 終了コード 3：`stale_acceptance_version`, `stale_submission`, `claim_held`, `claim_lost`, `claim_expired`, `claim_released`, `unauthorized_claim_op`, `already_cancelled`（競合・前提不一致）。
+- 終了コード 4：`verify_failed`（`error.data: {reason, ref}`。直接操作で台帳破損を検出した場合）。
+- 終了コード 1・2・5：既存コードと同じ（`not_found` は 1、`invalid_input`・`ambiguous_id` は 2、`clock_skew`・`shallow_history` は 5）。
 
 ## ID の入力解決
 

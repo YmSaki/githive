@@ -1,0 +1,75 @@
+{
+  "description": "create.id より小さい ID の checkpoint があっても非 checkpoint 先頭判定で create が採用され、checkpoint は無視される。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "workpackage.checkpoint",
+      "id": "01jzc0wp0000000000000000cp",
+      "ts": "2026-07-04T09:00:00.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "state": {
+          "meta": null,
+          "collections": {},
+          "scratch": {}
+        },
+        "event_count": 0,
+        "head": "0000000000000000000000000000000000000000",
+        "max_event_id": "01jzc0wp0000000000000000cp"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.create",
+      "id": "01jzc0wpaaaaaaaaaaaaa00001",
+      "ts": "2026-07-04T10:00:01.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "title": "cp"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.note",
+      "id": "01jzc0wpaaaaaaaaaaaaa00002",
+      "ts": "2026-07-04T10:00:02.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "body": "after"
+      }
+    }
+  ],
+  "expected_meta": {
+    "acceptance_version": "01jzc0wpaaaaaaaaaaaaa00001",
+    "acceptances": [],
+    "cancellations": [],
+    "claims": [],
+    "created_at": "2026-07-04T10:00:01.000Z",
+    "created_by": "dev@example.org",
+    "current_submission_id": null,
+    "depends_on": [],
+    "finding_of": null,
+    "id": "01jzc0wpaaaaaaaaaaaaaaaaea",
+    "kind": "work",
+    "links": [],
+    "parent_id": null,
+    "priority": "normal",
+    "submissions": [],
+    "title": "cp",
+    "updated_at": "2026-07-04T10:00:02.000Z",
+    "waivers": []
+  },
+  "expected_body": "",
+  "expected_notes": {
+    "01jzc0wpaaaaaaaaaaaaa00002": {
+      "actor": "dev@example.org",
+      "body": "after",
+      "event_id": "01jzc0wpaaaaaaaaaaaaa00002",
+      "kind": "workpackage.note",
+      "ts": "2026-07-04T10:00:02.000Z"
+    }
+  }
+}

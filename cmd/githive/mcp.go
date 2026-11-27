@@ -168,6 +168,7 @@ func withWarnings(data map[string]any, warnings []any) map[string]any {
 func registerMcpTools(server *mcp.Server, dir string) {
 	registerIssueTools(server, dir)
 	registerTaskTools(server, dir)
+	registerWorkpackageTools(server, dir)
 	registerChatTools(server, dir)
 	registerNotifyTools(server, dir)
 	registerLogTools(server, dir)
@@ -838,7 +839,7 @@ type logListParams struct {
 }
 
 func registerLogTools(server *mcp.Server, dir string) {
-	mcp.AddTool(server, &mcp.Tool{Name: "log", Description: "Cross-feature event timeline across issue/task/chat/notify/users (paginated)"},
+	mcp.AddTool(server, &mcp.Tool{Name: "log", Description: "Cross-feature event timeline across issue/task/chat/notify/users/workpackage (paginated)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, args logListParams) (*mcp.CallToolResult, map[string]any, error) {
 			items, err := logapp.New(dir).List(ctx, logapp.ListFilter{Since: args.Since, ActorEmail: args.Actor})
 			if err != nil {
@@ -1062,12 +1063,13 @@ func registerSyncAndStatusTools(server *mcp.Server, dir string) {
 			if err != nil {
 				return nil, nil, err
 			}
-			refs, err := syncapp.DiscoverRefs(ctx, dir, remote, args.Kinds)
+			refs, snap, err := syncapp.DiscoverRefs(ctx, dir, remote, args.Kinds)
 			if err != nil {
 				return nil, nil, err
 			}
-			// DiscoverRefs just fetched the namespace; Sync must not repeat it.
-			results, err := syncapp.Sync(ctx, dir, remote, refs, syncapp.RetriesFromConfig(ctx, dir), syncapp.SkipInitialFetch())
+			// DiscoverRefs just fetched the namespace; the first round reuses
+			// that fetch's snapshot rather than fetching or reading tracking refs.
+			results, err := syncapp.Sync(ctx, dir, remote, refs, syncapp.RetriesFromConfig(ctx, dir), syncapp.SkipInitialFetch(snap))
 			data := syncResultData(results)
 			if err != nil {
 				_, info := classifyError(err)

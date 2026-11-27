@@ -153,10 +153,14 @@ func TestSyncSkipInitialFetchReusesDiscoveryFetch(t *testing.T) {
 	dir := cloneRepo(t, origin, "a@example.com")
 	refs := seedIssues(t, dir, 2)
 	ctx := context.Background()
+	_, snap, err := DiscoverRefs(ctx, dir, "origin", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	trace := newGitTrace(t)
 	trace.reset()
-	if _, err := Sync(ctx, dir, "origin", refs, 5, SkipInitialFetch()); err != nil {
+	if _, err := Sync(ctx, dir, "origin", refs, 5, SkipInitialFetch(snap)); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
 	if got := len(trace.subcommands("fetch")); got != 0 {

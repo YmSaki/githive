@@ -14,6 +14,7 @@ import (
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
+	"github.com/ymsaki/githive/internal/app/wptree"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/idgen"
@@ -41,11 +42,12 @@ type featureWriter struct {
 }
 
 var featureWriters = map[refspace.Feature]featureWriter{
-	refspace.FeatureIssue:  {materialize.IssueRegistry, issueapp.TreeFiles, true},
-	refspace.FeatureTask:   {materialize.TaskRegistry, taskapp.TreeFiles, true},
-	refspace.FeatureChat:   {materialize.ChatRegistry, chatapp.TreeFiles, true},
-	refspace.FeatureNotify: {materialize.NotifyRegistry, notifyapp.TreeFiles, false},
-	refspace.FeatureUsers:  {materialize.UsersRegistry, usersapp.TreeFiles, false},
+	refspace.FeatureIssue:       {materialize.IssueRegistry, issueapp.TreeFiles, true},
+	refspace.FeatureTask:        {materialize.TaskRegistry, taskapp.TreeFiles, true},
+	refspace.FeatureChat:        {materialize.ChatRegistry, chatapp.TreeFiles, true},
+	refspace.FeatureNotify:      {materialize.NotifyRegistry, notifyapp.TreeFiles, false},
+	refspace.FeatureUsers:       {materialize.UsersRegistry, usersapp.TreeFiles, false},
+	refspace.FeatureWorkpackage: {materialize.WorkpackageRegistry, wptree.TreeFiles, true},
 }
 
 // maybeCheckpoint appends a checkpoint to ref's chain if it is past the

@@ -20,10 +20,12 @@ import (
 	"github.com/ymsaki/githive/internal/app/notifyapp"
 	"github.com/ymsaki/githive/internal/app/taskapp"
 	"github.com/ymsaki/githive/internal/app/usersapp"
+	"github.com/ymsaki/githive/internal/app/wptree"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/identity"
+	"github.com/ymsaki/githive/internal/core/idgen"
 	"github.com/ymsaki/githive/internal/core/materialize"
 	"github.com/ymsaki/githive/internal/core/merge"
 	"github.com/ymsaki/githive/internal/core/projectconfig"
@@ -126,6 +128,8 @@ var SupportedFeatures = map[refspace.Feature]bool{
 	refspace.FeatureUsers:  true,
 	refspace.FeatureMeta:   true,
 	refspace.FeatureWiki:   true,
+	// workpackage refs merge by event union like issue/task/chat.
+	refspace.FeatureWorkpackage: true,
 }
 
 // registryAndWriter returns the fold registry and tree writer for a
@@ -142,6 +146,8 @@ func registryAndWriter(feature refspace.Feature) (*materialize.Registry, func(*m
 		return materialize.NotifyRegistry, notifyapp.TreeFiles, nil
 	case refspace.FeatureUsers:
 		return materialize.UsersRegistry, usersapp.TreeFiles, nil
+	case refspace.FeatureWorkpackage:
+		return materialize.WorkpackageRegistry, wptree.TreeFiles, nil
 	default:
 		return nil, nil, fmt.Errorf("syncapp: feature %q is not yet supported by sync", feature)
 	}
@@ -152,15 +158,20 @@ type Option func(*syncOptions)
 
 type syncOptions struct {
 	skipInitialFetch bool
+	initialSnapshot  RemoteSnapshot
 }
 
 // SkipInitialFetch tells Sync that the caller has already fetched the
-// refs/projects/ namespace in this operation - which DiscoverRefs does - so
-// the first round can work from what is already in refs/githive-remote/*
-// instead of repeating the round trip. Retry rounds still fetch, since a
-// retry exists precisely because the remote moved.
-func SkipInitialFetch() Option {
-	return func(o *syncOptions) { o.skipInitialFetch = true }
+// refs/projects/ namespace in this operation - which DiscoverRefs does - and
+// hands over that fetch's RemoteSnapshot, so the first round plans from it
+// instead of repeating the round trip or re-reading refs/githive-remote/*
+// (ADR-0035). Retry rounds still fetch, since a retry exists precisely
+// because the remote moved.
+func SkipInitialFetch(snap RemoteSnapshot) Option {
+	return func(o *syncOptions) {
+		o.skipInitialFetch = true
+		o.initialSnapshot = snap
+	}
 }
 
 // Sync runs the fetch/merge/push algorithm for refs against remote. retries is
@@ -196,19 +207,25 @@ func Sync(ctx context.Context, dir, remote string, refs []string, retries int, o
 
 	pending := append([]string(nil), refs...)
 	for round := 0; len(pending) > 0; round++ {
-		if round > 0 || !o.skipInitialFetch {
-			if err := fetchNamespace(ctx, r, remote); err != nil {
+		// snap is this round's remote view: its own fetch result, or the
+		// discovery fetch's for a SkipInitialFetch first round. Tracking refs
+		// are never re-read (ADR-0035).
+		snap := o.initialSnapshot
+		// A nil snapshot is never trusted as "remote has nothing": fetch.
+		if round > 0 || !o.skipInitialFetch || snap == nil {
+			var err error
+			if snap, err = FetchSnapshot(ctx, r, remote); err != nil {
 				return orderedResults(refs, done), errors.Join(append(failures, err)...)
 			}
 		}
-		if err := checkSchemaBothSides(ctx, dir); err != nil {
+		if err := checkSchemaBothSides(ctx, dir, snap); err != nil {
 			return orderedResults(refs, done), errors.Join(append(failures, err)...)
 		}
 
 		var toPush []*pushPlan
 		var next []string
 		for _, ref := range pending {
-			plan, res, err := planRef(ctx, dir, r, ref)
+			plan, res, err := planRef(ctx, dir, r, ref, snap)
 			switch {
 			case errors.Is(err, gitx.ErrRefCASMismatch):
 				// A local writer advanced after planning. Read its new head
@@ -254,33 +271,56 @@ type pushPlan struct {
 // an outdated tool merging a newer repository would write trees under the
 // old fold semantics - and the meta/config merge itself would then carry
 // the newer schema_version into the local ref.
-func checkSchemaBothSides(ctx context.Context, dir string) error {
+func checkSchemaBothSides(ctx context.Context, dir string, snap RemoteSnapshot) error {
 	if err := entitychain.CheckSchemaSupported(ctx, dir); err != nil {
 		return err
 	}
-	tracking, err := refspace.RemoteTrackingRef(refspace.MetaConfigRef)
-	if err != nil {
-		return err
+	if oid := snap[refspace.MetaConfigRef]; oid != "" {
+		return entitychain.CheckSchemaSupportedAt(ctx, dir, oid)
 	}
-	return entitychain.CheckSchemaSupportedAt(ctx, dir, tracking)
+	return nil
 }
 
-// fetchNamespace pulls the whole refs/projects/ namespace in one wildcard
-// refspec. A wildcard rather than a specific ref because it tolerates the
-// remote not having a given ref yet (no error) and covers every ref of the
-// round in one round trip. Pruning only the tracking namespace ensures a
-// deleted remote ref is re-pushed from the authoritative local ref.
-func fetchNamespace(ctx context.Context, r *gitx.Runner, remote string) error {
-	return r.FetchPruned(ctx, remote, fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot))
+// RemoteSnapshot maps a local ref name (refs/projects/...) to the OID the
+// remote advertised in one fetch; a missing key means the remote lacks it.
+type RemoteSnapshot map[string]string
+
+// snapshotRoot holds per-fetch private copies (ADR-0035).
+const snapshotRoot = "refs/githive-snapshot"
+
+// FetchSnapshot is fetchNamespace plus a private copy of the same fetch into
+// refs/githive-snapshot/<ULID>/*, read back and deleted at once. Because no
+// other process writes that namespace, the result is exactly this fetch's
+// remote view, unaffected by a concurrent fetch of another remote into
+// refs/githive-remote/* (ADR-0035).
+func FetchSnapshot(ctx context.Context, r *gitx.Runner, remote string) (RemoteSnapshot, error) {
+	private := snapshotRoot + "/" + idgen.New()
+	err := r.FetchPruned(ctx, remote,
+		fmt.Sprintf("+%s/*:%s/*", refspace.Root, refspace.RemoteTrackingRoot),
+		fmt.Sprintf("+%s/*:%s/*", refspace.Root, private))
+	entries, listErr := r.ForEachRef(ctx, private+"/")
+	// Best-effort cleanup; a failure only leaves unused private refs behind.
+	_ = r.DeleteRefs(ctx, entries)
+	if err != nil {
+		return nil, err
+	}
+	if listErr != nil {
+		return nil, listErr
+	}
+	snap := RemoteSnapshot{}
+	for _, e := range entries {
+		snap[refspace.Root+strings.TrimPrefix(e.Ref, private)] = e.OID
+	}
+	return snap, nil
 }
 
 // planRef decides what one ref needs, doing any purely local work (a
 // fast-forward of the local ref, an event-union merge, a trust-root
 // resolution) immediately. It returns exactly one of: a plan to push, a
 // finished Result, or an error (a local CAS mismatch must be replanned).
-func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*pushPlan, Result, error) {
-	trackingRef, err := refspace.RemoteTrackingRef(ref)
-	if err != nil {
+// snap supplies the remote OID; a ref missing from it is absent remotely.
+func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string, snap RemoteSnapshot) (*pushPlan, Result, error) {
+	if _, err := refspace.RemoteTrackingRef(ref); err != nil {
 		return nil, Result{}, err
 	}
 	parsed, err := refspace.Parse(ref)
@@ -291,10 +331,7 @@ func planRef(ctx context.Context, dir string, r *gitx.Runner, ref string) (*push
 	if err != nil {
 		return nil, Result{}, err
 	}
-	remoteOID, err := r.RevParse(ctx, trackingRef)
-	if err != nil {
-		return nil, Result{}, err
-	}
+	remoteOID := snap[ref]
 
 	if parsed.Feature != refspace.FeatureWiki {
 		if err := validateEventIDs(dir, parsed, localOID, remoteOID); err != nil {

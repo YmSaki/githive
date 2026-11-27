@@ -45,7 +45,7 @@ func TestDiscoverRefsFindsRemoteOnlyEntities(t *testing.T) {
 		t.Fatalf("fixture broken: B already has %s", issueRef)
 	}
 
-	refs, err := DiscoverRefs(ctx, dirB, "origin", nil)
+	refs, _, err := DiscoverRefs(ctx, dirB, "origin", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestDiscoverRefsHonoursKindFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	refs, err := DiscoverRefs(ctx, dir, "origin", []string{"issue"})
+	refs, _, err := DiscoverRefs(ctx, dir, "origin", []string{"issue"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestSyncRepairsMissingRemoteRefs(t *testing.T) {
 				}
 				opts := []Option{}
 				if discover {
-					found, err := DiscoverRefs(ctx, dir, "origin", nil)
+					found, snap, err := DiscoverRefs(ctx, dir, "origin", nil)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -196,7 +196,7 @@ func TestSyncRepairsMissingRemoteRefs(t *testing.T) {
 							t.Fatalf("local ref changed: got %s want %s", got, expected[ref])
 						}
 					}
-					opts = append(opts, SkipInitialFetch())
+					opts = append(opts, SkipInitialFetch(snap))
 				}
 				results, err := Sync(ctx, dir, "origin", refs, 0, opts...)
 				if err != nil {

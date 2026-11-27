@@ -2,6 +2,7 @@ package syncapp
 
 import (
 	"context"
+	"sort"
 
 	"github.com/ymsaki/githive/internal/core/gitx"
 	"github.com/ymsaki/githive/internal/core/refspace"
@@ -21,21 +22,23 @@ import (
 // ref as the full working set, not just the already-known ones).
 //
 // So the sequence is: fetch the namespace, then union the local refs with
-// whatever showed up in the remote-tracking namespace (refs/githive-remote/*,
-// ADR-0008).
-func DiscoverRefs(ctx context.Context, dir, remote string, kinds []string) ([]string, error) {
+// that same fetch's RemoteSnapshot (ADR-0035). The snapshot is returned so
+// the caller can hand it to Sync via SkipInitialFetch: re-reading
+// refs/githive-remote/* instead could see another remote's concurrent fetch
+// and misjudge a ref as up-to-date.
+func DiscoverRefs(ctx context.Context, dir, remote string, kinds []string) ([]string, RemoteSnapshot, error) {
 	r := gitx.New(dir)
-	if err := fetchNamespace(ctx, r, remote); err != nil {
-		return nil, err
+	snap, err := FetchSnapshot(ctx, r, remote)
+	if err != nil {
+		return nil, nil, err
+	}
+	if afterDiscoveryFetch != nil {
+		afterDiscoveryFetch()
 	}
 
 	localEntries, err := r.ForEachRef(ctx, refspace.Root+"/")
 	if err != nil {
-		return nil, err
-	}
-	trackingEntries, err := r.ForEachRef(ctx, refspace.RemoteTrackingRoot+"/")
-	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	allowed := map[string]bool{}
@@ -63,15 +66,20 @@ func DiscoverRefs(ctx context.Context, dir, remote string, kinds []string) ([]st
 	for _, e := range localEntries {
 		add(e.Ref)
 	}
-	for _, e := range trackingEntries {
-		localRef, err := refspace.LocalRefFromTracking(e.Ref)
-		if err != nil {
-			continue
-		}
-		add(localRef)
+	remoteRefs := make([]string, 0, len(snap))
+	for ref := range snap {
+		remoteRefs = append(remoteRefs, ref)
 	}
-	return refs, nil
+	sort.Strings(remoteRefs)
+	for _, ref := range remoteRefs {
+		add(ref)
+	}
+	return refs, snap, nil
 }
+
+// afterDiscoveryFetch is a test seam run right after DiscoverRefs' fetch, to
+// simulate another remote's concurrent fetch rewriting refs/githive-remote/*.
+var afterDiscoveryFetch func()
 
 // UnpushedRefs lists the local refs whose last-known remote-tracking ref
 // disagrees with them, i.e. what `githive status` reports as not yet pushed.

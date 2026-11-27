@@ -273,7 +273,7 @@ func VerifyAll(ctx context.Context, dir string, trustRootPin string) ([]RefRepor
 			continue
 		}
 		switch parsed.Feature {
-		case refspace.FeatureIssue, refspace.FeatureTask, refspace.FeatureChat, refspace.FeatureNotify, refspace.FeatureUsers:
+		case refspace.FeatureIssue, refspace.FeatureTask, refspace.FeatureChat, refspace.FeatureNotify, refspace.FeatureUsers, refspace.FeatureWorkpackage:
 		default:
 			continue
 		}
