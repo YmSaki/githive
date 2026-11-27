@@ -1,0 +1,142 @@
+{
+  "description": "lease_until の UTC 変換・ミリ秒切り捨て・[ts, ts+7日] クランプ、他人の renew は no-op、期限切れ後の holder の release は有効。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "workpackage.create",
+      "id": "01jzc0wpaaaaaaaaaaaaa00001",
+      "ts": "2026-07-04T10:00:01.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "title": "t"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00010",
+      "ts": "2026-07-04T10:00:10.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2026-07-04T19:10:10.123456+09:00",
+        "branch": "feature/a"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00011",
+      "ts": "2026-07-04T10:00:11.000Z",
+      "actor": "other@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2026-07-01T00:00:00Z"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00012",
+      "ts": "2026-07-04T10:00:12.000Z",
+      "actor": "third@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2027-01-01T00:00:00.000Z"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.renew",
+      "id": "01jzc0wpaaaaaaaaaaaaa00013",
+      "ts": "2026-07-04T10:00:13.000Z",
+      "actor": "other@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "claim_id": "01jzc0wpaaaaaaaaaaaaa00010",
+        "lease_until": "2026-07-04T12:00:00.999Z"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.renew",
+      "id": "01jzc0wpaaaaaaaaaaaaa00014",
+      "ts": "2026-07-04T10:00:14.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "claim_id": "01jzc0wpaaaaaaaaaaaaa00010",
+        "lease_until": "2026-07-04T11:00:00.000Z",
+        "branch": "feature/b"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.release",
+      "id": "01jzc0wpaaaaaaaaaaaaa00015",
+      "ts": "2026-07-05T00:00:00.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "claim_id": "01jzc0wpaaaaaaaaaaaaa00010",
+        "note": "終了"
+      }
+    }
+  ],
+  "expected_meta": {
+    "acceptance_version": "01jzc0wpaaaaaaaaaaaaa00001",
+    "acceptances": [],
+    "cancellations": [],
+    "claims": [
+      {
+        "branch": "feature/b",
+        "claim_id": "01jzc0wpaaaaaaaaaaaaa00010",
+        "holder": "dev@example.org",
+        "lease_until": "2026-07-04T11:00:00.000Z",
+        "released_at": "2026-07-05T00:00:00.000Z",
+        "ts": "2026-07-04T10:00:10.000Z"
+      },
+      {
+        "branch": null,
+        "claim_id": "01jzc0wpaaaaaaaaaaaaa00011",
+        "holder": "other@example.org",
+        "lease_until": "2026-07-04T10:00:11.000Z",
+        "released_at": null,
+        "ts": "2026-07-04T10:00:11.000Z"
+      },
+      {
+        "branch": null,
+        "claim_id": "01jzc0wpaaaaaaaaaaaaa00012",
+        "holder": "third@example.org",
+        "lease_until": "2026-07-11T10:00:12.000Z",
+        "released_at": null,
+        "ts": "2026-07-04T10:00:12.000Z"
+      }
+    ],
+    "created_at": "2026-07-04T10:00:01.000Z",
+    "created_by": "dev@example.org",
+    "current_submission_id": null,
+    "depends_on": [],
+    "finding_of": null,
+    "id": "01jzc0wpaaaaaaaaaaaaaaaaea",
+    "kind": "work",
+    "links": [],
+    "parent_id": null,
+    "priority": "normal",
+    "submissions": [],
+    "title": "t",
+    "updated_at": "2026-07-05T00:00:00.000Z",
+    "waivers": []
+  },
+  "expected_body": "",
+  "expected_notes": {
+    "01jzc0wpaaaaaaaaaaaaa00015": {
+      "actor": "dev@example.org",
+      "body": "終了",
+      "event_id": "01jzc0wpaaaaaaaaaaaaa00015",
+      "kind": "workpackage.release",
+      "ts": "2026-07-05T00:00:00.000Z"
+    }
+  }
+}

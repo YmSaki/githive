@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -465,8 +466,14 @@ func newIssueLinkCmd() *cobra.Command {
 }
 
 func printWarnings(warnings []cliout.Warning) {
-	for _, w := range warnings {
-		fmt.Printf("warning: %s: %s\n", w.Code, w.Message)
+	fprintWarnings(os.Stdout, warnings)
+}
+
+// fprintWarnings is printWarnings to an arbitrary writer; the human error
+// path uses it to put a failed command's warnings on stderr.
+func fprintWarnings(w io.Writer, warnings []cliout.Warning) {
+	for _, warning := range warnings {
+		fmt.Fprintf(w, "warning: %s: %s\n", warning.Code, warning.Message)
 	}
 }
 

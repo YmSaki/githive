@@ -34,7 +34,7 @@ var contractsErr error
 
 func loadDataContracts() {
 	dataContracts = map[string]dataContract{}
-	for _, feature := range []string{"issue", "task", "chat", "notify", "users", "meta"} {
+	for _, feature := range []string{"issue", "task", "chat", "notify", "users", "meta", "workpackage"} {
 		raw, err := schemas.Files.ReadFile(feature + ".schema.json")
 		if err != nil {
 			contractsErr = err

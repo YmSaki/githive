@@ -17,6 +17,10 @@
 - checkpoint は変更イベントの順序制約から除外する。同一内容の create の複製は従来どおり ID で重複排除する。
 - create 後の有効なイベントが生の履歴で順不同に届くことは引き続き許容する。reducer、ID 順ソート、Go/Python の fold、既存ゴールデンベクタは変更しない。既存の create 制約を保存・受け入れ境界で強制するため、schema_version は昇格しない。
 
+## 追補：workpackage
+
+per-entity チェーンの対象（issue/task/chat）に workpackage（`refs/projects/workpackage/<id>`）を追補し、同じ検査を適用する。加えて、workpackage の履歴は同一 ID で重複排除した後に、非 checkpoint の `workpackage.create` をちょうど 1 件含まなければならない。create が 0 件の履歴（`workpackage.note` だけ、`workpackage.checkpoint` だけなど）は `event_order_violation` とする。この検査は存在する各 tip（ローカルと追跡側のそれぞれ）と、両者の union の全てに対して行う。片側の tip に create が無ければ、union で 1 件になっても拒否する。ref 自体が存在しない場合（初回採用）は違反としない。
+
 ## 制限
 
 新しい ID を既知の最大値より後へ自動生成する機構は導入しない。そのため時計が大きく先行した既存履歴への追記は、時計の確認・修正または時刻の経過を待つ必要がある。同一ミリ秒でも別プロセスの乱数部の大小で新しい ID が小さくなる場合は拒否するため、時刻が進んだ後に再実行する。

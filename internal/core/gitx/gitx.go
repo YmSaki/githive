@@ -427,6 +427,25 @@ func (r *Runner) DeleteRef(ctx context.Context, ref, oldOID string) error {
 	return wrapUpdateRefErr(err)
 }
 
+// DeleteRefs removes every entry in one `git update-ref --stdin`
+// transaction, each verified against its OID, instead of one process per ref.
+func (r *Runner) DeleteRefs(ctx context.Context, entries []RefEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	var in bytes.Buffer
+	for _, e := range entries {
+		fmt.Fprintf(&in, "delete %s %s\n", e.Ref, e.OID)
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", r.Dir, "update-ref", "--stdin")
+	cmd.Env = gitEnv()
+	cmd.Stdin = &in
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return wrapUpdateRefErr(fmt.Errorf("gitx: update-ref --stdin: %w: %s", err, strings.TrimSpace(string(out))))
+	}
+	return nil
+}
+
 // wrapUpdateRefErr classifies a failed `git update-ref` invocation. err is
 // already r.run's wrapped error, which embeds git's stderr text.
 func wrapUpdateRefErr(err error) error {

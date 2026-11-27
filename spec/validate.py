@@ -60,6 +60,7 @@ import fold_issue
 import fold_notify
 import fold_task
 import fold_users
+import fold_workpackage
 from events_common import sort_events, validate_event_ids
 from domain_validation import validate_users_key_order
 
@@ -126,6 +127,7 @@ def build_validators() -> tuple[Draft202012Validator, dict[str, Draft202012Valid
         "users": "users.schema.json",
         "chat": "chat.schema.json",
         "meta": "meta.schema.json",
+        "workpackage": "workpackage.schema.json",
     }
     kind_validators: dict[str, Draft202012Validator] = {}
     for feature, filename in feature_files.items():
@@ -155,7 +157,7 @@ def iter_all_events() -> list[tuple[str, dict]]:
     スキーマ検証の対象として拾われる。
     """
     out = []
-    for sub in ("fold-issue", "fold-task", "fold-chat", "fold-notify", "fold-users", "meta-events"):
+    for sub in ("fold-issue", "fold-task", "fold-chat", "fold-notify", "fold-users", "fold-workpackage", "meta-events"):
         d = VECTORS_DIR / sub
         for path in sorted(d.glob("*.json")):
             with open(path, encoding="utf-8") as f:
@@ -314,6 +316,12 @@ def run_fold_validation(results: Results) -> None:
         VECTORS_DIR / "fold-users",
         fold_users.fold,
         [("users", "expected_users"), ("groups", "expected_groups"), ("policy", "expected_policy")],
+    )
+    _run_fold_dir(
+        results,
+        VECTORS_DIR / "fold-workpackage",
+        fold_workpackage.fold,
+        [("meta", "expected_meta"), ("body", "expected_body"), ("notes", "expected_notes")],
     )
 
 

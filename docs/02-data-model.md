@@ -15,6 +15,7 @@ refs/projects/notify/stream        # 通知ストリーム（MVP は単一、将
 refs/projects/users/registry       # ユーザー・グループ・権限の台帳（単一 ref）
 refs/projects/chat/<id>            # chat スレッド 1 件につき 1 ref
 refs/projects/wiki/main            # wiki 本体（ブランチ的に使う）
+refs/projects/workpackage/<id>     # workpackage 1 件につき 1 ref（ツリーは meta.json、body.md、notes/<event-id>.md）
 ```
 
 `<id>` は後述の ULID（小文字 26 文字）。

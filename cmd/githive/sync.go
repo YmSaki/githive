@@ -21,13 +21,14 @@ func newSyncCmd() *cobra.Command {
 				return err
 			}
 			ctx := context.Background()
-			refs, err := syncapp.DiscoverRefs(ctx, dir, flags.remote, kinds)
+			refs, snap, err := syncapp.DiscoverRefs(ctx, dir, flags.remote, kinds)
 			if err != nil {
 				return err
 			}
 			retries := syncapp.RetriesFromConfig(ctx, dir)
-			// DiscoverRefs just fetched the namespace; Sync must not repeat it.
-			results, err := syncapp.Sync(ctx, dir, flags.remote, refs, retries, syncapp.SkipInitialFetch())
+			// DiscoverRefs just fetched the namespace; the first round reuses
+			// that fetch's snapshot rather than fetching or reading tracking refs.
+			results, err := syncapp.Sync(ctx, dir, flags.remote, refs, retries, syncapp.SkipInitialFetch(snap))
 			items, warnings := syncResultItems(results)
 			if flags.json {
 				if err != nil {

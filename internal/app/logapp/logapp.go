@@ -57,6 +57,9 @@ var timelineFeatures = map[refspace.Feature]bool{
 	refspace.FeatureChat:   true,
 	refspace.FeatureNotify: true,
 	refspace.FeatureUsers:  true,
+	// workpackage claims/submits/accepts are timeline activity like task
+	// events; its checkpoints are dropped below like every other feature's.
+	refspace.FeatureWorkpackage: true,
 }
 
 // ListFilter narrows List results. Zero value means "no filter".
@@ -72,8 +75,8 @@ type ListFilter struct {
 	ActorEmail string
 }
 
-// List returns every event across issue/task/chat/notify/users, merged into
-// a single chronological (by ULID) timeline, optionally filtered.
+// List returns every event across issue/task/chat/notify/users/workpackage,
+// merged into a single chronological (by ULID) timeline, optionally filtered.
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]Entry, error) {
 	if filter.Since != "" && !event.IsValidTimestamp(filter.Since) {
 		return nil, fmt.Errorf("%w: since %q", ErrInvalidSince, filter.Since)

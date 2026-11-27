@@ -203,7 +203,7 @@ func (s *Service) Run(ctx context.Context, opts Options) (*Report, error) {
 		}
 		switch parsed.Feature {
 		case refspace.FeatureIssue, refspace.FeatureTask, refspace.FeatureChat,
-			refspace.FeatureNotify, refspace.FeatureUsers:
+			refspace.FeatureNotify, refspace.FeatureUsers, refspace.FeatureWorkpackage:
 			findings := validateChain(repo, e.Ref, parsed.Feature, head)
 			findings = append(findings, checkMaterialization(repo, e.Ref, parsed.Feature, head)...)
 			report.Findings = append(report.Findings, findings...)

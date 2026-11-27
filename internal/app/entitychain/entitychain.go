@@ -311,6 +311,26 @@ func (w *Writer) Append(ctx context.Context, id string, buildEvent func() (*even
 // retry, so it always describes the commit the event really lands on. fsck
 // --compact uses it to snapshot the chain it is checkpointing (issue #95).
 func (w *Writer) AppendOnto(ctx context.Context, id string, buildEvent func(parentOID string) (*event.Envelope, string, error)) (*materialize.State, error) {
+	return w.AppendWith(ctx, id, AppendHooks{}, buildEvent)
+}
+
+// AppendHooks customize one AppendWith call. Both hooks run on every CAS
+// attempt, after the local ref has been reread.
+type AppendHooks struct {
+	// Parent picks the commit parent for an attempt from the local head
+	// (gitx.ZeroOID when the ref does not exist). The CAS expectation stays
+	// the local head, so a caller may seed a brand new local ref from another
+	// commit (e.g. a remote-tracking tip) in a single ref creation. Nil keeps
+	// the local head as the parent.
+	Parent func(localOID string) (string, error)
+	// Check inspects the built envelope before anything is folded or saved;
+	// an error aborts the append with no ref update.
+	Check func(localOID string, env *event.Envelope) error
+}
+
+// AppendWith is AppendOnto with hooks. buildEvent receives the chosen
+// parent OID.
+func (w *Writer) AppendWith(ctx context.Context, id string, hooks AppendHooks, buildEvent func(parentOID string) (*event.Envelope, string, error)) (*materialize.State, error) {
 	unlock := chain.LockRepository(w.Dir)
 	defer unlock()
 
@@ -341,9 +361,15 @@ func (w *Writer) AppendOnto(ctx context.Context, id string, buildEvent func(pare
 	ref := w.RefFor(id)
 
 	for attempt := 0; attempt < defaultRetries; attempt++ {
-		oid, err := w.headOID(ctx, id)
+		localOID, err := w.headOID(ctx, id)
 		if err != nil {
 			return nil, err
+		}
+		oid := localOID
+		if hooks.Parent != nil {
+			if oid, err = hooks.Parent(localOID); err != nil {
+				return nil, err
+			}
 		}
 		env, summary, err := buildEvent(oid)
 		if err != nil {
@@ -355,6 +381,11 @@ func (w *Writer) AppendOnto(ctx context.Context, id string, buildEvent func(pare
 		}
 		if _, err := event.ValidateDataSchema(env); err != nil {
 			return nil, &event.InvalidInputError{Kind: env.Kind, Field: "data", Rule: err.Error()}
+		}
+		if hooks.Check != nil {
+			if err := hooks.Check(localOID, env); err != nil {
+				return nil, err
+			}
 		}
 		base, existingEvents, err := w.foldInputsAt(oid, env.ID, env)
 		if err != nil {
@@ -384,7 +415,7 @@ func (w *Writer) AppendOnto(ctx context.Context, id string, buildEvent func(pare
 		if err != nil {
 			return nil, err
 		}
-		if err := r.UpdateRef(ctx, ref.String(), newHash.String(), oid); err != nil {
+		if err := r.UpdateRef(ctx, ref.String(), newHash.String(), localOID); err != nil {
 			if errors.Is(err, gitx.ErrRefCASMismatch) {
 				continue // someone else advanced the ref first; reread and retry
 			}
@@ -404,7 +435,20 @@ func (w *Writer) Fold(ctx context.Context, id string) (*materialize.State, error
 	if err := CheckSchemaSupported(ctx, w.Dir); err != nil {
 		return nil, err
 	}
-	base, events, _, err := w.foldInputs(ctx, id, "")
+	oid, err := w.headOID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return w.FoldAt(ctx, oid)
+}
+
+// FoldAt is Fold for a head OID the caller already read (gitx.ZeroOID for
+// an absent ref), so a multi-ref read can fold exactly the tips it listed.
+func (w *Writer) FoldAt(ctx context.Context, oid string) (*materialize.State, error) {
+	if err := CheckSchemaSupported(ctx, w.Dir); err != nil {
+		return nil, err
+	}
+	base, events, err := w.foldInputsAt(oid, "", nil)
 	if err != nil {
 		return nil, err
 	}

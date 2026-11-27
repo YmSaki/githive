@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"github.com/ymsaki/githive/internal/app/wptree"
 	"github.com/ymsaki/githive/internal/core/chain"
 	"github.com/ymsaki/githive/internal/core/event"
 	"github.com/ymsaki/githive/internal/core/gitx"
@@ -26,6 +27,12 @@ func Read(ctx context.Context, dir, ref, feature string) (*materialize.State, er
 	if err != nil {
 		return nil, err
 	}
+	return ReadAt(ctx, dir, ref, oid, feature)
+}
+
+// ReadAt is Read for a commit OID the caller already resolved from ref (for
+// a consistent multi-ref read); ref only names the entity for the ID check.
+func ReadAt(ctx context.Context, dir, ref, oid, feature string) (*materialize.State, error) {
 	repo, err := chain.OpenRepository(dir)
 	if err != nil {
 		return nil, err
@@ -84,6 +91,34 @@ func Read(ctx context.Context, dir, ref, feature string) (*materialize.State, er
 				return nil, fmt.Errorf("snapshot: %s: %w", path, err)
 			}
 			s.Collections[collection][id] = m
+		}
+	case "workpackage":
+		s.Meta, err = decode("meta.json")
+		if err != nil {
+			return nil, err
+		}
+		if id, ok := s.Meta["id"].(string); !ok || id != ref[strings.LastIndex(ref, "/")+1:] {
+			return nil, fmt.Errorf("snapshot: meta ID does not match ref")
+		}
+		body, ok := files["body.md"]
+		if !ok || !utf8.Valid(body) {
+			return nil, fmt.Errorf("snapshot: missing or non-UTF-8 body.md")
+		}
+		s.Collections["body"] = map[string]any{"text": string(body)}
+		s.Collections["notes"] = map[string]any{}
+		for path, raw := range files {
+			if !strings.HasPrefix(path, "notes/") {
+				continue
+			}
+			id := strings.TrimSuffix(strings.TrimPrefix(path, "notes/"), ".md")
+			if !event.IsValidULID(id) || path != "notes/"+id+".md" || !utf8.Valid(raw) {
+				return nil, fmt.Errorf("snapshot: invalid projection path %q", path)
+			}
+			note, err := wptree.ParseNote(raw, id)
+			if err != nil {
+				return nil, fmt.Errorf("snapshot: %s: %w", path, err)
+			}
+			s.Collections["notes"][id] = note
 		}
 	case "users":
 		s.Collections["users"] = map[string]any{}

@@ -14,8 +14,8 @@ import (
 // entities omitted by a list filter or archived state. No identities change.
 func DisplayIDs(ctx context.Context, dir, feature string) (map[string]string, error) {
 	kind := refspace.Feature(feature)
-	if kind != refspace.FeatureIssue && kind != refspace.FeatureTask && kind != refspace.FeatureChat {
-		return nil, &event.InvalidInputError{Kind: "reference", Field: "kind", Rule: "must be issue, task, or chat"}
+	if kind != refspace.FeatureIssue && kind != refspace.FeatureTask && kind != refspace.FeatureChat && kind != refspace.FeatureWorkpackage {
+		return nil, &event.InvalidInputError{Kind: "reference", Field: "kind", Rule: "must be issue, task, chat, or workpackage"}
 	}
 	entries, err := gitx.New(dir).ForEachRef(ctx, refspace.Root+"/"+feature+"/")
 	if err != nil {

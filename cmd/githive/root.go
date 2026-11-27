@@ -57,6 +57,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newWhoamiCmd())
 	root.AddCommand(newIssueCmd())
 	root.AddCommand(newTaskCmd())
+	root.AddCommand(newWorkpackageCmd())
 	root.AddCommand(newChatCmd())
 	root.AddCommand(newNotifyCmd())
 	root.AddCommand(newUsersCmd())
@@ -81,6 +82,12 @@ func run() int {
 		if flags.json {
 			cliout.PrintFailure(info)
 		} else {
+			// Warnings gathered before the failure (e.g. wp start's
+			// prefetch_failed before claim_held) are reported, not dropped.
+			var warned *warnedError
+			if errors.As(err, &warned) {
+				fprintWarnings(os.Stderr, warned.warnings)
+			}
 			fmt.Fprintln(os.Stderr, "error:", info.Message)
 		}
 		return code
@@ -136,6 +143,19 @@ var errNotARepo = errors.New("not a githive/git repository (no .git found; use -
 // classifyError maps an error to a CLI exit code and JSON error envelope
 // (docs/10-cli-spec.md「終了コード」).
 func classifyError(err error) (int, cliout.ErrorInfo) {
+	var warned *warnedError
+	if errors.As(err, &warned) {
+		code, info := classifyError(warned.cause)
+		if info.Data == nil {
+			info.Data = map[string]any{}
+		}
+		existing, _ := info.Data["warnings"].([]any)
+		info.Data["warnings"] = append(existing, warningItems(warned.warnings)...)
+		return code, info
+	}
+	if code, info, ok := classifyWorkpackageError(err); ok {
+		return code, info
+	}
 	var replaced *localWriteReplacedError
 	if errors.As(err, &replaced) {
 		return cliout.ExitGeneralError, cliout.ErrorInfo{Code: "local_write_replaced", Message: err.Error(), Retryable: false, Data: replaced.data()}

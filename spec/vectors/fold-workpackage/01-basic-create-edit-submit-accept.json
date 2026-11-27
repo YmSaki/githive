@@ -1,0 +1,130 @@
+{
+  "description": "create→submit→accept→edit(body)。edit で acceptance_version が更新され、承認は過去の版に対するものになる。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "workpackage.create",
+      "id": "01jzc0wpaaaaaaaaaaaaa00001",
+      "ts": "2026-07-04T10:00:01.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "title": "sync のパス正規化",
+        "body": "受け入れ基準 v1",
+        "priority": "high",
+        "parent_id": "01jzc0wpaaaaaaaaaaaaaaaapa",
+        "depends_on": [
+          "01jzc0wpaaaaaaaaaaaaaaadd2",
+          "01jzc0wpaaaaaaaaaaaaaaadd1",
+          "01jzc0wpaaaaaaaaaaaaaaadd1",
+          "01jzc0wpaaaaaaaaaaaaaaaaea",
+          "bad"
+        ]
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.submit",
+      "id": "01jzc0wpaaaaaaaaaaaaa00002",
+      "ts": "2026-07-04T10:00:02.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "commit": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+        "acceptance_version": "01jzc0wpaaaaaaaaaaaaa00001",
+        "reviewers": [
+          "rev@example.org",
+          "Rev@example.org",
+          "rev@example.org"
+        ],
+        "branch": "feature/x",
+        "pr_url": "https://example.com/pr/1",
+        "note": "please review"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.accept",
+      "id": "01jzc0wpaaaaaaaaaaaaa00003",
+      "ts": "2026-07-04T10:00:03.000Z",
+      "actor": "rev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "submit_id": "01jzc0wpaaaaaaaaaaaaa00002",
+        "note": "LGTM"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.edit",
+      "id": "01jzc0wpaaaaaaaaaaaaa00004",
+      "ts": "2026-07-04T10:00:04.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "body": "受け入れ基準 v2"
+      }
+    }
+  ],
+  "expected_meta": {
+    "acceptance_version": "01jzc0wpaaaaaaaaaaaaa00004",
+    "acceptances": [
+      {
+        "by": "rev@example.org",
+        "event_id": "01jzc0wpaaaaaaaaaaaaa00003",
+        "submit_id": "01jzc0wpaaaaaaaaaaaaa00002",
+        "ts": "2026-07-04T10:00:03.000Z"
+      }
+    ],
+    "cancellations": [],
+    "claims": [],
+    "created_at": "2026-07-04T10:00:01.000Z",
+    "created_by": "dev@example.org",
+    "current_submission_id": "01jzc0wpaaaaaaaaaaaaa00002",
+    "depends_on": [
+      "01jzc0wpaaaaaaaaaaaaaaadd1",
+      "01jzc0wpaaaaaaaaaaaaaaadd2"
+    ],
+    "finding_of": null,
+    "id": "01jzc0wpaaaaaaaaaaaaaaaaea",
+    "kind": "work",
+    "links": [],
+    "parent_id": "01jzc0wpaaaaaaaaaaaaaaaapa",
+    "priority": "high",
+    "submissions": [
+      {
+        "acceptance_version": "01jzc0wpaaaaaaaaaaaaa00001",
+        "branch": "feature/x",
+        "by": "dev@example.org",
+        "commit": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+        "event_id": "01jzc0wpaaaaaaaaaaaaa00002",
+        "pr_url": "https://example.com/pr/1",
+        "reviewers": [
+          "Rev@example.org",
+          "rev@example.org"
+        ],
+        "ts": "2026-07-04T10:00:02.000Z"
+      }
+    ],
+    "title": "sync のパス正規化",
+    "updated_at": "2026-07-04T10:00:04.000Z",
+    "waivers": []
+  },
+  "expected_body": "受け入れ基準 v2",
+  "expected_notes": {
+    "01jzc0wpaaaaaaaaaaaaa00002": {
+      "actor": "dev@example.org",
+      "body": "please review",
+      "event_id": "01jzc0wpaaaaaaaaaaaaa00002",
+      "kind": "workpackage.submit",
+      "ts": "2026-07-04T10:00:02.000Z"
+    },
+    "01jzc0wpaaaaaaaaaaaaa00003": {
+      "actor": "rev@example.org",
+      "body": "LGTM",
+      "event_id": "01jzc0wpaaaaaaaaaaaaa00003",
+      "kind": "workpackage.accept",
+      "ts": "2026-07-04T10:00:03.000Z"
+    }
+  }
+}

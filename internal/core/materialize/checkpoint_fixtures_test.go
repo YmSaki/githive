@@ -64,6 +64,7 @@ func checkpointFeatures() []checkpointFeature {
 		{"chat", ChatRegistry, chatCheckpointEvents},
 		{"notify", NotifyRegistry, notifyCheckpointEvents},
 		{"users", UsersRegistry, usersCheckpointEvents},
+		{"workpackage", WorkpackageRegistry, workpackageCheckpointEvents},
 	}
 }
 

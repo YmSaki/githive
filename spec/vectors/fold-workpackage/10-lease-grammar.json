@@ -1,0 +1,157 @@
+{
+  "description": "lease_until は厳密な RFC 3339（大文字 T/Z、'.' 区切りの 1〜9 桁小数、オフセット時 00〜23・分 00〜59、UTC 換算で 0001〜9999 年、ASCII 数字のみ・末尾改行なし）のみ受理し、それ以外の claim は no-op。",
+  "events": [
+    {
+      "v": 1,
+      "kind": "workpackage.create",
+      "id": "01jzc0wpaaaaaaaaaaaaa00001",
+      "ts": "2026-07-04T10:00:01.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "title": "lease grammar"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00002",
+      "ts": "2026-07-04T10:00:02.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2026-07-05T10:00:00,5Z"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00003",
+      "ts": "2026-07-04T10:00:03.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2026-07-05T10:00:00.1234567891Z"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00004",
+      "ts": "2026-07-04T10:00:04.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2026-07-05T10:00:00+24:00"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00005",
+      "ts": "2026-07-04T10:00:05.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2026-07-05T10:00:00+23:60"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00006",
+      "ts": "2026-07-04T10:00:06.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2026-07-05t10:00:00z"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00007",
+      "ts": "2026-07-04T10:00:07.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "0000-01-01T00:00:00Z"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00008",
+      "ts": "2026-07-04T10:00:08.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "0001-01-01T00:00:00+01:00"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00009",
+      "ts": "2026-07-04T10:00:09.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2026-07-05T10:00:00Z\n"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00010",
+      "ts": "2026-07-04T10:00:10.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "٢٠٢٦-07-05T10:00:00Z"
+      }
+    },
+    {
+      "v": 1,
+      "kind": "workpackage.claim",
+      "id": "01jzc0wpaaaaaaaaaaaaa00011",
+      "ts": "2026-07-04T10:00:11.000Z",
+      "actor": "dev@example.org",
+      "entity": "01jzc0wpaaaaaaaaaaaaaaaaea",
+      "data": {
+        "lease_until": "2026-07-05T08:00:00.123456789-02:30"
+      }
+    }
+  ],
+  "expected_meta": {
+    "acceptance_version": "01jzc0wpaaaaaaaaaaaaa00001",
+    "acceptances": [],
+    "cancellations": [],
+    "claims": [
+      {
+        "branch": null,
+        "claim_id": "01jzc0wpaaaaaaaaaaaaa00011",
+        "holder": "dev@example.org",
+        "lease_until": "2026-07-05T10:30:00.123Z",
+        "released_at": null,
+        "ts": "2026-07-04T10:00:11.000Z"
+      }
+    ],
+    "created_at": "2026-07-04T10:00:01.000Z",
+    "created_by": "dev@example.org",
+    "current_submission_id": null,
+    "depends_on": [],
+    "finding_of": null,
+    "id": "01jzc0wpaaaaaaaaaaaaaaaaea",
+    "kind": "work",
+    "links": [],
+    "parent_id": null,
+    "priority": "normal",
+    "submissions": [],
+    "title": "lease grammar",
+    "updated_at": "2026-07-04T10:00:11.000Z",
+    "waivers": []
+  },
+  "expected_body": "",
+  "expected_notes": {}
+}
