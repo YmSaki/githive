@@ -40,10 +40,10 @@ body:
   - type: textarea
     id: impact
     attributes:
-      label: 影響
+      label: 影響（データ契約・ドメイン規則・他経路）
       description: >
-        データ破壊・決定性の破れ（同一イベント集合から異なるツリー）・収束失敗を
-        伴うか。伴う場合は最優先で扱う。
+        データ破壊・決定性の破れ（同一イベント集合から異なるツリー）・収束失敗を伴うか。
+        関連するドメイン規則（docs/04）や他の入口（CLI / MCP / sync 等）にも同じ問題がないか。
       placeholder: 実体化ツリーの分岐は起きていない。表示上の問題のみ。
     validations:
       required: true
