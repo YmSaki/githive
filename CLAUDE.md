@@ -36,7 +36,7 @@ Go 実装は `spec/vectors/` のゴールデンベクタと出力が一致する
 - **実装〜マージの自走ループ**：`.claude/skills/work-issue`・`watch-pr`・`merge-pr`（`disable-model-invocation: true`、`/work-issue <issue番号>` 等で人間が明示的に起動する）。**マージの実行は常に人間の承認を要求する設計**——`watch-pr` は判断のみ、`merge-pr` は承認済み前提でしか動かない。
 - **機械的強制**：
   - `.claude/rules/`（`determinism.md`・`go-layering.md`・`spec-sync.md`）が該当パスのファイル編集時に自動で文脈注入される。
-  - `internal/layering_test.go` が `go test ./...` 実行時に層間の依存方向とクライアント層の `core` 直接呼び出し制約を検証する。
+  - `internal/layering_test.go` が `go test ./...` 実行時に、層間のパッケージ import 方向・純粋性、クライアント層の許可外 `core` パッケージ import、および `cmd/githive/root.go` の `chain`/`gitx`/`sign` センチネルエラー参照のみを機械検証する（許可済みパッケージ内の関数単位の制約はコードレビューで確認する）。
   - `.claude/hooks/post-edit-go.sh` は `.go` ファイル編集直後に `gofmt` と canonical JSON 集約規則（`scripts/check-canonical-json.sh`）を検証する。
   - `.claude/hooks/pre-push-gate.sh` は `git push` 実行前に `go test ./...` と `python spec/validate.py` を通す（ローカルの `.git/hooks/pre-push` とは別物）。
 - **並列実装の注意**：複数 issue を並行して進める場合、触るファイルパスの重複がないことだけでなく、**同じドメイン規則・設計契約・共有パッケージの契約に触れていないか**も確認してから並列化する（`Agent` に `isolation: "worktree"` を指定）。競合する issue は直列に進める。

@@ -22,7 +22,7 @@ git 層  go-git（ローカル）+ system git（通信、internal/core/gitx 経�
 - 上記の例外として、**状態を持たない薄い変換・解決に限り** クライアント層から `core` を直接呼んでよい。許容リストは `identity.Resolve`／`event.Encode`・`DecodeGeneric`・`SchemaVersion`（canonical JSON の一元化のため）／`refspace` の定数と `Parse`・`RemoteTrackingRef`・`LocalRefFromTracking`／`core` 各パッケージのセンチネルエラー値（終了コード対応付けのため）。git I/O（`gitx`）・`chain`・`materialize`・`merge` は必ず `app` 経由にする（[docs/01-architecture.md](../../docs/01-architecture.md)「依存規則」に同じ表がある）。
 - 通信（fetch/push/clone）は `core/gitx` 経由で system git を呼ぶ。go-git はローカルのオブジェクト・ref 操作にのみ使う（[ADR-0002](../../docs/adr/0002-go-and-hybrid-git-access.md)）。
 
-新しいパッケージを追加するときは、まずこの表のどの層に属するかを決め、依存が下方向だけになっているか確認する。この依存方向とクライアント層の `core` 直接呼び出し制約は `internal/layering_test.go`（`go test ./...`）で機械検証される。
+新しいパッケージを追加するときは、まずこの表のどの層に属するかを決め、依存が下方向だけになっているか確認する。層間のパッケージ import 方向・純粋性、クライアント層の許可外 `core` パッケージ import、および `cmd/githive/root.go` の `chain`/`gitx`/`sign` センチネルエラー参照は `internal/layering_test.go`（`go test ./...`）で機械検証される（許可済みパッケージ内の個別関数単位の制限はレビューで確認する）。
 
 ## 共通化の判断基準
 

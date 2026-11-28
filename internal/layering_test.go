@@ -13,9 +13,11 @@ import (
 
 const modulePrefix = "github.com/ymsaki/githive/"
 
-// TestArchitectureLayering enforces the dependency direction, pure core rules,
-// and client->core allowlist defined in docs/01-architecture.md and
-// .claude/rules/go-layering.md.
+// TestArchitectureLayering checks package-level dependency direction, pure core
+// import rules, client->core package allowlist, and sentinel-only selector
+// usage for chain/gitx/sign in cmd/githive/root.go. Function-level limits
+// inside generally allowed packages (identity/event/refspace) are not parsed
+// here and remain a code-review check.
 func TestArchitectureLayering(t *testing.T) {
 	root := filepath.Clean("..")
 	fset := token.NewFileSet()

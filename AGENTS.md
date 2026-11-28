@@ -3,6 +3,15 @@
 この文書は、githive リポジトリで作業するすべての人間・AI エージェント（Claude Code、Codex、Gemini 等）に共通する判断基準である。
 個別の実行手順・フック・スキル運用は [CLAUDE.md](CLAUDE.md) 等のツール固有文書に置くが、設計・実装の判断が衝突した場合は本書を優先する。
 
+## 実装前に読む文書
+
+コードを書く前に、少なくとも以下を読んで設計と境界を確認する。
+
+1. [docs/README.md](docs/README.md)（全体の目次と前提）
+2. [docs/00-vision.md](docs/00-vision.md)〜[docs/04-domain-model.md](docs/04-domain-model.md)（目的、層構成・依存規則、データ形式、同期、横断ドメイン概念）
+3. 対象機能の仕様（`docs/features/*.md`）および [docs/10-cli-spec.md](docs/10-cli-spec.md)・[docs/11-security.md](docs/11-security.md)
+4. [docs/13-roadmap.md](docs/13-roadmap.md)（フェーズ定義）と [docs/17-design-and-change-policy.md](docs/17-design-and-change-policy.md)（設計変更ポリシー）
+
 ## 設計・実装の基本原則
 
 1. **全体最適化**
