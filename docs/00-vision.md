@@ -40,6 +40,7 @@ githive は `refs/projects/` 配下に機能ごとの ref を作り、各 ref �
 githive の勝ち筋はそこではない。
 Web UI を必要とせず、clone だけで全文脈を得られる AI Agent が、歴代の試みには存在しなかった主要な読み書き主体として現れたことにある。
 「人間と Agent の対等」は API 設計の原則（Agent 専用の裏口を作らない。CLI と MCP は同じ app 層を通る）として維持し、機能の実装順は Agent の体験が最短で成立する順に選ぶ（[13](13-roadmap.md)）。
+設計上の判断や文書間の解釈が競合する場合は、[AGENTS.md](../AGENTS.md) の基本原則・権威順位および [17](17-design-and-change-policy.md) の変更手順に従う。
 
 適用条件も先に明示する。
 1 人の人間と 1 つの Agent が単一ブランチで作業する間は、リポジトリ内のプレーン markdown（docs/issues/*.md 等）で足りることが多い。

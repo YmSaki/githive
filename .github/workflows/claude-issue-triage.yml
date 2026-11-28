@@ -46,8 +46,8 @@ jobs:
 
             ## 準備
             - `gh issue view ${{ github.event.issue.number }} --json title,body,labels,comments` で全文と経緯を読む。
-            - CLAUDE.md と docs/13-roadmap.md を読み、issueが現在のフェーズ・設計と
-              整合するかの判断材料にする。
+            - AGENTS.md、CLAUDE.md、docs/04-domain-model.md、docs/17-design-and-change-policy.md、および docs/13-roadmap.md を読み、
+              issueが設計原則・責務境界・現在のフェーズと整合するかの判断材料にする。
             - 必要なら関連するソース（internal/、cmd/、spec/）を読んで実態を確認する。
 
             ## トリアージ観点（すべて実施し、該当するものだけ指摘する）
@@ -61,7 +61,8 @@ jobs:
             - 目的（なぜ必要か。どのフェーズ/設計文書に紐づくか）
             - 現状の挙動と期待する挙動（バグの場合は再現手順）
             - 受け入れ条件（何ができたら閉じられるか）
-            - 影響範囲（どのパッケージ/機能に触るか）
+            - 影響範囲（どのパッケージ/機能に触るか、関連するドメイン規則・設計契約・他経路影響）
+            - 設計変更（ADR）の要否、および既存設計の不備に対する場当たり的な局所対策になっていないか
             不足があれば、不足項目を具体的な記入例つきで質問し、
             ラベル `triage:info-needed` を付ける。充足していれば外す。
 

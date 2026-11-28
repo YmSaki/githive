@@ -9,14 +9,16 @@ githive は、git リポジトリの refs にプロジェクト記憶（issue、
 ## ドキュメント構成と読む順序
 
 設計を理解するには番号順に読む。
-実装を始める前に、少なくとも 00〜03 と対象機能の仕様、13（ロードマップ）を読むこと。
+実装を始める前に、少なくとも [AGENTS.md](../AGENTS.md) と 00〜04、対象機能の仕様、13（ロードマップ）、17（設計・変更ポリシー）を読むこと。
 
 | # | ファイル | 内容 |
 |---|---------|------|
+| - | [AGENTS.md](../AGENTS.md) | 全エージェント共通の開発規範、基本原則、権威順位 |
 | 00 | [00-vision.md](00-vision.md) | 目的、原則、非目標、動作モード |
-| 01 | [01-architecture.md](01-architecture.md) | 全体構成、パッケージ設計、依存規則 |
+| 01 | [01-architecture.md](01-architecture.md) | 全体構成、パッケージ設計、依存規則、層内部の責務分担 |
 | 02 | [02-data-model.md](02-data-model.md) | ref 名前空間、イベント形式、実体化ツリー、ID |
 | 03 | [03-sync-and-concurrency.md](03-sync-and-concurrency.md) | fetch/push、競合解決、チェックポイント |
+| 04 | [04-domain-model.md](04-domain-model.md) | 横断ドメイン概念（履歴・状態・検証・操作・同期・信頼等）と責務境界 |
 | - | [features/issue.md](features/issue.md) | issue 管理の仕様 |
 | - | [features/task.md](features/task.md) | task 管理の仕様 |
 | - | [features/notify.md](features/notify.md) | notify 管理の仕様 |
@@ -30,6 +32,7 @@ githive は、git リポジトリの refs にプロジェクト記憶（issue、
 | 13 | [13-roadmap.md](13-roadmap.md) | 実装順序、マイルストーン、MVP 定義 |
 | 14 | [14-testing.md](14-testing.md) | テスト戦略 |
 | 16 | [16-coding-conventions.md](16-coding-conventions.md) | Go の命名・構成規約 |
+| 17 | [17-design-and-change-policy.md](17-design-and-change-policy.md) | 設計判断・ADR ライフサイクル・変更承認ポリシー |
 | ADR | [adr/](adr/) | 主要な設計決定の記録 |
 
 ## 確定済みの前提
@@ -41,7 +44,8 @@ githive は、git リポジトリの refs にプロジェクト記憶（issue、
 
 ## 実装者（AI Agent）への指示
 
+- 文書・仕様・実装間の権威順位は [AGENTS.md](../AGENTS.md) に従う。
 - 実装順序は [13-roadmap.md](13-roadmap.md) のフェーズ定義に従う。フェーズを飛ばさない。
-- データ形式（イベント封筒、canonical JSON、ツリー配置）は 02 の定義が唯一の正とする。機能仕様と食い違いを見つけたら、02 を正として修正を提案する。
+- データ形式（イベント封筒、canonical JSON、ツリー配置）は 02 の定義を正とする。機能仕様と食い違いを見つけたら、02 を正として修正を提案する。
 - 決定的実体化（同じイベント集合から同じ状態が得られること）はシステム全体の不変条件である。これを壊す変更は行わない。
-- 設計変更が必要になったら、コードを変える前に ADR を追加して理由を残す。
+- 設計変更が必要になったら、コードを変える前に ADR を「検討中」で追加し、承認後に進める（[17-design-and-change-policy.md](17-design-and-change-policy.md)）。

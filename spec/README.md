@@ -37,7 +37,7 @@ canonical_json.py は docs/02-data-model.md の canonical JSON 規則を実装�
 UTF-8、LF、末尾改行 1 つで出力する。
 非 ASCII 文字はエスケープしない。
 
-fold_issue.py・fold_task.py・fold_chat.py・fold_notify.py・fold_users.py は、それぞれ対応する docs/features/<kind>.md の fold 規則を実装する（internal/core/materialize の Go reducer からの逐行移植。Go が正）。
+fold_issue.py・fold_task.py・fold_chat.py・fold_notify.py・fold_users.py は、それぞれ対応する docs/features/<kind>.md の fold 規則を実装する（文書間の権威順位は [AGENTS.md](../AGENTS.md) に従い、`docs/` の承認済み仕様と採用済み ADR を正として、Go 実装と Python リファレンス実装の双方が独立にそれに一致することを検証する）。
 いずれもイベント列を受け取り、events_common.sort_events で id（ULID）の辞書順にソートしてから畳み込む。
 checkpoint kind は常に無視する。
 不正なステータス遷移イベントも無視する。
@@ -56,7 +56,7 @@ notify/users はシングルトンの追記専用ログ・台帳であり create
 ## vectors/ の内容
 
 canonical/ は入力値と canonical エンコード結果（インデント形式）のペアを持つ。
-canonical-compact/ は同じく入力値と圧縮形（encode_compact_line、docs/02-data-model.md「canonical JSON」の唯一の例外）エンコード結果のペアを持つ。既存の Go テスト（internal/core/event/compact_test.go）が検証済みの入出力を正としたケースに加え、ネスト・Unicode・float 表現・エスケープ・空オブジェクト/配列・トップレベル配列/スカラーのエッジケースを含む。
+canonical-compact/ は同じく入力値と圧縮形（encode_compact_line、docs/02-data-model.md「canonical JSON」の唯一の例外）エンコード結果のペアを持つ。`docs/02-data-model.md` の圧縮形規則に基づくケース（既存の Go テスト `internal/core/event/compact_test.go` との一致も検証）に加え、ネスト・Unicode・float 表現・エスケープ・空オブジェクト/配列・トップレベル配列/スカラーのエッジケースを含む。
 ordering/ は ULID の辞書順ソートに関するケースを持つ。events_common.sort_events（の ID 抽出版）で再検証する。
 fold-issue/・fold-task/・fold-chat/・fold-notify/・fold-users/ は、イベント列と期待される fold 結果（上の対応表を参照）のペアを持つ。
 イベント順をシャッフルしても同じ結果になることを、これらのベクタで確認できる。

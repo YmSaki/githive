@@ -67,5 +67,5 @@ body:
   - type: textarea
     id: notes
     attributes:
-      label: 補足
-      description: 設計逸脱の可能性（ADR要否）、依存する他issue、参考リンクなど。
+      label: 関連する設計契約・ADR 要否・補足
+      description: 関係するドメイン規則・設計契約（docs/04）、設計変更（検討中 ADR）の要否、依存する他 issue など。

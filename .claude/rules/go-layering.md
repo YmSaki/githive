@@ -22,15 +22,14 @@ git 層  go-git（ローカル）+ system git（通信、internal/core/gitx 経�
 - 上記の例外として、**状態を持たない薄い変換・解決に限り** クライアント層から `core` を直接呼んでよい。許容リストは `identity.Resolve`／`event.Encode`・`DecodeGeneric`・`SchemaVersion`（canonical JSON の一元化のため）／`refspace` の定数と `Parse`・`RemoteTrackingRef`・`LocalRefFromTracking`／`core` 各パッケージのセンチネルエラー値（終了コード対応付けのため）。git I/O（`gitx`）・`chain`・`materialize`・`merge` は必ず `app` 経由にする（[docs/01-architecture.md](../../docs/01-architecture.md)「依存規則」に同じ表がある）。
 - 通信（fetch/push/clone）は `core/gitx` 経由で system git を呼ぶ。go-git はローカルのオブジェクト・ref 操作にのみ使う（[ADR-0002](../../docs/adr/0002-go-and-hybrid-git-access.md)）。
 
-新しいパッケージを追加するときは、まずこの表のどの層に属するかを決め、依存が下方向だけになっているか確認する。`go vet` や CI の import 検査には現状この方向性チェックは含まれないため、レビュー観点として自分で確認すること。
+新しいパッケージを追加するときは、まずこの表のどの層に属するかを決め、依存が下方向だけになっているか確認する。層間のパッケージ import 方向・純粋性、クライアント層の許可外 `core` パッケージ import、および `cmd/githive/root.go` の `chain`/`gitx`/`sign` センチネルエラー参照は `internal/layering_test.go`（`go test ./...`）で機械検証される（許可済みパッケージ内の個別関数単位の制限はレビューで確認する）。
 
-## 共通化は「2 例目まで複製、3 例目で抽出」
+## 共通化の判断基準
 
-feature 間（issue/task/chat/notify/users）で似た処理が必要になっても、1〜2 個目の feature では複製してよい。共通パターンとして抽出するのは 3 個目の feature が同じ形を必要としたときにする（[docs/13-roadmap.md](../../docs/13-roadmap.md)「P2：task / chat / notify」の作業分解、「早すぎる抽象化」の手当て）。
+- **同じドメイン規則、不変条件、利用者操作は最初から 1 箇所で管理する**。CLI と MCP の 2 箇所しかなくても、同じドメインロジックや操作調停を複製してはならない。
+- 「2 例目まで複製、3 例目で抽出」の原則は、**責務が異なり、将来の共通性がまだ確定していない処理**にのみ適用する（[docs/13-roadmap.md](../../docs/13-roadmap.md)「P2：task / chat / notify」の作業分解、「早すぎる抽象化」の手当て）。
 
-早すぎる抽出は、まだ揺れている要件を無理に固定してしまい、後で feature ごとの差異が出たときに抽象化を壊す方が高くつく。判断に迷ったら複製を選ぶ。
-
-実例：`internal/app/entitychain`（`internal/app/entitychain/entitychain.go`）は、issueapp・taskapp・chatapp・notifyapp が共通で必要とした「fold → tree 化 → commit → CAS で ref 前進、競合時は再試行」ループを、3 機能目が同じ形を必要とした時点で抽出したもの（パッケージ doc コメント参照）。
+実例：`internal/app/entitychain`（`internal/app/entitychain/entitychain.go`）は、issueapp・taskapp・chatapp・notifyapp が共通で必要とした「fold → tree 化 → commit → CAS で ref 前進、競合時は再試行」ループを抽出したもの（パッケージ doc コメント参照）。逆に、CLI と MCP で通知生成が重複して不整合が起きた事例（`cmd/githive/notify_hooks.go`）のように、同一ドメイン規則は出現回数に関わらずアプリケーション層へ集約する。
 
 ## CAS 再試行付き追記は internal/app/entitychain を使う
 

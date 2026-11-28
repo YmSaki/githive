@@ -49,9 +49,9 @@ jobs:
             - PR本文の `Closes #N` / `Fixes #N` / `#N` 参照から紐づくissueを特定し、
               `gh issue view N` で受け入れ条件を読む。紐づくissueが無い場合は
               「issue紐付けなし」とレビュー冒頭に明記し、diffの意図をPR本文から推定して続行する。
-            - CLAUDE.md と docs/13-roadmap.md の該当フェーズの exit criteria を読む。
+            - AGENTS.md、CLAUDE.md、docs/04-domain-model.md、docs/17-design-and-change-policy.md、および docs/13-roadmap.md の該当フェーズの exit criteria を読む。
 
-            ### 2. プロジェクト固有の不変条件チェック（最優先。CLAUDE.md が正）
+            ### 2. プロジェクト固有の不変条件・設計規範チェック（最優先。AGENTS.md の権威順位に従う）
             - canonical JSON: encoding/json の直接importが internal/core/event 以外に
               増えていないか（scripts/check-canonical-json.sh を実行して確認）。
             - 決定性: fold規則・実体化の変更が「同一イベント集合→byte同一ツリー」を
@@ -60,8 +60,11 @@ jobs:
               リポジトリschema_version（initapp.SchemaVersion）の両方の昇格が伴っているか（ADR-0018）。
             - spec同期: internal/core/materialize の変更に対応する
               spec/reference/*.py と spec/vectors/ の更新が同じPRに含まれているか。
-            - 層方向: cmd→app→core の一方通行が守られているか。
-            - 設計逸脱がある場合、docs/adr/ にADRが追加されているか。
+            - 層方向と層内部の責務分担: cmd→app→core の一方通行（internal/layering_test.go で機械検証）に加え、
+              クライアント層（CLI/MCP）に複合操作の調停やドメインロジックが漏れていないか（docs/01-architecture.md）。
+            - 責務の一意性: 同じドメイン規則・不変条件を複数箇所で独立実装していないか（AGENTS.md 原則 3）。
+            - 設計変更とADR: 設計逸脱がある場合に docs/adr/ にADRがあるか、状態が「検討中」の未承認案を確定仕様として扱っていないか、
+              「採用」ADRが影響する docs/ 本文を同時更新しているか（docs/17-design-and-change-policy.md）。
 
             ### 3. 一般品質チェック
             - 命名・責務分離・コメントの適切さ（このリポジトリの既存コードの流儀に合わせる）。

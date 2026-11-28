@@ -45,7 +45,7 @@ event-union マージは空状態を共通祖先とみなし、通常どおり�
 決着のしかたは pin 次第である。
 
 - pin がローカル側のルート OID と一致：ローカルを正とし、マージしない。リモート側の登録内容は取り込まれないので警告を出す（`sync` の action は `kept-local-trust-root`）。
-- pin がリモート側のルート OID と一致：リモートを正とし、ローカル ref を CAS でリモート head へ進める。破棄されたローカルチェーンは ref の reflog から辿れる（action は `adopted-remote-trust-root`）。
+- pin がリモート側のルート OID と一致：リモートを正とし、CAS の前に旧ローカル tip を `refs/githive-recovery/users/<old_oid>` へ永続退避した上で、ローカル ref をリモート head へ進める（reflog の有効期限や GC に依存させない、[ADR-0033](adr/0033-local-registry-recovery-and-publication-outcomes.md)。action は `adopted-remote-trust-root`）。
 - pin が無い、またはどちらのルートとも一致しない：型付きエラーで停止し、**ローカル ref は 1 byte も動かさない**。終了コード 4、`error.code` は `trust_root_conflict`、`error.data` に両側のルート OID と復旧手順が入る（[10](10-cli-spec.md)「終了コード」）。復旧は `git config githive.trust.root <信頼するルート OID>` を設定して再実行する。
 
 いずれかの側のルートが 1 個でない異常な形も、推測せずエラー側に倒す。
@@ -84,8 +84,8 @@ CRDT の用語では、イベント集合を grow-only set とする operation-b
 これを避けるため、**チェックポイントコミット**を導入する。
 
 - kind は `<機能>.checkpoint`。data に「この時点の完全な状態」（state。meta / collections / scratch の 3 部構成）と、「event_count」「直前ヘッドコミット OID（head）」「包含する全イベント ID の最大値（max_event_id）」を持つ（[ADR-0013](adr/0013-checkpoint-envelope-convention.md)、[ADR-0016](adr/0016-checkpoint-read-shortcut.md)）。
-- チェックポイント以降のイベントだけ fold すれば現在状態を再構成できる。読み出し側は `internal/app/entitychain` がこれを行う。
-- 近道が成立する条件は 4 つある（[ADR-0016](adr/0016-checkpoint-read-shortcut.md)）。head からチェックポイントまでの経路が線形であること、state が復元できること、チェックポイント以降の全イベントの ID が `max_event_id` より大きいこと、`data.head` がチェックポイントコミットの実際の親と一致すること。ひとつでも欠ければ黙ってルートまでの全走査に落ちる（結果は同じで、遅いだけ）。
+- チェックポイント以降のイベントだけ fold して復元する近道は、偽 state を防ぐため**親コミットまでの全イベントを現在の reducer で独立再計算し、canonical state と `max_event_id` が一致することを確認した上でのみ**採用する（[ADR-0020](adr/0020-checkpoint-state-verification.md)）。したがって現時点では検証結果のローカルキャッシュがない限り読み出し高速化の利益はなく、将来の高速化には commit OID と reducer 版に結びついた検証済みキャッシュの導入を要する。
+- 近道が成立する条件は、上記独立検証（[ADR-0020](adr/0020-checkpoint-state-verification.md)）に加えて 4 つある（[ADR-0016](adr/0016-checkpoint-read-shortcut.md)）。head からチェックポイントまでの経路が線形であること、state が復元できること、チェックポイント以降の全イベントの ID が `max_event_id` より大きいこと、`data.head` がチェックポイントコミットの実際の親と一致すること。ひとつでも欠ければルートまでの全走査に落ちる。
 - 作成条件：直前のチェックポイントから 500 イベント、または 90 日経過。`githive fsck --compact` が作成する。
 - チェックポイントは履歴を削除しない。単なる読み出しの近道である。`githive log` のようにイベント列そのものを必要とする読み手は近道を使わない。
 
