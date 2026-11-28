@@ -121,7 +121,7 @@ policy.json のルール評価（[00-vision.md](00-vision.md)「動作モード�
 | 封筒スキーマの変更 | v フィールドと未知フィールド保存を最初から実装。スキーマは golden ファイルで凍結 |
 | GitHub 側の refs 制約の見落とし | P1 の完了条件に GitHub 実機確認を含める。GitLab / Gitea も P2 終了時に確認（P1・P2 とも実装とローカル結合テストは完了しているが、GitHub/GitLab/Gitea 実機での確認は 2026-07-28 時点で未実施） |
 | Windows のパス・改行問題 | CI を 3 OS で P0 から回す。LF 固定、autocrlf 無効化を gitx が強制 |
-| 機能間の共通化の失敗（早すぎる抽象化） | P2 の方針どおり「2 例目まで複製、3 例目で抽出」 |
+| 機能間の共通化の失敗（早すぎる抽象化） | P2 の方針どおり「2 例目まで複製、3 例目で抽出」（ただし同一ドメイン規則・不変条件・利用者操作は例外として最初から 1 箇所に集約。[AGENTS.md](../AGENTS.md) / [.claude/rules/go-layering.md](../.claude/rules/go-layering.md) 参照） |
 | forge とクライアントの検証ロジック乖離 | 検証は core に置き、pre-receive はそれを呼ぶだけにする（P8 の構造要件） |
 | IDE の自動 fetch によるローカル ref 破壊 | 追跡名前空間の分離で設計段階で解消済み（[ADR-0008](adr/0008-remote-tracking-separation.md)）。シナリオ 7 で回帰防止 |
 | チェックポイントがマージでイベントを消す | 「fold ではチェックポイントを常に無視」を規則化（[03](03-sync-and-concurrency.md)）。シナリオ 8 で回帰防止 |

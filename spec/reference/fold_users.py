@@ -1,8 +1,7 @@
 """
 fold_users.py
 
-docs/features/users.md の fold 規則のリファレンス実装。
-internal/core/materialize/users.go からの逐行移植（Go が正）。
+docs/features/users.md および docs/02-data-model.md に準拠する参照実装（権威順位は AGENTS.md を参照）。
 
 fold(events) -> (users: dict, groups: dict, policy: dict | None)
 

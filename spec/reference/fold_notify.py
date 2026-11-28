@@ -1,8 +1,7 @@
 """
 fold_notify.py
 
-docs/features/notify.md の fold 規則のリファレンス実装。
-internal/core/materialize/notify.go からの逐行移植（Go が正）。
+docs/features/notify.md および docs/02-data-model.md に準拠する参照実装（権威順位は AGENTS.md を参照）。
 
 fold(events) -> (meta: dict | None, posts: dict, acks: dict)
 

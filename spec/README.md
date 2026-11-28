@@ -56,7 +56,7 @@ notify/users はシングルトンの追記専用ログ・台帳であり create
 ## vectors/ の内容
 
 canonical/ は入力値と canonical エンコード結果（インデント形式）のペアを持つ。
-canonical-compact/ は同じく入力値と圧縮形（encode_compact_line、docs/02-data-model.md「canonical JSON」の唯一の例外）エンコード結果のペアを持つ。既存の Go テスト（internal/core/event/compact_test.go）が検証済みの入出力を正としたケースに加え、ネスト・Unicode・float 表現・エスケープ・空オブジェクト/配列・トップレベル配列/スカラーのエッジケースを含む。
+canonical-compact/ は同じく入力値と圧縮形（encode_compact_line、docs/02-data-model.md「canonical JSON」の唯一の例外）エンコード結果のペアを持つ。`docs/02-data-model.md` の圧縮形規則に基づくケース（既存の Go テスト `internal/core/event/compact_test.go` との一致も検証）に加え、ネスト・Unicode・float 表現・エスケープ・空オブジェクト/配列・トップレベル配列/スカラーのエッジケースを含む。
 ordering/ は ULID の辞書順ソートに関するケースを持つ。events_common.sort_events（の ID 抽出版）で再検証する。
 fold-issue/・fold-task/・fold-chat/・fold-notify/・fold-users/ は、イベント列と期待される fold 結果（上の対応表を参照）のペアを持つ。
 イベント順をシャッフルしても同じ結果になることを、これらのベクタで確認できる。

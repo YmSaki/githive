@@ -1,6 +1,7 @@
 package internal_test
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -12,24 +13,26 @@ import (
 
 const modulePrefix = "github.com/ymsaki/githive/"
 
-// TestArchitectureLayering enforces the dependency direction and client->core
-// allowlist defined in docs/01-architecture.md and .claude/rules/go-layering.md.
+// TestArchitectureLayering enforces the dependency direction, pure core rules,
+// and client->core allowlist defined in docs/01-architecture.md and
+// .claude/rules/go-layering.md.
 func TestArchitectureLayering(t *testing.T) {
 	root := filepath.Clean("..")
 	fset := token.NewFileSet()
 
+	// docs/01-architecture.md「依存規則」の許容リストに対応する一般許可パッケージ。
 	allowedClientCore := map[string]bool{
 		modulePrefix + "internal/core/identity": true,
 		modulePrefix + "internal/core/event":    true,
 		modulePrefix + "internal/core/refspace": true,
 	}
 
-	// cmd/githive/root.go imports chain/gitx/sign solely for sentinel error
-	// mapping in classifyError (docs/01-architecture.md「依存規則」).
-	allowedRootSentinelCore := map[string]bool{
-		modulePrefix + "internal/core/chain": true,
-		modulePrefix + "internal/core/gitx":  true,
-		modulePrefix + "internal/core/sign":  true,
+	// cmd/githive/root.go は classifyError でのセンチネルエラー照合に限り
+	// chain / gitx / sign の参照を許可する（I/O 呼び出しや他の記号は禁止）。
+	sentinelOnlyCoreAliases := map[string]string{
+		modulePrefix + "internal/core/chain": "chain",
+		modulePrefix + "internal/core/gitx":  "gitx",
+		modulePrefix + "internal/core/sign":  "sign",
 	}
 
 	walkDirs := []string{
@@ -55,10 +58,22 @@ func TestArchitectureLayering(t *testing.T) {
 			}
 			relSlash := filepath.ToSlash(rel)
 
-			f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+			f, err := parser.ParseFile(fset, path, nil, 0)
 			if err != nil {
 				t.Fatalf("parse %s: %v", relSlash, err)
 			}
+
+			isCore := strings.HasPrefix(relSlash, "internal/core/")
+			isApp := strings.HasPrefix(relSlash, "internal/app/")
+			isMITClient := strings.HasPrefix(relSlash, "cmd/githive/") ||
+				strings.HasPrefix(relSlash, "internal/tui/") ||
+				strings.HasPrefix(relSlash, "internal/mcpserv/")
+			isClient := strings.HasPrefix(relSlash, "cmd/") ||
+				strings.HasPrefix(relSlash, "internal/tui/") ||
+				strings.HasPrefix(relSlash, "internal/mcpserv/") ||
+				strings.HasPrefix(relSlash, "internal/forge/")
+
+			sentinelIdents := map[string]bool{}
 
 			for _, spec := range f.Imports {
 				imp, err := strconv.Unquote(spec.Path.Value)
@@ -66,8 +81,7 @@ func TestArchitectureLayering(t *testing.T) {
 					t.Fatalf("unquote import in %s: %v", relSlash, err)
 				}
 
-				switch {
-				case strings.HasPrefix(relSlash, "internal/core/"):
+				if isCore {
 					if strings.HasPrefix(imp, modulePrefix+"internal/app/") ||
 						strings.HasPrefix(imp, modulePrefix+"cmd/") ||
 						strings.HasPrefix(imp, modulePrefix+"internal/forge") {
@@ -81,24 +95,57 @@ func TestArchitectureLayering(t *testing.T) {
 							t.Errorf("%s: pure core package must not import git I/O package %s", relSlash, imp)
 						}
 					}
+				}
 
-				case strings.HasPrefix(relSlash, "internal/app/"):
+				if isApp {
 					if strings.HasPrefix(imp, modulePrefix+"cmd/") ||
 						strings.HasPrefix(imp, modulePrefix+"internal/forge") {
 						t.Errorf("%s: app layer must not import %s", relSlash, imp)
 					}
+				}
 
-				case strings.HasPrefix(relSlash, "cmd/"):
-					if strings.HasPrefix(imp, modulePrefix+"internal/core/") {
-						if allowedClientCore[imp] {
-							continue
-						}
-						if relSlash == "cmd/githive/root.go" && allowedRootSentinelCore[imp] {
-							continue
-						}
-						t.Errorf("%s: client layer must not directly import %s (use internal/app or update docs/01-architecture.md allowlist)", relSlash, imp)
+				if isMITClient {
+					if strings.HasPrefix(imp, modulePrefix+"internal/forge") {
+						t.Errorf("%s: MIT client must not import %s (ADR-0019)", relSlash, imp)
 					}
 				}
+
+				if isClient && strings.HasPrefix(imp, modulePrefix+"internal/core/") {
+					if allowedClientCore[imp] {
+						continue
+					}
+					if defaultIdent, ok := sentinelOnlyCoreAliases[imp]; ok && relSlash == "cmd/githive/root.go" {
+						ident := defaultIdent
+						if spec.Name != nil {
+							ident = spec.Name.Name
+						}
+						if ident == "." || ident == "_" {
+							t.Errorf("%s: dot/blank import of %s is forbidden", relSlash, imp)
+						} else {
+							sentinelIdents[ident] = true
+						}
+						continue
+					}
+					t.Errorf("%s: client layer must not directly import %s (use internal/app or update docs/01-architecture.md allowlist)", relSlash, imp)
+				}
+			}
+
+			if len(sentinelIdents) > 0 {
+				ast.Inspect(f, func(n ast.Node) bool {
+					sel, ok := n.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					pkgIdent, ok := sel.X.(*ast.Ident)
+					if !ok || !sentinelIdents[pkgIdent.Name] {
+						return true
+					}
+					sym := sel.Sel.Name
+					if !strings.HasPrefix(sym, "Err") && !strings.HasSuffix(sym, "Error") {
+						t.Errorf("%s: sentinel-only core package %s.%s must only reference Err* or *Error", relSlash, pkgIdent.Name, sym)
+					}
+					return true
+				})
 			}
 			return nil
 		})
